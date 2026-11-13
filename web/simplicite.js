@@ -19,13 +19,14 @@ const VENTES = new Set(['devis', 'commande_client', 'facture']);
 
 /** Ce que l'entreprise a déjà, compté en un passage sur ce que le profil voit (réponse de /api/v1/monde). */
 export function faits(m) {
-  const f = { personnes: 0, lieux: 0, departements: 0, clients: 0, fournisseurs: 0, prospects: 0, commandes: 0, ventes: 0, ressources: 0, documents: 0, courriers: 0, taches: 0, activite: 0 };
+  const f = { personnes: 0, lieux: 0, departements: 0, clients: 0, fournisseurs: 0, prospects: 0, commandes: 0, ventes: 0, ressources: 0, vehicules: 0, documents: 0, courriers: 0, taches: 0, activite: 0 };
   for (const o of m?.objets ?? []) {
     if (o.famille === 'personne') f.personnes++;
     else if (o.famille === 'lieu') f.lieux++;
     else if (o.famille === 'departement') f.departements++;
     else if (o.famille === 'commande') f.commandes++;
-    else if (o.famille === 'ressource') f.ressources++;
+    // un véhicule est une ressource que la passerelle a dotée de son suivi (compteur, échéances, historique)
+    else if (o.famille === 'ressource') { f.ressources++; if (o.vehicule) f.vehicules++; }
     else if (o.famille === 'tache') f.taches++;
     if (aRole(o, 'client')) f.clients++;
     if (aRole(o, 'fournisseur')) f.fournisseurs++;
@@ -154,6 +155,13 @@ export const RUBRIQUES = Object.freeze(Object.fromEntries(Object.entries({
     sert: 'Vos articles, vos véhicules et votre matériel, avec les seuils d’alerte.',
     premier: 'vérifiez le minimum de vos articles : l’alerte part de là.',
     manque: 'Rien en stock pour le moment.',
+  },
+  vehicules: {
+    regle: 'Apparaît dès le premier véhicule : voiture, camionnette, camion, engin ou remorque.',
+    debloque: (f) => f.vehicules > 0,
+    sert: 'Vos véhicules, leur kilométrage et ce qui arrive : contrôle, révision, pneus, assurance.',
+    premier: 'ouvrez un véhicule et dites quand est son prochain contrôle.',
+    manque: 'Aucun véhicule pour le moment.',
   },
   documents: {
     regle: 'Apparaît dès le premier document.',
