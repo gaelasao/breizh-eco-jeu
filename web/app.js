@@ -3599,7 +3599,7 @@ function nouvelAssistant(etape = 'choisir', cible = null) {
   const e = etape === 'source' ? 'choisir' : etape;
   return {
     parcours: 'fichier', etape: e, entree: null, etapeAffichee: null,
-    reponse: CONNECTER?.REPONSES.some((x) => x.id === r) ? r : null, toutVoir: false, famille: null, recherche: '', choixBientot: null,
+    reponse: CONNECTER?.REPONSES.some((x) => x.id === r) ? r : null, toutVoir: false, famille: null, recherche: '',
     connecteurs: null, erreurCatalogue: null,
     source: e === 'fichier' ? 'csv' : null, cible: cibleDe(cible), csv: '', nomFichier: 'fichier.csv', url: '', analyse: null, mapping: {}, resultat: null,
     outil: null, fec: null, nomEntreprise: lireLocal(NOM_SOUHAITE) ?? '', dansExemple: false, erreur: null, envoi: false, confirmation: false,
@@ -3630,11 +3630,27 @@ async function ouvrirFec() {
 async function ouvrirConnecteur(sourceId) {
   await chargerConnecter();
   try { if (!E.sources) E.sources = await api('GET', '/sources'); } catch (e) { informer(e.message, 'erreur'); return; }
+  const compte = CONNECTER.compteDe(sourceId);
+  if (compte) return ouvrirCompte(compte.id, sourceId);
   const s = E.sources.find((x) => x.id === sourceId);
   if (!s) return;
   E.assistant = nouvelAssistant('choisir');
   monterAssistant();
   demarrerOutil(E.assistant, s);
+  chargerCatalogue();
+  return undefined;
+}
+/** Un compte entier (Google, Microsoft) : l'assistant s'ouvre sur le choix de ce qu'on branche dans ce compte. */
+async function ouvrirCompte(compteId, sourceId = null) {
+  await chargerConnecter();
+  try { if (!E.sources) E.sources = await api('GET', '/sources'); } catch (e) { informer(e.message, 'erreur'); return; }
+  const entree = CONNECTER.catalogue(E.sources, [], { pasAPas: false }).find((x) => x.genre === 'compte' && x.id === compteId);
+  if (!entree) return;
+  E.assistant = nouvelAssistant('choisir');
+  monterAssistant();
+  demarrerCompte(E.assistant, entree);
+  const contenu = sourceId ? entree.contenus.find((c) => c.source === sourceId) : null;
+  if (contenu) { choisirContenu(E.assistant.outil, contenu); rendreAssistant(); }
   chargerCatalogue();
 }
 
@@ -3707,17 +3723,17 @@ function fermerAssistant({ garder = false } = {}) {
   if (E.majEnAttente) setTimeout(() => { if (!occupe()) rafraichirEnDirect(); }, 0);
 }
 function nomParcours(A) {
-  if (A.parcours === 'outil' && A.outil) return `la connexion à ${A.outil.s.oauth?.nom ?? A.outil.s.nom}`;
+  if (A.parcours === 'outil' && A.outil) return `la connexion à ${nomOutilDe(A.outil)}`;
   return { fec: 'l’import de la comptabilité', zero: 'la création de votre entreprise', manuel: 'l’ajout à la main' }[A.parcours] ?? 'l’import du fichier';
 }
 const connexionEnCours = (A) => A.parcours === 'outil' && (Boolean(A.outil?.oauth && A.outil.oauth.statut !== 'connecte') || A.outil?.connexion?.statut === 'attente');
 /** Quelque chose a-t-il été saisi ou obtenu ? Sans rien, on ferme sans demander (P4 : pas de confirmation inutile). */
 function saisieCommencee(A) {
-  if (A.etape === 'colonnes') return true;
+  if (['colonnes', 'recuperer'].includes(A.etape)) return true;
   if (A.parcours === 'outil' && A.outil) {
     const C = A.outil;
     return Boolean(C.cree || C.apercu || C.oauth?.statut === 'connecte' || C.connexion?.statut === 'connecte'
-      || Object.entries(C.config).some(([k, v]) => String(v ?? '').trim() && !(C.s.id === 'sheets' && k === 'jeton')));
+      || Object.entries(C.config).some(([k, v]) => String(v ?? '').trim() && !(C.s?.id === 'sheets' && k === 'jeton')));
   }
   // un nom seulement prérempli (celui de l'installation) n'est pas une saisie : on ferme sans demander
   if (A.parcours === 'zero') return Boolean(A.nomEntreprise.trim()) && A.nomEntreprise !== (lireLocal(NOM_SOUHAITE) ?? '');
@@ -3748,12 +3764,13 @@ function allerEtape(etape) {
 
 const TITRES_PARCOURS = { fichier: 'Importer un fichier', manuel: 'Ajouter à la main', fec: 'Importer ma comptabilité', zero: 'Créer mon entreprise' };
 function titreEtape(A) {
-  const nom = A.outil ? (A.outil.s.oauth?.nom ?? A.outil.s.nom) : '';
+  const nom = A.outil ? nomOutilDe(A.outil) : '';
   if (A.etape === 'choisir') return exempleAChoisir(A) ? 'Votre entreprise, ou un essai dans l’exemple ?' : CONNECTER.QUESTION;
   if (A.etape === 'contenu') return A.parcours === 'manuel' ? 'Que voulez-vous ajouter ?' : 'Que contient ce fichier ?';
   if (A.etape === 'fichier') return { csv: 'Choisissez le fichier', sheets: 'Collez le lien de la feuille', coller: 'Collez vos lignes' }[A.source ?? 'csv'];
   if (A.etape === 'colonnes') return 'Associer les colonnes';
-  if (A.etape === 'connexion') return `Se connecter à ${nom}`;
+  if (A.etape === 'recuperer') return 'Que voulez-vous récupérer ?';
+  if (A.etape === 'connexion') return A.outil?.compte && !A.outil.s ? `Que voulez-vous brancher dans ${nom} ?` : `Se connecter à ${nom}`;
   if (A.etape === 'fec') return 'Déposez le fichier des écritures comptables';
   if (A.etape === 'zero') return 'Le nom de votre entreprise';
   return A.parcours === 'fec' ? 'Vos chiffres clés' : 'C’est prêt';
@@ -3767,7 +3784,7 @@ function rendreAssistant() {
   const p = progression(A.parcours, A.etape);
   const avecEtapes = A.etape !== 'choisir';
   const titre = A.etape === 'choisir' ? 'Connecter mes données'
-    : A.parcours === 'outil' && A.outil ? `Connecter ${A.outil.s.nom}`
+    : A.parcours === 'outil' && A.outil ? `Connecter ${A.outil.compte?.nom ?? A.outil.s?.nom ?? ''}`
     : A.parcours === 'fichier' && A.source === 'sheets' ? 'Importer depuis Google Sheets'
     : A.parcours === 'fichier' && A.source === 'coller' ? 'Copier-coller un tableau'
     : TITRES_PARCOURS[A.parcours] ?? 'Connecter mes données';
@@ -3828,7 +3845,10 @@ function contenuAssistant(A) {
     return allerEtape('fichier');
   })]];
   if (A.etape === 'fichier') return [corpsFichier(A), [boutonRetour('contenu'), boutonPrincipal(A.source === 'coller' ? 'Lire ces lignes' : A.source === 'sheets' ? 'Lire la feuille' : 'Lire le fichier', analyser, { occupe: A.envoi, enCours: 'Lecture…' })]];
-  if (A.etape === 'colonnes' && A.parcours === 'outil') return [corpsColonnesOutil(A.outil), [boutonRetour('connexion'), boutonPrincipal('Activer la synchronisation', () => activerOutil(A.outil), { occupe: A.envoi, enCours: 'Activation…' })]];
+  if (A.etape === 'recuperer') return [corpsRecuperer(A.outil), [boutonRetour('connexion'),
+    A.outil?.apercu ? boutonPrincipal('Continuer', () => allerEtape('colonnes')) : null]];
+  if (A.etape === 'colonnes' && A.parcours === 'outil') return [corpsColonnesOutil(A.outil), [boutonRetour('recuperer'),
+    boutonPrincipal(`Importer ${pluriel(A.outil?.apercu?.enregistrements ?? 0, 'fiche', 'fiches')} dans le jeu`, () => activerOutil(A.outil), { occupe: A.envoi, enCours: 'Import…' })]];
   if (A.etape === 'colonnes') return [corpsColonnes(A), [boutonRetour('fichier'), boutonPrincipal(`Importer ${pluriel(A.analyse?.lignes ?? 0, 'ligne', 'lignes')}`, confirmer, { occupe: A.envoi, enCours: 'Import…' })]];
   if (A.etape === 'connexion') return [corpsConnexion(A.outil), [boutonRetour('choisir'), piedConnexion(A.outil)]];
   if (A.etape === 'fec') return [corpsFec(A), [boutonRetour('choisir')]];
@@ -3876,7 +3896,6 @@ function corpsChoisir(A) {
 /** Choisir une réponse ne redessine pas la question et ne déplace pas le focus (§4.7) : seuls les conseils changent. */
 function choisirReponse(A, id) {
   A.reponse = id;
-  A.choixBientot = null;
   ecrireLocal(REPONSE_LOCALE, id);
   majConseils(A);
   const n = CONNECTER.recommandations(id, catalogueDe(A) ?? []).length;
@@ -3926,33 +3945,37 @@ function annoncerResultats(A) {
   const r = CONNECTER.filtrer(catalogueDe(A) ?? [], { famille: A.famille, recherche: A.recherche });
   annoncer(r.total ? pluriel(r.total, 'logiciel', 'logiciels') : 'Aucun logiciel pour cette recherche.');
 }
+/* Trois sections, pas quinze choix : « En un clic », « Avec une clé », « Par webhook ou API », puis les imports de
+   fichier, qui ne branchent rien. Chaque section dit en une phrase ce qu'elle demande, et ne contient que ce qui
+   fonctionne aujourd'hui : un outil ouvert nulle part n'est proposé nulle part. */
 function resultatsCatalogue(A) {
   const r = CONNECTER.filtrer(catalogueDe(A) ?? [], { famille: A.famille, recherche: A.recherche });
-  return [
-    r.simples.length ? h('ul', { class: 'bz-logiciels', role: 'list' }, r.simples.map((x) => h('li', {}, carteLogiciel(x))))
-      : h('div', { class: 'bz-vide bz-vide--compact' }, h('p', { texte: 'Aucun logiciel pour ces filtres.' }),
-        h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => { A.recherche = ''; A.famille = null; majCatalogue(A); $('#assistant-recherche')?.focus(); } }, 'Effacer les filtres')),
-    r.bientot.length ? h('section', { class: 'bz-catalogue', 'aria-labelledby': 'assistant-bientot-titre' },
-      h('div', {}, h('h5', { class: 'bz-catalogue__intertitre', id: 'assistant-bientot-titre', texte: 'Pas encore disponibles' }),
-        h('p', { class: 'bz-t-petit', texte: 'Demandez-les : en attendant, l’export en fichier CSV fonctionne déjà.' })),
-      h('ul', { class: 'bz-logiciels', role: 'list' }, r.bientot.map((x) => h('li', {}, carteLogiciel(x)))),
-      A.choixBientot ? resultatAssistant('info', `${A.choixBientot.nom} n’est pas encore disponible.`, { detail: 'En attendant : exportez vos données en CSV depuis ce logiciel.',
-        actions: h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', id: 'assistant-demander', onclick: () => demanderIntegration(A.choixBientot) }, 'Demander ce logiciel')) }) : null) : null,
-    r.avances.length ? h('details', { class: 'bz-repli', open: A.recherche.trim() !== '' || Boolean(A.avanceOuvert), ontoggle: (e) => { A.avanceOuvert = e.currentTarget.open; } },
-      h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Mode avancé : pour votre informaticien' }), h('span', { class: 'bz-repli__note', texte: 'serveur MCP, webhook, API' }), icone('chevron-down', { taille: 'sm' })),
-      h('div', { class: 'bz-repli__corps' },
-        h('p', { class: 'bz-t-petit', texte: 'Un logiciel absent de la liste ? S’il a une API ou un serveur MCP, il se connecte ici. Sinon, Make, Zapier ou n8n font le pont avec plus de 2 000 applications.' }),
-        h('ul', { class: 'bz-logiciels', role: 'list' }, r.avances.map((x) => h('li', {}, carteLogiciel(x)))),
-        E.monde.profil.peutAdministrer ? h('p', {}, h('a', { href: '#/reglages:cles', class: 'bz-t-petit bz-lien-fleche', onclick: (e) => { e.preventDefault(); fermerAssistant({ garder: true }); changerVue('reglages:cles'); } }, 'Clés d’API, Claude et MCP', icone('arrow-right', { taille: 'sm' }))) : null)) : null,
-  ];
+  if (!CONNECTER.SECTIONS.some((s) => r[s.id].length)) {
+    return h('div', { class: 'bz-vide bz-vide--compact' }, h('p', { texte: 'Aucun logiciel pour ces filtres.' }),
+      h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => { A.recherche = ''; A.famille = null; majCatalogue(A); $('#assistant-recherche')?.focus(); } }, 'Effacer les filtres'));
+  }
+  return CONNECTER.SECTIONS.map((s) => {
+    const liste = r[s.id];
+    if (!liste.length) return null;
+    const id = `assistant-section-${s.id}`;
+    return h('section', { class: 'bz-catalogue', cle: id, 'aria-labelledby': id },
+      h('div', {},
+        h('h5', { class: 'bz-catalogue__intertitre', id, texte: s.titre }),
+        h('p', { class: 'bz-t-petit', texte: s.texte })),
+      h('ul', { class: 'bz-logiciels', role: 'list' }, liste.map((x) => h('li', {}, carteLogiciel(x)))),
+      s.id === 'avance' && E.monde.profil.peutAdministrer
+        ? h('p', {}, h('a', { href: '#/reglages:cles', class: 'bz-t-petit bz-lien-fleche', onclick: (e) => { e.preventDefault(); fermerAssistant({ garder: true }); changerVue('reglages:cles'); } }, 'Clés d’API, Claude et MCP', icone('arrow-right', { taille: 'sm' }))) : null);
+  });
 }
-/** Carte d'un logiciel (§4.23) : pictogramme de sa famille et nom en entier ; « 1 clic » est la seule pastille. */
+/** Carte d'un logiciel ou d'un compte (§4.23) : pictogramme, nom en entier ; « 1 clic » est la seule pastille. */
 function carteLogiciel(x, { conseil = false, faire = null } = {}) {
+  const dedans = (x.contenus ?? []).filter((c) => c.disponible).map((c) => c.libelle);
   return h('button', { type: 'button', class: `bz-logiciel${conseil ? ' bz-logiciel--conseil' : ''}`, cle: `${conseil ? 'conseil' : 'logiciel'}-${x.cle}`, onclick: () => (faire ? faire(x) : choisirEntree(x)) },
     h('span', { class: 'bz-logiciel__icone', 'aria-hidden': 'true' }, icone(x.icone)),
     h('span', { class: 'bz-logiciel__texte' },
       h('span', { class: 'bz-logiciel__nom' }, h('span', { texte: x.nom }), x.unClic ? h('span', { class: 'bz-badge' }, icone('mouse-pointer-click'), '1 clic') : null),
-      x.description ? h('span', { class: 'bz-logiciel__description', texte: x.description }) : null));
+      x.description ? h('span', { class: 'bz-logiciel__description', texte: x.description }) : null,
+      dedans.length > 1 ? h('span', { class: 'bz-logiciel__description', texte: `Dans ce compte : ${dedans.join(', ')}.` }) : null));
 }
 function choisirEntree(x) {
   const A = E.assistant;
@@ -3960,22 +3983,13 @@ function choisirEntree(x) {
   A.erreur = null;
   A.entree = x;
   if (x.genre === 'action') { fermerAssistant({ garder: true }); changerVue('accueil'); return; }
-  if (x.bientot) { A.choixBientot = x; majCatalogue(A); setTimeout(() => $('#assistant-demander')?.focus(), 0); return; }
-  A.choixBientot = null;
+  if (x.genre === 'compte') { demarrerCompte(A, x); return; }
   if (x.genre === 'outil') { const s = (E.sources ?? []).find((y) => y.id === x.id); if (s) demarrerOutil(A, s); return; }
   if (x.id === 'fec') { A.parcours = 'fec'; A.fec ??= { envoi: false, resultat: null, nom: '' }; allerEtape('fec'); return; }
   if (x.id === 'manuel') { A.parcours = 'manuel'; A.source = 'manuel'; allerEtape('contenu'); return; }
   A.parcours = 'fichier';
   A.source = x.id === 'coller' ? 'coller' : x.id === 'sheets' ? 'sheets' : 'csv';
   allerEtape(A.cible ? 'fichier' : 'contenu');
-}
-async function demanderIntegration(c) {
-  try {
-    await api('POST', '/connecteurs/demande', { id: c.id });
-    informer(`Demande enregistrée pour ${c.nom}. En attendant, l’export CSV fonctionne déjà.`, 'ok');
-  } catch (e) {
-    if (!e.session) informer(e.message, 'erreur');
-  }
 }
 
 // ---- import d'un fichier : contenu, fichier, colonnes, résultat
@@ -6261,6 +6275,37 @@ function connecterOAuth(source, config, suivi, droits = 'lecture') {
   return annuler;
 }
 
+/**
+ * « Choisir ce que je récupère » : reprend un compte déjà connecté à l'étape « Que voulez-vous récupérer ? », sans
+ * refaire la connexion. Rien n'a encore été importé ; rien ne le sera avant la validation.
+ */
+async function reprendreConnexion(c, s) {
+  await chargerConnecter();
+  try { if (!E.sources) E.sources = await api('GET', '/sources'); } catch (e) { informer(e.message, 'erreur'); return; }
+  const source = s ?? E.sources.find((x) => x.id === c.source);
+  if (!source) return;
+  const compte = CONNECTER.catalogue(E.sources, [], { pasAPas: false }).find((x) => x.genre === 'compte' && x.contenus.some((y) => y.source === c.source));
+  E.assistant = nouvelAssistant('choisir');
+  monterAssistant();
+  const A = E.assistant;
+  A.parcours = 'outil';
+  A.outil = nouvelOutil(compte ? null : source, compte ?? null);
+  const C = A.outil;
+  if (compte) choisirContenu(C, compte.contenus.find((y) => y.source === c.source));
+  C.cree = c;
+  C.nom = c.nom;
+  C.config = { ...c.config };
+  C.mode = c.oauth ? 'oauth' : 'cle';
+  C.oauth = c.oauth ? { statut: 'connecte', compte: null } : null;
+  C.droits = c.sens === 'lecture' ? 'lecture' : 'ecriture';
+  C.sens = c.sens;
+  C.intervalle = c.intervalleS;
+  A.etape = 'recuperer';
+  rendreAssistant();
+  const premiere = listesOutil(C)[0];
+  if (premiere) chargerChoix(C, premiere);
+  chargerCatalogue();
+}
 /** « Se reconnecter » (connexion expirée, autre compte) : nouvelle connexion, puis le connecteur la reprend. */
 function seReconnecter(c, s, apres) {
   const config = s.oauth.champ && c.config[s.oauth.champ] ? { [s.oauth.champ]: c.config[s.oauth.champ] } : {};
@@ -6284,12 +6329,13 @@ async function rendreOutils() {
   E.sources = sources;
   const types = E.monde.univers.types;
   const ETAT = { ok: ['ok', 'Synchronisé'], erreur: ['critique', 'Erreur'] };
+  const etatDe = (c) => (c.aChoisir ? ['info', 'Connecté'] : ETAT[c.statut] ?? ['info', 'Jamais synchronisé']);
   remplir(zoneReglages(), h('div', { class: 'bz-pile' },
     h('p', { class: 'bz-t-petit bz-texte-2 bz-reglages__intro' }, liste.length ? h('span', { class: 'bz-compteur', texte: String(liste.length) }) : null, ' Chaque logiciel connecté se synchronise tout seul : ce qui change chez lui apparaît sur votre carte, et ce que vous changez ici repart chez lui si vous l’avez choisi. Les connexions sont chiffrées sur votre serveur.'),
     liste.length ? h('ul', { class: 'bz-liste-simple', role: 'list' }, liste.map((c) => {
       const s = sources.find((x) => x.id === c.source);
       const famille = s ? CONNECTER.catalogue([s], [], { pasAPas: false })[0] : null;
-      const [ton, etat] = ETAT[c.statut] ?? ['info', 'Jamais synchronisé'];
+      const [ton, etat] = etatDe(c);
       const idTitre = `outil-${c.id}`;
       return h('li', {}, h('section', { class: 'bz-carte', 'aria-labelledby': idTitre },
         h('div', { class: 'bz-carte__tete' },
@@ -6297,20 +6343,24 @@ async function rendreOutils() {
             h('span', { class: 'bz-logiciel__icone', 'aria-hidden': 'true' }, icone(famille?.icone ?? 'plug')),
             h('span', { class: 'bz-logiciel__texte' },
               h('h3', { class: 'bz-logiciel__nom', id: idTitre, texte: c.nom }),
-              h('span', { class: 'bz-logiciel__description', texte: `${s?.nom ?? c.source} · ${types.find((t) => t.id === c.typeObjet)?.pluriel ?? c.typeObjet}${c.roles.length ? ` (${c.roles.join(', ')})` : ''} · ${LIBELLE_SENS[c.sens]}` }))),
+              h('span', { class: 'bz-logiciel__description', texte: c.aChoisir ? `${s?.nom ?? c.source} · rien de choisi pour l’instant`
+                : `${s?.nom ?? c.source} · ${types.find((t) => t.id === c.typeObjet)?.pluriel ?? c.typeObjet}${c.roles.length ? ` (${c.roles.join(', ')})` : ''} · ${LIBELLE_SENS[c.sens]}` }))),
           h('span', { class: `bz-badge bz-badge--${ton}` }, iconeEtat(ton, { taille: 'sm', decoratif: true }), etat)),
         c.message ? resultatAssistant('critique', c.message) : null,
+        // compte branché sans rien avoir choisi : il est là, visible, et rien n'est entré dans le jeu
+        c.aChoisir ? resultatAssistant('info', 'Connecté. Rien n’a encore été importé.', { detail: 'Votre compte est branché et la connexion est gardée. Il reste à choisir ce que vous voulez récupérer.',
+          actions: h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--sm', onclick: () => reprendreConnexion(c, s) }, icone('list-checks'), 'Choisir ce que je récupère')) }) : null,
         // fiches reliées à l'outil seulement parce qu'elles portent le même nom : un administrateur tranche (rien ne part avant)
         c.aConfirmer ? resultatAssistant('attention', `${pluriel(c.aConfirmer, 'fiche reliée', 'fiches reliées')} par le nom seulement : rien ne part vers ${c.nom} pour ${c.aConfirmer > 1 ? 'elles' : 'elle'} tant que vous n’avez pas confirmé.`, {
           actions: h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => confirmerRapprochements(c, () => rendreOutils()) }, icone('link'), 'Vérifier') }) : null,
         // « En temps réel » quand l'outil prévient le jeu de ses changements (par Breizhcosystem), sinon sa fréquence de relecture
-        h('p', { class: 'bz-t-petit', texte: `${pluriel(c.liens, 'fiche liée', 'fiches liées')} · ${c.derniereSynchro ? `synchronisé ${dateRelative(c.derniereSynchro)}` : 'pas encore synchronisé'}${s?.lecture === 'appel' ? ` · ${c.frequence ?? `Toutes les ${c.intervalleS >= 60 ? `${Math.round(c.intervalleS / 60)} minutes` : `${c.intervalleS} secondes`}`}` : ' · reçoit en direct'}` }),
+        c.aChoisir ? null : h('p', { class: 'bz-t-petit', texte: `${pluriel(c.liens, 'fiche liée', 'fiches liées')} · ${c.derniereSynchro ? `synchronisé ${dateRelative(c.derniereSynchro)}` : 'pas encore synchronisé'}${s?.lecture === 'appel' ? ` · ${c.frequence ?? `Toutes les ${c.intervalleS >= 60 ? `${Math.round(c.intervalleS / 60)} minutes` : `${c.intervalleS} secondes`}`}` : ' · reçoit en direct'}` }),
         c.entree ? h('div', { class: 'bz-pile' }, h('p', { class: 'bz-t-petit', texte: 'Adresse d’entrée (Make, Zapier, n8n) :' }), blocCode(`${location.origin}${c.entree}`, 'Copier l’adresse')) : null,
         c.historique.length ? h('ul', { class: 'bz-liste-simple bz-t-petit', 'aria-label': 'Derniers échanges' }, c.historique.slice(0, 4).map((x) => h('li', {}, icone(x.sens === 'entrant' ? 'arrow-down' : 'arrow-up', { taille: 'sm', libelle: x.sens === 'entrant' ? 'Reçu' : 'Envoyé' }), ` ${dateHeure(x.le)} · ${x.detail}`))) : null,
         h('div', { class: 'bz-groupe-boutons' },
-          s?.lecture === 'appel' || c.sens !== 'lecture' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: async (e) => { e.currentTarget.setAttribute('aria-busy', 'true'); try { await api('POST', `/synchro/${c.id}/maintenant`); informer('Synchronisation faite.', 'ok'); } catch (err) { informer(err.message, 'erreur'); } rendreOutils(); } }, icone('refresh-cw'), 'Synchroniser maintenant') : null,
+          !c.aChoisir && (s?.lecture === 'appel' || c.sens !== 'lecture') ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: async (e) => { e.currentTarget.setAttribute('aria-busy', 'true'); try { await api('POST', `/synchro/${c.id}/maintenant`); informer('Synchronisation faite.', 'ok'); } catch (err) { informer(err.message, 'erreur'); } rendreOutils(); } }, icone('refresh-cw'), 'Synchroniser maintenant') : null,
           c.oauth && s?.oauth ? h('button', { type: 'button', class: `bz-bouton ${c.statut === 'erreur' ? 'bz-bouton--principal' : 'bz-bouton--secondaire'}`, onclick: () => seReconnecter(c, s, () => rendreOutils()) }, icone('log-in'), 'Se reconnecter') : null,
-          h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: async () => { await api('PUT', `/synchro/${c.id}`, { actif: !c.actif }); rendreOutils(); } }, icone(c.actif ? 'pause' : 'play'), c.actif ? 'Mettre en pause' : 'Réactiver'),
+          c.aChoisir ? null : h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: async () => { await api('PUT', `/synchro/${c.id}`, { actif: !c.actif }); rendreOutils(); } }, icone(c.actif ? 'pause' : 'play'), c.actif ? 'Mettre en pause' : 'Réactiver'),
           h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--critique', onclick: async () => {
             if (!(await confirmerDialogue({ titre: `Débrancher ${c.nom} ?`, texte: 'La synchronisation s’arrête et la clé enregistrée est effacée ; l’accès est révoqué chez l’outil quand c’est possible. Les fiches déjà importées restent sur votre carte.', confirmer: 'Déconnecter', annuler: 'Garder', danger: true }))) return;
             try {
@@ -6334,21 +6384,70 @@ async function rendreOutils() {
    les derniers choix lus dans le logiciel (base, table, classeur…). Clés, jetons, script, identifiants d'annuaire et
    d'application : « Mode avancé : pour votre informaticien ». Le navigateur ne reçoit jamais de jeton. */
 const secretScript = () => Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(16).padStart(2, '0')).join('');
-const nomOutilDe = (C) => C.s.oauth?.nom ?? C.s.nom;
+const nomOutilDe = (C) => C.compte?.nom ?? C.s?.oauth?.nom ?? C.s?.nom ?? '';
 /** Redessine l'assistant seulement s'il montre encore ce logiciel. */
 const majOutil = (C) => { if (!C.ferme && E.assistant?.outil === C) rendreAssistant(); };
 
+function nouvelOutil(s, compte = null) {
+  return { s, compte, contenu: null, mode: s?.oauth ? 'oauth' : 'cle', oauth: null, annulerOAuth: null, choix: {}, config: {},
+    cible: null, sens: 'lecture', droits: 'lecture', intervalle: 300, nom: compte?.nom ?? s?.nom ?? '', apercu: null, mapping: {},
+    cree: null, outils: null, connexion: null, ferme: false, chargeApercu: false };
+}
+/** Le logiciel choisi dans un compte (« un classeur Excel », « Dynamics 365 ») ; seul, pour les outils sans compte. */
+function choisirContenu(C, contenu) {
+  const s = (E.sources ?? []).find((x) => x.id === contenu?.source);
+  if (!s) return;
+  C.contenu = contenu;
+  C.s = s;
+  C.mode = s.oauth ? 'oauth' : 'cle';
+  C.config = {};
+  C.choix = {};
+  C.intervalle = ['sheets', 'excel365'].includes(s.id) ? 300 : 120;
+  C.nom = C.compte ? `${C.compte.nom} · ${contenu.libelle}` : s.nom;
+  if (s.id === 'sheets' && C.mode === 'cle') C.config.jeton = secretScript();
+}
+
 function demarrerOutil(A, s) {
-  if (A.outil && A.outil.s.id !== s.id) nettoyerOutil(A.outil);
-  if (!A.outil || A.outil.s.id !== s.id) {
-    const cibles = ciblesImport();
-    A.outil = { s, mode: s.oauth ? 'oauth' : 'cle', oauth: null, annulerOAuth: null, choix: {}, config: {}, cible: A.cible ?? cibles[0], sens: 'lecture',
-      intervalle: ['sheets', 'excel365'].includes(s.id) ? 300 : 120, nom: s.nom, apercu: null, mapping: {}, cree: null, outils: null, connexion: null, ferme: false };
+  if (A.outil && A.outil.s?.id !== s.id) nettoyerOutil(A.outil);
+  if (!A.outil || A.outil.s?.id !== s.id) {
+    A.outil = nouvelOutil(s);
+    A.outil.intervalle = ['sheets', 'excel365'].includes(s.id) ? 300 : 120;
     if (s.id === 'sheets' && A.outil.mode === 'cle') A.outil.config.jeton = secretScript();
   }
   A.outil.ferme = false;
   A.parcours = 'outil';
   allerEtape('connexion');
+}
+/**
+ * Un COMPTE (Google, Microsoft) : une seule entrée pour plusieurs logiciels. Quand le compte n'en ouvre qu'un, il est
+ * choisi d'office et l'écran se résume au bouton de connexion.
+ */
+function demarrerCompte(A, compte) {
+  if (A.outil && A.outil.compte?.id !== compte.id) nettoyerOutil(A.outil);
+  if (!A.outil || A.outil.compte?.id !== compte.id) {
+    A.outil = nouvelOutil(null, compte);
+    const dispo = compte.contenus.filter((c) => c.disponible);
+    if (dispo.length === 1) choisirContenu(A.outil, dispo[0]);
+  }
+  A.outil.ferme = false;
+  A.parcours = 'outil';
+  allerEtape('connexion');
+}
+/**
+ * Le compte vient d'être connecté (l'outil a vraiment accordé l'accès) : il est enregistré TOUT DE SUITE, en pause et
+ * sans rien importer, pour qu'il figure dans « Mes logiciels connectés » même si la personne s'arrête là. Avant, une
+ * connexion qui n'allait pas jusqu'à l'import ne laissait aucune trace : trois comptes connectés d'affilée, un seul
+ * retrouvé ensuite. La référence à usage unique est alors échangée contre l'identifiant du branchement.
+ */
+async function enregistrerConnexion(C) {
+  if (C.cree || !C.config.jeton) return;
+  try {
+    C.cree = await api('POST', '/synchro/connexion', { source: C.s.id, nom: C.nom, config: C.config });
+    delete C.config.jeton; // consommée : la suite se sert du branchement enregistré (son secret y est chiffré)
+  } catch (e) {
+    if (!e.session && E.assistant) E.assistant.erreur = e.message;
+  }
+  majOutil(C);
 }
 function arreterOAuth(C) { C.annulerOAuth?.(); C.annulerOAuth = null; }
 /** Connexion obtenue mais pas (encore) utilisée : le serveur l'oublie tout de suite. */
@@ -6358,12 +6457,12 @@ function oublierConnexion(C) {
 }
 function nettoyerOutil(C) { C.ferme = true; arreterOAuth(C); oublierConnexion(C); C.connexion = null; }
 /** Champs dont les valeurs se lisent dans le logiciel connecté (base puis table Airtable, base de données Notion…). */
-const listesOutil = (C) => C.s.champs.filter((ch) => ch.liste && ch.mode !== 'cle');
+const listesOutil = (C) => (C.s ? C.s.champs.filter((ch) => ch.liste && ch.mode !== (C.mode === 'oauth' ? 'cle' : 'oauth')) : []);
 async function chargerChoix(C, ch) {
   C.choix[ch.id] = { chargement: true, options: [], erreur: null };
   majOutil(C);
   try {
-    const r = await api('POST', '/synchro/choix', { source: C.s.id, champ: ch.id, config: C.config });
+    const r = await api('POST', '/synchro/choix', { source: C.s.id, champ: ch.id, config: C.config, ...(C.cree ? { id: C.cree.id } : {}) });
     if (C.ferme) return;
     C.choix[ch.id] = { chargement: false, options: r.options, erreur: null };
     if (r.options.length === 1 && !C.config[ch.id]) { C.config[ch.id] = r.options[0].valeur; suiteChoix(C, ch); }
@@ -6402,9 +6501,9 @@ function seConnecterOutil(C) {
       C.oauth = { statut: 'connecte', compte: r.compte };
       C.config.jeton = r.jeton; // référence « oauth:… » : le jeton reste sur le serveur
       C.choix = {};
-      const premiere = listesOutil(C)[0];
-      if (premiere) chargerChoix(C, premiere);
-      annoncer(`Connecté à ${nomOutilDe(C)}.`);
+      // connecter n'importe rien : ce que le compte contient se demande à l'étape suivante, quand la personne l'a voulu
+      annoncer(`Connecté à ${nomOutilDe(C)}. Rien n’a encore été importé.`);
+      enregistrerConnexion(C);
     } else if (r.code === 'oauth_indisponible') {
       // outil pas encore ouvert sur le relais : la clé (mode avancé) reste possible, sans l'éditeur
       C.annulerOAuth = null; s.oauth = null;
@@ -6446,7 +6545,7 @@ async function connecterMicrosoft(C) {
       if (C.ferme || C.connexion?.id !== d.id) return;
       const r = await api('POST', `/synchro/microsoft/connexion/${d.id}`);
       if (r.statut === 'attente') continue;
-      if (r.statut === 'connecte') { C.config.jeton = r.jeton; C.connexion = { ...C.connexion, statut: 'connecte' }; annoncer('Connecté à Microsoft.'); }
+      if (r.statut === 'connecte') { C.config.jeton = r.jeton; C.connexion = { ...C.connexion, statut: 'connecte' }; annoncer('Connecté à Microsoft. Rien n’a encore été importé.'); enregistrerConnexion(C); }
       else { C.connexion = null; if (E.assistant) E.assistant.erreur = r.message; }
       majOutil(C);
       return;
@@ -6455,10 +6554,10 @@ async function connecterMicrosoft(C) {
   } catch (e) { C.envoi = false; C.connexion = null; if (!e.session && E.assistant) E.assistant.erreur = e.message; majOutil(C); }
 }
 
-function champOutil(C, ch) {
+function champOutil(C, ch, { apres = null } = {}) {
   const nomOutil = nomOutilDe(C);
   const id = `outil-${ch.id}`;
-  const choix = C.mode === 'oauth' && ch.liste ? C.choix[ch.id] : null;
+  const choix = ch.liste ? C.choix[ch.id] : null;
   const large = ch.secret || ['url', 'lien', 'script', 'fichier', 'classeur'].includes(ch.id);
   const aide = choix?.erreur ? `Liste indisponible (${choix.erreur}) : saisissez-le.`
     : choix && !choix.chargement && !choix.options.length ? `Rien trouvé dans ${nomOutil} : saisissez-le, ou reconnectez-vous en l’autorisant.` : ch.aide;
@@ -6468,25 +6567,37 @@ function champOutil(C, ch) {
   const liste = (options, attrs = {}) => h('div', { class: 'bz-select' }, h('select', { id, 'aria-describedby': decrit, 'aria-required': ch.obligatoire ? 'true' : null, 'aria-invalid': invalide, ...attrs }, options), icone('chevron-down'));
   let saisie;
   // valeurs techniques (« companies ») affichées en français (« Entreprises ») ; la valeur envoyée ne change pas
-  if (ch.choix) saisie = liste([h('option', { value: '', texte: 'Choisir…' }), ...(ch.options ?? ch.choix.map((x) => ({ valeur: x, libelle: x }))).map((x) => h('option', { value: x.valeur, selected: C.config[ch.id] === x.valeur, texte: x.libelle }))], { onchange: (e) => (C.config[ch.id] = e.target.value) });
+  if (ch.choix) saisie = liste([h('option', { value: '', texte: 'Choisir…' }), ...(ch.options ?? ch.choix.map((x) => ({ valeur: x, libelle: x }))).map((x) => h('option', { value: x.valeur, selected: C.config[ch.id] === x.valeur, texte: x.libelle }))], { onchange: (e) => { C.config[ch.id] = e.target.value; apres?.(); } });
   else if (choix?.chargement) saisie = liste([h('option', { texte: `Lecture dans ${nomOutil}…` })], { disabled: true });
-  else if (choix?.options.length) saisie = liste([h('option', { value: '', texte: 'Choisir…' }), ...choix.options.map((o) => h('option', { value: o.valeur, selected: C.config[ch.id] === o.valeur, texte: o.libelle }))], { onchange: (e) => { C.config[ch.id] = e.target.value; suiteChoix(C, ch); majOutil(C); } });
-  else if (ch.id === 'outilLecture' && C.outils) saisie = liste([h('option', { value: '', texte: 'Choisir…' }), ...C.outils.map((o) => h('option', { value: o.nom, selected: C.config[ch.id] === o.nom, texte: `${o.nom}${o.description ? ` · ${o.description.slice(0, 60)}` : ''}` }))], { onchange: (e) => (C.config[ch.id] = e.target.value) });
+  else if (choix?.options.length) saisie = liste([h('option', { value: '', texte: 'Choisir…' }), ...choix.options.map((o) => h('option', { value: o.valeur, selected: C.config[ch.id] === o.valeur, texte: o.libelle }))], { onchange: (e) => { C.config[ch.id] = e.target.value; suiteChoix(C, ch); majOutil(C); apres?.(); } });
+  else if (ch.id === 'outilLecture' && C.outils) saisie = liste([h('option', { value: '', texte: 'Choisir…' }), ...C.outils.map((o) => h('option', { value: o.nom, selected: C.config[ch.id] === o.nom, texte: `${o.nom}${o.description ? ` · ${o.description.slice(0, 60)}` : ''}` }))], { onchange: (e) => { C.config[ch.id] = e.target.value; apres?.(); } });
   else saisie = h('input', { id, class: 'bz-champ__saisie', type: ch.secret ? 'password' : 'text', autocomplete: 'off', spellcheck: 'false', placeholder: ch.exemple ?? '', value: C.config[ch.id] ?? '',
-    'data-brut': ch.exemple ? '' : null, 'aria-describedby': decrit, 'aria-required': ch.obligatoire ? 'true' : null, 'aria-invalid': invalide, oninput: (e) => (C.config[ch.id] = e.target.value) });
+    'data-brut': ch.exemple ? '' : null, 'aria-describedby': decrit, 'aria-required': ch.obligatoire ? 'true' : null, 'aria-invalid': invalide, oninput: (e) => (C.config[ch.id] = e.target.value), onchange: () => apres?.() });
   return h('div', { class: `bz-champ${large ? ' bz-champ--large' : ''}` },
     h('label', { class: 'bz-champ__libelle', for: id, texte: ch.libelle }), aide ? h('span', { class: 'bz-champ__aide', id: `${id}-aide`, texte: aide }) : null, saisie,
     erreur ? h('p', { class: 'bz-champ__erreur', id: `${id}-erreur` }, icone('circle-alert', { taille: 'sm' }), h('span', { texte: erreur })) : null);
 }
-/** Champs obligatoires de l'étape « Se connecter » encore vides : vérifiés AVANT tout appel au serveur (§4.6). */
-function erreursOutil(C) {
+/* Connecter n'est pas importer : les réglages se séparent en deux. Ceux qui servent à ATTEINDRE le compte (adresse,
+   clé, annuaire) restent à l'étape « Se connecter » ; ceux qui disent CE QU'ON PREND (base, table, classeur, fiches)
+   passent à « Que voulez-vous récupérer ? », une fois la connexion faite et rien importé. */
+const CHAMPS_ACCES = new Set(['url', 'urlEcriture', 'urlSortante', 'boutique', 'organisation', 'domaine', 'script', 'tenant', 'client', 'clientId', 'site', 'environnement', 'identifiant', 'cle', 'base']);
+const estChampAcces = (ch) => Boolean(ch.secret || ch.connexion || (CHAMPS_ACCES.has(ch.id) && !ch.liste && !ch.choix));
+/** Champs d'une étape, dans le mode choisi (un clic ou clé) : `acces` pour « Se connecter », sinon « Que récupérer ? ». */
+function champsEtape(C, acces) {
   const s = C.s;
-  const visibles = C.mode === 'oauth' && s.oauth
-    ? s.champs.filter((ch) => !ch.secret && ch.mode !== 'cle' && ch.id !== s.oauth.champ)
-    : s.champs.filter((ch) => ch.mode !== 'oauth' && !ch.connexion && !(s.id === 'sheets' && ch.id === 'jeton'));
+  if (!s) return [];
+  const mode = C.mode === 'oauth' && s.oauth ? 'oauth' : 'cle';
+  return s.champs.filter((ch) => {
+    if (estChampAcces(ch) !== acces) return false;
+    if (mode === 'oauth') return ch.mode !== 'cle' && !ch.secret && ch.id !== s.oauth?.champ;
+    return ch.mode !== 'oauth' && !(s.id === 'sheets' && ch.id === 'jeton');
+  });
+}
+/** Champs obligatoires d'une étape encore vides : vérifiés AVANT tout appel au serveur (§4.6). */
+function erreursOutil(C, acces = false) {
   const erreurs = {};
-  for (const ch of visibles) {
-    if (!ch.obligatoire || String(C.config[ch.id] ?? '').trim()) continue;
+  for (const ch of champsEtape(C, acces)) {
+    if (!ch.obligatoire || ch.connexion || String(C.config[ch.id] ?? '').trim()) continue;
     erreurs[ch.id] = ch.choix || ch.liste ? `${ch.libelle} : choisissez une valeur.` : `${ch.libelle} : à renseigner.`;
   }
   return Object.keys(erreurs).length ? erreurs : null;
@@ -6495,15 +6606,16 @@ function champListe(id, libelle, valeur, options, onchange, { large = false } = 
   return h('div', { class: `bz-champ${large ? ' bz-champ--large' : ''}` }, h('label', { class: 'bz-champ__libelle', for: id, texte: libelle }),
     h('div', { class: 'bz-select' }, h('select', { id, onchange }, options.map(([v, l]) => h('option', { value: String(v), selected: String(valeur) === String(v), texte: l }))), icone('chevron-down')));
 }
-/** « Ce que contient l'outil » : au-delà de 15 choix, une liste filtrable remplace le <select> (§4.6). */
-function selectCible(C) {
+/** « À quoi ça correspond dans le jeu » : au-delà de 15 choix, une liste filtrable remplace le <select> (§4.6). */
+function selectCible(C, apres = null) {
   const cibles = ciblesImport();
-  const choisir = (cle) => { C.cible = cibles.find((x) => x.cle === cle) ?? C.cible; };
-  if (cibles.length <= 15) return champListe('outil-cible', `Ce que contient ${C.s.nom}`, C.cible.cle, cibles.map((c) => [c.cle, c.libelle]), (e) => choisir(e.target.value));
+  const libelle = 'À quoi ça correspond dans le jeu ?';
+  const choisir = (cle) => { C.cible = cibles.find((x) => x.cle === cle) ?? C.cible; apres?.(); };
+  if (cibles.length <= 15) return champListe('outil-cible', libelle, C.cible?.cle ?? '', cibles.map((c) => [c.cle, c.libelle]), (e) => choisir(e.target.value));
   return h('div', { class: 'bz-champ' },
-    h('label', { class: 'bz-champ__libelle', for: 'outil-cible', texte: `Ce que contient ${C.s.nom}` }),
+    h('label', { class: 'bz-champ__libelle', for: 'outil-cible', texte: libelle }),
     h('span', { class: 'bz-champ__aide', id: 'outil-cible-aide', texte: 'Tapez quelques lettres pour trouver le bon choix.' }),
-    comboFiltrable({ id: 'outil-cible', decrit: 'outil-cible-aide', valeur: C.cible.cle, options: cibles.map((c) => ({ valeur: c.cle, libelle: c.libelle, detail: c.sous || null })), onchange: choisir, annoncer }));
+    comboFiltrable({ id: 'outil-cible', decrit: 'outil-cible-aide', valeur: C.cible?.cle ?? '', options: cibles.map((c) => ({ valeur: c.cle, libelle: c.libelle, detail: c.sous || null })), onchange: choisir, annoncer }));
 }
 function reglagesSynchro(C, { sens = true } = {}) {
   return [
@@ -6545,38 +6657,65 @@ function infoRelais(nomOutil) {
         h('li', { texte: `Vos données (fiches, contacts, fichiers) ne passent jamais par l’éditeur : elles vont directement de ${nomOutil} à Living Business.` }),
         h('li', { texte: `Sans le relais : « Mode avancé », avec une clé créée dans ${nomOutil}.` }))));
 }
+/**
+ * Microsoft : un compte PERSONNEL (Outlook, Hotmail, Live) ne convient pas, et c'est dit avant le clic, pas après le
+ * refus. Microsoft n'ouvre son point d'entrée « organizations » qu'aux comptes professionnels ou scolaires, et son API
+ * Excel ne lit pas les classeurs d'un OneDrive personnel ; Dynamics 365 et Business Central n'existent que pour une
+ * entreprise. Un compte personnel est donc refusé dès la page de connexion de Microsoft.
+ */
+const AVERTISSEMENT_MICROSOFT = resultatAssistant('attention', 'Il vous faut un compte Microsoft 365 professionnel.', {
+  detail: 'L’adresse de votre entreprise, celle qui ouvre OneDrive Entreprise ou SharePoint. Un compte personnel (Outlook, Hotmail, Live) est refusé par Microsoft dès la page de connexion : Microsoft n’ouvre pas Excel aux classeurs d’un OneDrive personnel. Vos fichiers sont sur un compte personnel ? Importez-les en fichier, section « Sans rien connecter ».',
+});
+/** Dans un compte, ce qu'on veut brancher (classeur Excel, Dynamics 365…) : choisi AVANT la connexion, pour ne demander à l'outil que les droits correspondants. */
+function choixContenu(C) {
+  const contenus = C.compte.contenus;
+  const aVenir = contenus.filter((x) => !x.disponible);
+  return [
+    h('p', { texte: `Un compte ${C.compte.nom} ouvre plusieurs logiciels. Que voulez-vous brancher ? Living Business ne demandera que les droits correspondants.` }),
+    h('fieldset', { class: 'bz-grille-choix', 'aria-labelledby': 'assistant-etape' }, contenus.filter((x) => x.disponible).map((x) => h('label', { class: 'bz-choix' },
+      h('input', { type: 'radio', name: 'outil-contenu', value: x.id, checked: C.contenu?.id === x.id, onchange: () => { choisirContenu(C, x); majOutil(C); } }),
+      h('span', { class: 'bz-choix__texte' },
+        h('span', { class: 'bz-choix__titre' }, h('span', { texte: x.libelle }), x.unClic ? h('span', { class: 'bz-badge' }, icone('mouse-pointer-click'), '1 clic') : null),
+        h('span', { class: 'bz-choix__detail', texte: x.cle && !x.unClic ? `${x.detail} Avec une clé.` : x.detail }))))),
+    aVenir.length ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `Plus tard dans ce même compte : ${aVenir.map((x) => x.libelle.toLowerCase()).join(', ')}. Ce n’est pas encore fait : rien n’est proposé tant que ça ne marche pas.` }) : null,
+  ];
+}
 function corpsConnexion(C) {
   const s = C.s;
   const nomOutil = nomOutilDe(C);
+  const microsoft = C.compte?.id === 'microsoft' || ['excel365', 'dynamics365', 'businesscentral'].includes(s?.id);
+  // un compte à plusieurs logiciels : on choisit d'abord lequel, puis on se connecte
+  if (C.compte && !C.s) return [...choixContenu(C), microsoft ? AVERTISSEMENT_MICROSOFT : null];
   if (C.mode === 'oauth' && s.oauth) {
     const connecte = C.oauth?.statut === 'connecte';
     const param = s.oauth.champ ? s.champs.find((ch) => ch.id === s.oauth.champ) : null;
     return [
-      h('div', { class: 'bz-grille-champs' }, selectCible(C), !connecte && param ? champOutil(C, param) : null),
+      C.compte && C.compte.contenus.filter((x) => x.disponible).length > 1 && !connecte
+        ? h('p', {}, h('strong', { texte: C.contenu?.libelle ?? '' }), ' dans votre compte ', h('span', { texte: `${C.compte.nom}. ` }),
+          h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => { nettoyerOutil(C); C.s = null; C.contenu = null; C.ferme = false; majOutil(C); } }, 'Changer')) : null,
+      !connecte && microsoft ? AVERTISSEMENT_MICROSOFT : null,
+      param && !connecte ? h('div', { class: 'bz-grille-champs' }, champOutil(C, param)) : null,
       !C.oauth ? h('div', { class: 'bz-pile' },
-        // le sens se choisit AVANT : Living Business ne demande à l'outil que le droit de lire, sauf synchro qui écrit
-        s.ecriture ? h('div', { class: 'bz-grille-champs' }, champListe('outil-sens', 'Sens de la synchronisation', C.sens, Object.entries(LIBELLE_SENS), (e) => { C.sens = e.target.value; majOutil(C); })) : null,
-        s.ecriture ? h('p', { class: 'bz-t-petit bz-texte-2', texte: C.sens === 'lecture' ? `${nomOutil} ne donnera que le droit de lire : rien ne sera modifié chez ${nomOutil}.` : `${nomOutil} donnera aussi le droit d’écrire : les fiches créées ou modifiées dans Living Business y seront reportées.` }) : null,
         h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--lg', cle: 'outil-oauth', onclick: () => seConnecterOutil(C) }, icone('log-in'), `Se connecter avec ${nomOutil}`)),
-        h('p', { class: 'bz-t-petit', texte: `Une page ${nomOutil} s’ouvre dans un nouvel onglet : connectez-vous avec votre compte et acceptez. Votre mot de passe reste chez ${nomOutil}, aucune clé à copier.` }),
+        h('p', { class: 'bz-t-petit', texte: `Une page ${nomOutil} s’ouvre dans un nouvel onglet : connectez-vous avec votre compte et acceptez. Votre mot de passe reste chez ${nomOutil}, aucune clé à copier. Living Business ne demande que le droit de LIRE : rien ne sera modifié chez ${nomOutil}, et rien ne sera importé tant que vous ne l’aurez pas choisi.` }),
         infoRelais(nomOutil))
         : !connecte ? h('div', { role: 'status' }, resultatAssistant('attente', C.oauth.statut === 'ouverture' ? `Ouverture de la page ${nomOutil}…` : 'Connectez-vous dans l’onglet qui vient de s’ouvrir.', {
           detail: C.oauth.verification ? 'Avant d’accepter, Breizhcosystem vous montre le code de la demande : il doit être identique à celui-ci. Sinon, refusez : quelqu’un d’autre a lancé cette connexion. Cette fenêtre se met à jour toute seule ensuite.' : 'Cette fenêtre se met à jour toute seule dès que vous avez accepté.',
           actions: h('div', { class: 'bz-pile' }, C.oauth.verification ? h('p', { class: 'bz-code-secours bz-t-identifiant', 'data-brut': '', 'aria-label': `Code de la demande : ${C.oauth.verification.split('').join(' ')}`, texte: C.oauth.verification }) : null, h('div', { class: 'bz-groupe-boutons' },
             C.oauth.url ? h('a', { class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', href: C.oauth.url, target: '_blank', rel: 'noopener noreferrer' }, C.oauth.ouvert ? 'Rouvrir la page' : `Ouvrir la page ${nomOutil}`, icone('external-link', { taille: 'sm' })) : null,
             h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', onclick: () => { arreterOAuth(C); C.oauth = null; majOutil(C); } }, 'Annuler la connexion'))) }))
-        : resultatAssistant('ok', `Connecté à ${nomOutil}${C.oauth.compte ? ` · ${C.oauth.compte}` : ''}.`, {
-          actions: h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => seConnecterOutil(C) }, 'Changer de compte')) }),
-      connecte ? h('div', { class: 'bz-grille-champs' }, s.champs.filter((ch) => !ch.secret && ch.mode !== 'cle' && ch.id !== s.oauth.champ).map((ch) => champOutil(C, ch)), reglagesSynchro(C, { sens: false })) : null,
-      connecte && s.ecriture ? h('p', { class: 'bz-t-petit' }, `Sens : ${LIBELLE_SENS[C.sens] ?? C.sens}, choisi avant la connexion. `,
-        h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => { arreterOAuth(C); oublierConnexion(C); delete C.config.jeton; C.oauth = null; majOutil(C); } }, 'Changer de sens (nouvelle connexion)')) : null,
-      connecte ? h('p', { class: 'bz-t-petit', texte: `La connexion est chiffrée sur cet ordinateur et n’est jamais affichée. Vos données vont directement de ${nomOutil} à Living Business, sans passer par Breizhcosystem ; seuls les jetons de connexion y passent, à la connexion et à chaque renouvellement.` }) : null,
+        : [
+          resultatAssistant('ok', `Connecté à ${nomOutil}${C.oauth.compte ? ` · ${C.oauth.compte}` : ''}. Rien n’a encore été importé.`, {
+            detail: 'Vous choisissez à l’écran suivant ce que vous voulez récupérer. Tant que vous n’aurez pas validé, votre carte ne bouge pas.',
+            actions: h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => seConnecterOutil(C) }, 'Changer de compte')) }),
+          h('p', { class: 'bz-t-petit', texte: `La connexion est chiffrée sur cet ordinateur et n’est jamais affichée. Vos données vont directement de ${nomOutil} à Living Business, sans passer par Breizhcosystem ; seuls les jetons de connexion y passent, à la connexion et à chaque renouvellement.` }),
+        ],
       h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => modeCle(C) }, icone('code-xml'), 'Mode avancé : pour votre informaticien')),
     ];
   }
   // Parcours par clé : le jargon de l'outil (droits, noms internes, « API V2 ») reste dans les replis « pour votre
-  // informaticien » ; l'écran principal ne demande que le choix des fiches et la clé (P4, annexe B).
-  const champsCle = s.champs.filter((ch) => ch.mode !== 'oauth' && !(s.id === 'sheets' && ch.id === 'jeton'));
+  // informaticien » ; l'écran principal ne demande que la clé et l'adresse (P4, annexe B).
+  const champsCle = champsEtape(C, true);
   const champ = (ch) => (ch.connexion ? blocConnexionMicrosoft(C, ch) : champOutil(C, ch));
   const avances = champsCle.filter((ch) => ch.avance);
   return [
@@ -6584,16 +6723,13 @@ function corpsConnexion(C) {
       ? h('div', { class: 'bz-pile' }, h('p', { class: 'bz-t-surtitre', texte: 'Mode avancé : pour votre informaticien' }),
         h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => modeOAuth(C) }, `Revenir à « Se connecter avec ${nomOutil} », plus simple`)))
       : s.avance ? h('p', { class: 'bz-t-surtitre', texte: 'Mode avancé : pour votre informaticien' })
-      : h('p', { texte: `${s.nom} se branche avec une clé d’accès créée dans ${s.nom}. Votre informaticien peut s’en charger : la marche à suivre est juste en dessous.` }),
-    !s.oauth && s.oauthPossible ? resultatAssistant('info', `Bientôt en un clic : « Se connecter avec ${s.nom} »`, { detail: `Ce bouton apparaîtra quand l’éditeur l’aura ouvert pour ${s.nom}, l’adresse de Breizhcosystem étant réglée (Réglages › Breizhcosystem, sans compte Breizhcosystem) : vous vous connecterez avec votre compte ${s.nom}, sans clé à copier.` }) : null,
+      : h('p', { texte: `${s.nom} se branche avec une clé d’accès créée dans ${s.nom}. Votre informaticien peut s’en charger : la marche à suivre est juste en dessous. Se connecter n’importe rien : vous choisirez ensuite ce que vous voulez récupérer.` }),
+    microsoft ? AVERTISSEMENT_MICROSOFT : null,
     s.avance ? h('ol', { class: 'bz-consignes' }, s.etapes.map((e) => h('li', { texte: e })))
       : h('details', { class: 'bz-repli' },
         h('summary', {}, h('span', { class: 'bz-repli__titre', texte: `Où trouver la clé d’accès ${s.nom} ? (pour votre informaticien)` }), icone('chevron-down', { taille: 'sm' })),
         h('ol', { class: 'bz-repli__corps bz-consignes' }, s.etapes.map((e) => h('li', { texte: e })))),
-    h('div', { class: 'bz-grille-champs' },
-      selectCible(C),
-      champsCle.filter((ch) => !ch.avance).map(champ),
-      reglagesSynchro(C)),
+    h('div', { class: 'bz-grille-champs' }, champsCle.filter((ch) => !ch.avance).map(champ)),
     avances.length ? h('details', { class: 'bz-repli' },
       h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Réglages facultatifs (pour votre informaticien)' }), icone('chevron-down', { taille: 'sm' })),
       h('div', { class: 'bz-repli__corps bz-grille-champs' }, avances.map(champ))) : null,
@@ -6601,55 +6737,161 @@ function corpsConnexion(C) {
       h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Script à coller dans votre feuille (votre secret est déjà dedans)' }), icone('chevron-down', { taille: 'sm' })),
       h('div', { class: 'bz-repli__corps' }, blocCode(s.script.replace('COLLEZ_ICI_LE_SECRET_AFFICHE_DANS_LIVING_BUSINESS', C.config.jeton ?? ''), 'Copier le script'))) : null,
     h('p', { class: 'bz-t-petit', texte: s.id === 'excel365' ? 'Aucun mot de passe ne passe par Living Business : la connexion se fait sur la page Microsoft, et elle est chiffrée sur cet ordinateur.' : 'La clé est chiffrée sur cet ordinateur et ne sera plus jamais affichée.' }),
-    s.id === 'mcp' ? h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', 'aria-busy': C.envoi ? 'true' : null, onclick: () => listerOutilsMcp(C) }, C.envoi ? icone('loader-circle') : icone('list'), 'Lister les outils du serveur')) : null,
   ];
 }
-/** Action principale de l'étape « Se connecter » : tester (mode avancé), ou continuer une fois connecté. */
+/** Action principale de l'étape « Se connecter » : continuer vers « Que voulez-vous récupérer ? ». */
 function piedConnexion(C) {
   const A = E.assistant;
+  if (C.compte && !C.s) return null;
   const pret = C.mode === 'cle' || !C.s.oauth || C.oauth?.statut === 'connecte';
   if (!pret) return null;
-  return boutonPrincipal(C.s.lecture === 'reception' ? 'Continuer' : C.mode === 'cle' ? 'Tester la connexion' : 'Continuer', () => testerOutil(C), { occupe: A.envoi, enCours: 'Connexion…' });
+  return boutonPrincipal('Continuer', () => versRecuperer(C), { occupe: A.envoi, enCours: 'Vérification…' });
 }
-async function testerOutil(C) {
+/** Fin de la connexion : on passe à « Que voulez-vous récupérer ? ». Rien n'est enregistré, rien n'est importé. */
+function versRecuperer(C) {
   const A = E.assistant;
   if (!A || A.envoi) return;
   A.erreur = null;
-  C.erreurs = erreursOutil(C);
+  C.erreurs = erreursOutil(C, true);
   if (C.erreurs) { A.focusErreur = true; majOutil(C); return; } // rien ne part au serveur : l'erreur se corrige ici
-  A.envoi = true; majOutil(C);
+  C.apercu = null;
+  C.choix = {};
+  A.etape = 'recuperer';
+  majOutil(C);
+  const premiere = listesOutil(C)[0];
+  if (premiere) chargerChoix(C, premiere);
+}
+
+// ---- étape « Que voulez-vous récupérer ? » : le compte est branché, rien n'est entré dans le jeu
+/* Le point le plus important : CONNECTER N'EST PAS IMPORTER. La connexion ne crée aucune fiche. Ici on voit ce que le
+   compte contient (bases, tables, feuilles, objets), ce que ça deviendra dans le jeu, un aperçu de quelques lignes et
+   le sens, et rien n'entre tant que la personne n'a pas validé à l'écran suivant. */
+const listesRecuperer = (C) => champsEtape(C, false).filter((ch) => (ch.liste || ch.choix) && ch.obligatoire && !ch.avance);
+/** Tous les choix « quoi récupérer » sont-ils faits ? */
+const recuperationChoisie = (C) => champsEtape(C, false).every((ch) => !ch.obligatoire || String(C.config[ch.id] ?? '').trim());
+/** Nom lisible de ce qui a été choisi (« Clients 2026 »), pour deviner la cible et nommer le branchement. */
+function nomChoisi(C) {
+  for (const ch of listesRecuperer(C)) {
+    const v = C.config[ch.id];
+    if (!v) continue;
+    const dansListe = C.choix[ch.id]?.options?.find((o) => o.valeur === v)?.libelle;
+    const dansChoix = (ch.options ?? []).find((o) => o.valeur === v)?.libelle;
+    if (dansListe || dansChoix) return dansListe ?? dansChoix;
+  }
+  return '';
+}
+/**
+ * Ce qui décide du contenu de l'aperçu. Un rendu recrée les champs de l'écran, et le navigateur peut émettre
+ * « change » sur celui qu'il retire : sans cette signature, l'aperçu se rechargerait en boucle.
+ */
+const signatureRecuperation = (C) => JSON.stringify([C.config, C.cible?.cle ?? '']);
+/** L'aperçu : quelques lignes lues chez l'outil et la correspondance proposée. Lecture seule : rien n'est enregistré. */
+async function chargerApercu(C) {
+  const A = E.assistant;
+  if (!A || !recuperationChoisie(C)) return;
+  const nom = nomChoisi(C);
+  if (!C.cible || C.cibleAuto) { C.cible = CONNECTER.cibleProbable(nom, ciblesImport()) ?? C.cible ?? ciblesImport()[0]; C.cibleAuto = true; }
+  C.signatureApercu = signatureRecuperation(C);
+  C.chargeApercu = true;
+  C.erreurApercu = null;
+  majOutil(C);
   try {
-    C.apercu = await api('POST', '/synchro/apercu', { source: C.s.id, config: C.config, typeObjet: C.cible.type });
-    C.mapping = { ...C.apercu.mapping };
-    A.etape = 'colonnes';
+    const r = await api('POST', '/synchro/apercu', { source: C.s.id, config: C.config, typeObjet: C.cible.type, ...(C.cree ? { id: C.cree.id } : {}) });
+    if (C.ferme) return;
+    C.apercu = r;
+    C.mapping = { ...r.mapping };
+    if (nom && C.compte) C.nom = `${C.compte.nom} · ${nom}`;
+    else if (nom) C.nom = `${C.s.nom} · ${nom}`;
   } catch (e) {
     if (!e.session) {
+      C.apercu = null;
       const champ = /^reglage_invalide:(.+)$/.exec(e.code ?? '')?.[1];
+      C.erreurApercu = e.message;
       if (champ && C.s.champs.some((ch) => ch.id === champ)) C.erreurs = { [champ]: e.message };
-      else A.erreur = e.message;
-      A.focusErreur = true;
     }
   }
-  A.envoi = false; majOutil(C);
+  C.chargeApercu = false;
+  majOutil(C);
+}
+/** Tableau d'aperçu : 4 colonnes, 3 lignes — assez pour reconnaître ses données, jamais un écran de données. */
+/**
+ * Aperçu : trois lignes, quatre colonnes au plus — assez pour reconnaître ses données, jamais un écran de données.
+ * Une liste plutôt qu'un tableau : l'assistant est une colonne étroite, et chaque ligne s'y lit d'un coup d'oeil.
+ */
+function tableauApercu(a) {
+  const colonnes = a.champs.slice(0, 4);
+  const lignes = a.apercu.slice(0, 3);
+  if (!colonnes.length || !lignes.length) return null;
+  const valeur = (v) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  return h('div', { class: 'bz-pile bz-pile--serre' },
+    h('p', { class: 'bz-t-petit bz-texte-2' }, 'Colonnes lues : ', h('span', { 'data-brut': '', texte: colonnes.join(' · ') }),
+      a.champs.length > colonnes.length ? `, et ${pluriel(a.champs.length - colonnes.length, 'autre', 'autres')}.` : '.'),
+    h('ul', { class: 'bz-liste-simple bz-t-petit', role: 'list', 'aria-label': 'Premières lignes lues' },
+      lignes.map((l) => h('li', { 'data-brut': '', texte: colonnes.map((c) => valeur(l[c])).filter(Boolean).join(' · ') }))));
+}
+function corpsRecuperer(C) {
+  const nomOutil = nomOutilDe(C);
+  const listes = listesRecuperer(C);
+  const autres = champsEtape(C, false).filter((ch) => !listes.includes(ch));
+  const a = C.apercu;
+  // relecture seulement si un réglage a vraiment changé (sinon un simple rendu relancerait la lecture sans fin)
+  const relire = () => { if (C.signatureApercu === signatureRecuperation(C)) return; C.apercu = null; majOutil(C); chargerApercu(C); };
+  return [
+    resultatAssistant('ok', `Connecté à ${nomOutil}. Rien n’a encore été importé.`, { detail: 'Choisissez ce que vous voulez récupérer : rien n’entrera dans le jeu avant que vous ne validiez.' }),
+    C.s.lecture === 'reception'
+      ? h('p', { texte: 'Ce branchement reçoit les données que votre scénario lui envoie : il n’y a rien à choisir ici. Indiquez seulement à quoi elles correspondent dans le jeu.' })
+      : listes.length ? h('div', { class: 'bz-grille-champs' }, listes.map((ch) => champOutil(C, ch, { apres: relire })))
+      : h('p', { class: 'bz-t-petit', texte: `Tout ce que ce branchement lit chez ${nomOutil} sera repris.` }),
+    C.s.id === 'mcp' ? h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', 'aria-busy': C.envoi ? 'true' : null, onclick: () => listerOutilsMcp(C) }, C.envoi ? icone('loader-circle') : icone('list'), 'Lister les outils du serveur')) : null,
+    autres.length ? h('details', { class: 'bz-repli', open: Boolean(C.detailsOuvert), ontoggle: (e) => { C.detailsOuvert = e.currentTarget.open; } },
+      h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Préciser (onglet, colonne identifiant…)' }), icone('chevron-down', { taille: 'sm' })),
+      h('div', { class: 'bz-repli__corps bz-grille-champs' }, autres.map((ch) => champOutil(C, ch, { apres: relire })))) : null,
+    !a && !C.chargeApercu && !C.erreurApercu && C.s.lecture === 'appel'
+      ? (recuperationChoisie(C) ? h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => chargerApercu(C) }, icone('eye'), 'Voir un aperçu')) : null) : null,
+    C.chargeApercu ? h('div', { role: 'status' }, resultatAssistant('attente', `Lecture dans ${nomOutil}…`, { detail: 'Quelques lignes seulement, pour vous montrer ce que ça donne. Rien n’est enregistré.' })) : null,
+    C.erreurApercu ? resultatAssistant('critique', 'Impossible de lire ces données.', { detail: C.erreurApercu, alerte: true,
+      actions: h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: relire }, icone('refresh-cw', { taille: 'sm' }), 'Réessayer')) }) : null,
+    a ? [
+      a.message ? resultatAssistant('info', a.message) : resultatAssistant('ok', `${pluriel(a.enregistrements, 'fiche trouvée', 'fiches trouvées')} chez ${nomOutil}.`, { detail: 'Voici les premières lignes, telles qu’elles sont aujourd’hui chez vous.' }),
+      a.precision ? resultatAssistant('info', a.precision) : null,
+      tableauApercu(a),
+      h('div', { class: 'bz-grille-champs' }, selectCible(C, () => { C.cibleAuto = false; relire(); }), reglagesSynchro(C, { sens: false })),
+      blocSens(C),
+    ] : null,
+  ];
+}
+/** Le sens : lecture seule par défaut, puisque la connexion n'a demandé que le droit de lire. */
+function blocSens(C) {
+  const nomOutil = nomOutilDe(C);
+  if (!C.s.ecriture) return h('p', { class: 'bz-t-petit', texte: `Sens : de ${nomOutil} vers le jeu. Living Business ne modifie rien chez ${nomOutil}.` });
+  if (C.mode === 'cle') return h('div', { class: 'bz-grille-champs' }, champListe('outil-sens', 'Sens de la synchronisation', C.sens, Object.entries(LIBELLE_SENS), (e) => { C.sens = e.target.value; }));
+  if (C.droits === 'ecriture') return h('div', { class: 'bz-grille-champs' }, champListe('outil-sens', 'Sens de la synchronisation', C.sens, Object.entries(LIBELLE_SENS), (e) => { C.sens = e.target.value; }));
+  return h('div', { class: 'bz-pile bz-pile--serre' },
+    h('p', { class: 'bz-t-petit', texte: `Sens : de ${nomOutil} vers le jeu (lecture seule). Vous vous êtes connecté sans donner le droit d’écrire : rien ne sera modifié chez ${nomOutil}.` }),
+    h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => { C.sens = 'deux'; C.apercu = null; E.assistant.etape = 'connexion'; seConnecterOutil(C); } },
+      `Je veux aussi que le jeu écrive dans ${nomOutil} (nouvelle connexion)`)));
 }
 function corpsColonnesOutil(C) {
   const a = C.apercu;
   return [
-    a.message ? resultatAssistant('info', a.message) : resultatAssistant('ok', `Connexion réussie : ${pluriel(a.enregistrements, 'fiche trouvée', 'fiches trouvées')}.`, { detail: 'Vérifiez les colonnes associées, puis activez la synchronisation.' }),
-    // ce que l'outil précise sur ce qui est lu (ex. lequel des tableaux d'une base Notion qui en contient plusieurs)
-    a.precision ? resultatAssistant('info', a.precision) : null,
+    resultatAssistant('info', 'Dernière étape avant l’import.', { detail: `Vérifiez la correspondance entre les colonnes de ${nomOutilDe(C)} et les champs du jeu, corrigez ce qu’il faut, puis importez. Une colonne non reconnue est simplement laissée de côté : elle ne fait rien échouer.` }),
     a.champs.length ? listeColonnes(a.champs, a.cibles, C.mapping, (ch) => a.apercu.map((l) => l[ch]).filter(Boolean).slice(0, 3).join(' · ').slice(0, 120))
       : h('p', { class: 'bz-t-petit', texte: 'Les colonnes seront associées automatiquement à la première réception.' }),
     h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'outil-nom', texte: 'Nom de cette connexion' }),
       h('input', { id: 'outil-nom', class: 'bz-champ__saisie', type: 'text', maxlength: '80', autocomplete: 'off', value: C.nom, oninput: (e) => (C.nom = e.target.value) })),
   ];
 }
+/** La personne a tout vu et tout validé : c'est ici, et nulle part avant, que les fiches entrent dans le jeu. */
 async function activerOutil(C) {
   const A = E.assistant;
   if (!A || A.envoi) return;
   A.envoi = true; A.erreur = null; majOutil(C);
+  const reglages = { nom: C.nom, config: C.config, typeObjet: C.cible.type, roles: C.cible.roles ?? [], mapping: C.mapping, sens: C.sens, intervalleS: C.intervalle };
   try {
-    C.cree = await api('POST', '/synchro', { source: C.s.id, nom: C.nom, config: C.config, typeObjet: C.cible.type, roles: C.cible.roles ?? [], mapping: C.mapping, sens: C.sens, intervalleS: C.intervalle });
+    // compte déjà enregistré à la connexion : on complète ce branchement-là, on n'en crée pas un second
+    C.cree = C.cree?.id
+      ? await api('PUT', `/synchro/${C.cree.id}`, { ...reglages, actif: true })
+      : await api('POST', '/synchro', { source: C.s.id, ...reglages });
     if (C.s.lecture === 'appel') await api('POST', `/synchro/${C.cree.id}/maintenant`).catch(() => {});
     A.etape = 'pret';
     await charger();
@@ -6676,18 +6918,19 @@ function corpsPretOutil(C) {
   ];
 }
 
-/** Liste des logiciels synchronisés (Réglages, « Compléter mon entreprise ») : mêmes cartes que l'assistant. */
+/** Liste des comptes et logiciels à brancher (Réglages) : mêmes cartes et mêmes sections que l'assistant. */
 function listeOutils(sources) {
-  const cat = CONNECTER_PRET() ? CONNECTER.catalogue(sources, [], { pasAPas: false }) : sources.map((s) => ({ cle: `outil:${s.id}`, genre: 'outil', id: s.id, nom: s.nom, description: s.description, icone: 'plug', unClic: Boolean(s.oauth), avance: Boolean(s.avance), bientot: false }));
-  const ouvrir = (x) => ouvrirConnecteur(x.id);
-  const simples = cat.filter((x) => !x.avance);
-  const avances = cat.filter((x) => x.avance);
-  return [
-    simples.length ? h('ul', { class: 'bz-logiciels', role: 'list' }, simples.map((x) => h('li', {}, carteLogiciel(x, { faire: ouvrir })))) : null,
-    avances.length ? h('details', { class: 'bz-repli' },
-      h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Mode avancé : pour votre informaticien' }), h('span', { class: 'bz-repli__note', texte: 'serveur MCP, webhook, API' }), icone('chevron-down', { taille: 'sm' })),
-      h('div', { class: 'bz-repli__corps' }, h('ul', { class: 'bz-logiciels', role: 'list' }, avances.map((x) => h('li', {}, carteLogiciel(x, { faire: ouvrir })))))) : null,
-  ];
+  if (!CONNECTER_PRET()) return null;
+  const cat = CONNECTER.catalogue(sources, [], { pasAPas: false });
+  const ouvrir = (x) => { if (x.genre === 'compte') ouvrirCompte(x.id); else ouvrirConnecteur(x.id); };
+  return CONNECTER.SECTIONS.filter((s) => s.id !== 'fichier').map((s) => {
+    const liste = cat.filter((x) => x.section === s.id);
+    if (!liste.length) return null;
+    const id = `reglages-section-${s.id}`;
+    return h('section', { class: 'bz-catalogue', 'aria-labelledby': id },
+      h('div', {}, h('h4', { class: 'bz-catalogue__intertitre', id, texte: s.titre }), h('p', { class: 'bz-t-petit', texte: s.texte })),
+      h('ul', { class: 'bz-logiciels', role: 'list' }, liste.map((x) => h('li', {}, carteLogiciel(x, { faire: ouvrir })))));
+  });
 }
 const CONNECTER_PRET = () => Boolean(CONNECTER);
 

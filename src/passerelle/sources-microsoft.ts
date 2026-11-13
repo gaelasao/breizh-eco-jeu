@@ -46,14 +46,24 @@ export function applicationMicrosoft(cfg: Config): string {
   return c;
 }
 
-/** Message lisible pour une erreur du service de connexion Microsoft. */
+/**
+ * Message lisible pour une erreur du service de connexion Microsoft (mode avancé : application inscrite par
+ * l'entreprise, connexion par code d'appareil). Les codes AADSTS ne servent qu'à reconnaître la situation ; sans code
+ * reconnu, on dit ce que Microsoft a répondu, en une phrase.
+ * https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes
+ * https://learn.microsoft.com/en-us/troubleshoot/entra/entra-id/app-integration/confidential-client-application-authentication-error-aadsts7000218 (flux de clients publics)
+ * https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-authentication-flows (le code d'appareil est souvent bloqué)
+ */
 function messageConnexion(json: Record<string, unknown>): string {
   const code = String(json.error ?? '');
   const detail = String(json.error_description ?? '');
   if (/AADSTS7000218/.test(detail)) return 'Dans l’inscription de l’application : Authentification → « Autoriser les flux de clients publics » → Oui, puis Enregistrer.';
+  if (/AADSTS53003|AADSTS530035|AADSTS530036/.test(detail)) return 'Une règle de sécurité de votre entreprise bloque ce mode de connexion (accès conditionnel). Microsoft conseille lui-même de le bloquer : demandez à la personne qui gère Microsoft 365 d’autoriser Living Business, ou passez par « Se connecter avec Microsoft » en un clic.';
+  if (/AADSTS500208|AADSTS500207|AADSTS50020|AADSTS16000/.test(detail)) return 'Ce compte Microsoft n’est pas un compte professionnel de cet annuaire : connectez-vous avec l’adresse de votre entreprise. Un compte personnel (Outlook, Hotmail, Live) ne convient pas — Microsoft n’ouvre pas Excel aux classeurs d’un OneDrive personnel.';
   if (/AADSTS700016/.test(detail) || code === 'unauthorized_client') return 'Application introuvable dans cet annuaire : vérifiez l’ID d’application et l’ID de l’annuaire.';
   if (/AADSTS90002/.test(detail)) return 'Annuaire Microsoft introuvable : vérifiez l’ID de l’annuaire.';
   if (/AADSTS65001/.test(detail) || code === 'consent_required') return 'Autorisation manquante : reconnectez-vous et acceptez l’accès aux fichiers (ou demandez l’accord de l’administrateur Microsoft 365).';
+  if (/AADSTS50105|AADSTS501051/.test(detail)) return 'Votre compte n’est pas autorisé pour cette application : la personne qui gère Microsoft 365 doit vous y affecter (Applications d’entreprise → Utilisateurs et groupes).';
   if (code === 'invalid_grant' || code === 'interaction_required') return 'Connexion Microsoft expirée ou retirée : reconnectez-vous (Réglages → Outils branchés).';
   return `Microsoft : ${(detail.split(/\r?\n/)[0] || code || 'connexion impossible').slice(0, 200)}`;
 }

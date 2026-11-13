@@ -1,11 +1,15 @@
 /* Living Business — « Connecter mes données » (direction de design §6.1 P4, §4.21, §4.23, §2.6).
-   Module PUR (aucun accès au DOM, au réseau ni au stockage), testé par src/ds/connecter.test.ts. Il décide QUOI proposer :
-   (1) une question d'entrée, « Où sont vos clients aujourd'hui ? », à 6 réponses ; (2) 3 recommandations tirées de la
-   réponse ; (3) le catalogue complet, filtrable par famille et par recherche, où « 1 clic » est la seule pastille qui
-   distingue un logiciel d'un autre ; (4) les étapes de chaque parcours (assistant du §4.21).
-   Le catalogue réunit les outils synchronisés (GET /sources, « Se connecter avec… » quand le relais de Breizhcosystem l'ouvre)
-   et les imports ponctuels (GET /connecteurs : fichier, copier-coller, saisie, FEC). Le serveur MCP, le webhook et
-   l'API REST passent dans « Mode avancé : pour votre informaticien ». */
+   Module PUR (aucun accès au DOM, au réseau ni au stockage), testé par src/ds/connecter.test.ts. Il décide QUOI proposer.
+
+   Trois règles tiennent tout l'écran :
+   (1) on branche un COMPTE, pas une API : un compte Google (ses feuilles de calcul aujourd'hui), un compte Microsoft
+       (classeur Excel, Dynamics 365, Business Central). Ce que le compte contient se choisit APRÈS la connexion ;
+   (2) trois sections seulement — « En un clic » (ce que le relais ouvre vraiment), « Avec une clé », « Par webhook ou
+       API » — plus les imports de fichier, qui ne demandent aucune connexion ;
+   (3) ce qui ne marche pas n'est pas proposé : un outil ouvert nulle part n'apparaît pas du tout, et rien dans
+       « En un clic » ne mène à un refus.
+   Le catalogue réunit les outils synchronisés (GET /sources) et les imports ponctuels (GET /connecteurs : fichier,
+   copier-coller, saisie, FEC). Le serveur MCP, le webhook et l'API REST forment la section « Par webhook ou API ». */
 
 export const QUESTION = 'Où sont vos clients aujourd’hui ?';
 
@@ -41,20 +45,61 @@ const FAMILLE_DE_CATEGORIE = Object.freeze({
 /** Quelques logiciels se cherchent d'abord ailleurs que dans leur catégorie déclarée. */
 const FAMILLE_FORCEE = Object.freeze({ axonaut: 'facturation', 'ebp-api': 'facturation' });
 
+/**
+ * Les trois sections de l'écran, dans l'ordre. « fichier » n'est pas une façon de brancher un compte : c'est ce qu'on
+ * fait quand il n'y a rien à brancher, et elle ferme la page.
+ */
+export const SECTIONS = Object.freeze([
+  { id: 'un-clic', titre: 'En un clic', texte: 'Vous vous connectez avec votre compte, sans rien copier. Tout ce qui est ici fonctionne aujourd’hui.' },
+  { id: 'cle', titre: 'Avec une clé', texte: 'Une clé (ou un jeton) à créer dans le logiciel, puis à coller ici. Votre informaticien peut s’en charger.' },
+  { id: 'avance', titre: 'Par webhook ou API', texte: 'Pour un logiciel absent de la liste : webhook Make, Zapier ou n8n, API REST, serveur MCP.' },
+  { id: 'fichier', titre: 'Sans rien connecter', texte: 'Un fichier, un copier-coller, ou quelques questions : rien à brancher, rien à autoriser.' },
+].map(Object.freeze));
+
+/**
+ * Un compte, pas un connecteur. Google et Microsoft ouvrent chacun plusieurs outils : une seule entrée dans le
+ * catalogue, une seule connexion, et le contenu se choisit après. `source: null` : prévu, pas encore fait — montré
+ * comme tel sur l'écran « Que voulez-vous récupérer ? », jamais proposé au clic.
+ */
+export const COMPTES = Object.freeze([
+  {
+    id: 'google', nom: 'Google', icone: 'sheet', famille: 'tableurs',
+    description: 'Une seule connexion pour votre compte Google. Aujourd’hui : vos feuilles de calcul.',
+    contenus: [
+      { id: 'sheets', libelle: 'Feuilles de calcul', detail: 'Clients, commandes, stock… dans les deux sens.', source: 'sheets' },
+      { id: 'agenda', libelle: 'Agenda', detail: 'Rendez-vous et interventions.', source: null },
+      { id: 'messagerie', libelle: 'Messagerie', detail: 'Les mails de vos clients.', source: null },
+    ],
+  },
+  {
+    id: 'microsoft', nom: 'Microsoft', icone: 'file-spreadsheet', famille: 'tableurs',
+    description: 'Une seule entrée pour votre compte Microsoft 365 : Excel sur OneDrive ou SharePoint, Dynamics 365, Business Central.',
+    professionnel: true,
+    contenus: [
+      { id: 'excel365', libelle: 'Un classeur Excel', detail: 'Sur OneDrive professionnel ou SharePoint.', source: 'excel365' },
+      { id: 'dynamics365', libelle: 'Dynamics 365', detail: 'Les comptes et les contacts de votre CRM.', source: 'dynamics365' },
+      { id: 'businesscentral', libelle: 'Business Central', detail: 'Clients, fournisseurs et articles.', source: 'businesscentral' },
+    ],
+  },
+].map(Object.freeze));
+
+/** Compte auquel appartient un outil (sheets → Google, excel365 → Microsoft…) ; null s'il est seul de son espèce. */
+export const compteDe = (sourceId) => COMPTES.find((c) => c.contenus.some((x) => x.source === sourceId)) ?? null;
+
 /** Pseudo-entrée : le parcours « Compléter mon entreprise » (lieux, équipe, clients et fournisseurs, pas à pas). */
 export const PAS_A_PAS = Object.freeze({
   cle: 'action:pas-a-pas', genre: 'action', id: 'pas-a-pas', nom: 'Compléter mon entreprise pas à pas',
   description: 'Lieux, équipe, clients et fournisseurs : quelques questions, enregistrées aussitôt.', famille: 'tableurs', icone: 'list-checks',
-  unClic: false, avance: false, bientot: false,
+  unClic: false, avance: false, bientot: false, section: 'fichier',
 });
 
 /** Pour chaque réponse, les candidats dans l'ordre de préférence ; les 3 premiers disponibles sont recommandés. */
 export const CONSEILS = Object.freeze({
   // un fichier .xlsx n'est pas encore lu : le copier-coller d'abord (aucune conversion), puis le CSV
-  excel: ['outil:excel365', 'import:coller', 'import:csv'],
-  google: ['outil:sheets', 'import:sheets', 'import:csv'],
+  excel: ['compte:microsoft', 'import:coller', 'import:csv'],
+  google: ['compte:google', 'import:coller', 'import:csv'],
   facturation: ['outil:pennylane', 'outil:axonaut', 'outil:sellsy', 'import:fec'],
-  crm: ['outil:hubspot', 'outil:pipedrive', 'outil:dynamics365', 'outil:sellsy'],
+  crm: ['outil:hubspot', 'outil:pipedrive', 'compte:microsoft', 'outil:sellsy'],
   papier: ['import:manuel', 'action:pas-a-pas', 'import:coller'],
   'nulle-part': ['action:pas-a-pas', 'import:manuel', 'import:fec'],
 });
@@ -63,40 +108,75 @@ const sansAccent = (t) => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '
 const familleDe = (id, categorie) => FAMILLE_FORCEE[id] ?? FAMILLE_DE_CATEGORIE[categorie] ?? 'gestion';
 export const iconeFamille = (famille) => (famille === 'avance' ? ICONE_AVANCE : FAMILLES.find((f) => f.id === famille)?.icone ?? 'plug');
 export const libelleFamille = (famille) => (famille === 'avance' ? 'Mode avancé' : FAMILLES.find((f) => f.id === famille)?.libelle ?? '');
+export const libelleSection = (id) => SECTIONS.find((s) => s.id === id)?.titre ?? '';
+
+/** Un outil se branche-t-il avec une clé collée (jeton, secret, script) sans passer par le relais ? */
+const aUneCle = (s) => (s.champs ?? []).some((ch) => ch.secret && ch.mode !== 'oauth');
 
 /**
- * Catalogue unique : outils synchronisés d'abord (ceux en « 1 clic » en tête), puis imports ponctuels, puis le parcours
- * pas à pas. Chaque entrée : { cle, genre ('outil' | 'import' | 'action'), id, nom, description, famille, icone,
- * unClic, avance, bientot, ecriture }.
+ * Catalogue unique, regroupé par COMPTE et rangé en sections. Chaque entrée :
+ * { cle, genre ('compte' | 'outil' | 'import' | 'action'), id, nom, description, famille, icone, section,
+ *   unClic, avance, bientot, ecriture, contenus? }.
+ * Un outil qu'aucune voie n'ouvre (ni un clic, ni une clé, ni webhook) n'est pas proposé du tout, et un import annoncé
+ * « bientôt » non plus : la liste ne contient que ce qui marche aujourd'hui.
  */
 export function catalogue(sources = [], connecteurs = [], { pasAPas = true } = {}) {
-  const outils = (Array.isArray(sources) ? sources : []).map((s) => {
+  const liste = Array.isArray(sources) ? sources : [];
+  const parId = new Map(liste.map((s) => [s.id, s]));
+  const groupes = [];
+  const regroupes = new Set();
+  for (const c of COMPTES) {
+    const contenus = c.contenus.map((x) => {
+      const s = x.source ? parId.get(x.source) : null;
+      return { ...x, source: s ? x.source : null, disponible: Boolean(s), unClic: Boolean(s?.oauth), cle: Boolean(s && aUneCle(s)), ecriture: Boolean(s?.ecriture) };
+    });
+    const vivants = contenus.filter((x) => x.disponible);
+    if (!vivants.length) continue;
+    for (const x of vivants) regroupes.add(x.source);
+    const unClic = vivants.some((x) => x.unClic);
+    if (!unClic && !vivants.some((x) => x.cle)) continue;
+    groupes.push({
+      cle: `compte:${c.id}`, genre: 'compte', id: c.id, nom: c.nom, description: c.description, famille: c.famille, icone: c.icone,
+      unClic, avance: false, bientot: false, ecriture: vivants.some((x) => x.ecriture), professionnel: Boolean(c.professionnel),
+      section: unClic ? 'un-clic' : 'cle', contenus,
+    });
+  }
+  const outils = [];
+  for (const s of liste) {
+    if (regroupes.has(s.id)) continue;
     const famille = s.avance ? 'avance' : familleDe(s.id, s.categorie);
-    return {
+    const avance = Boolean(s.avance) || famille === 'avance';
+    const unClic = Boolean(s.oauth);
+    // ni un clic, ni une clé, ni mode avancé : rien ne marcherait, on ne le montre pas
+    if (!avance && !unClic && !aUneCle(s)) continue;
+    outils.push({
       cle: `outil:${s.id}`, genre: 'outil', id: s.id, nom: s.nom, description: s.description ?? '', famille, icone: iconeFamille(famille),
-      unClic: Boolean(s.oauth), avance: Boolean(s.avance) || famille === 'avance', bientot: false, ecriture: Boolean(s.ecriture),
-    };
-  });
-  const imports = (Array.isArray(connecteurs) ? connecteurs : []).map((c) => {
-    const famille = familleDe(c.id, c.categorie);
-    return {
-      cle: `import:${c.id}`, genre: 'import', id: c.id, nom: c.nom, description: c.description ?? '', famille,
-      icone: c.id === 'manuel' ? 'square-pen' : c.id === 'coller' ? 'clipboard-paste' : c.id === 'fec' ? 'calculator' : iconeFamille(famille),
-      unClic: false, avance: false, bientot: c.statut !== 'disponible', ecriture: Boolean(c.ecriture),
-    };
-  });
-  const rang = (x) => (x.unClic ? 0 : 1);
-  return [...outils.sort((a, b) => rang(a) - rang(b)), ...imports, ...(pasAPas ? [PAS_A_PAS] : [])];
+      unClic, avance, bientot: false, ecriture: Boolean(s.ecriture), section: avance ? 'avance' : unClic ? 'un-clic' : 'cle',
+    });
+  }
+  const imports = (Array.isArray(connecteurs) ? connecteurs : [])
+    // « Google Sheets (lien publié) » ferait doublon avec le compte Google : il reste proposé dans l'import de fichier
+    .filter((c) => c.statut === 'disponible' && c.id !== 'sheets')
+    .map((c) => {
+      const famille = familleDe(c.id, c.categorie);
+      return {
+        cle: `import:${c.id}`, genre: 'import', id: c.id, nom: c.nom, description: c.description ?? '', famille,
+        icone: c.id === 'manuel' ? 'square-pen' : c.id === 'coller' ? 'clipboard-paste' : c.id === 'fec' ? 'calculator' : iconeFamille(famille),
+        unClic: false, avance: false, bientot: false, ecriture: Boolean(c.ecriture), section: 'fichier',
+      };
+    });
+  const rang = (x) => (x.genre === 'compte' ? 0 : x.unClic ? 1 : 2);
+  return [...groupes, ...outils].sort((a, b) => rang(a) - rang(b)).concat(imports, pasAPas ? [PAS_A_PAS] : []);
 }
 
 /**
- * 3 recommandations pour une réponse : candidats disponibles (ni « bientôt », ni mode avancé), ceux en « 1 clic » d'abord,
+ * 3 recommandations pour une réponse : candidats disponibles, les comptes et les connexions en « 1 clic » d'abord,
  * puis les imports (aucune clé à demander), puis les outils qui demandent une clé ; l'ordre des conseils départage.
  */
 export function recommandations(reponse, cat, n = 3) {
   const candidats = CONSEILS[reponse] ?? [];
   const parCle = new Map((cat ?? []).map((x) => [x.cle, x]));
-  const rang = (x) => (x.unClic ? 0 : x.genre === 'outil' ? 2 : 1);
+  const rang = (x) => (x.unClic ? 0 : x.genre === 'outil' || x.genre === 'compte' ? 2 : 1);
   return candidats.map((c, i) => ({ x: parCle.get(c), i }))
     .filter(({ x }) => x && !x.bientot && !x.avance)
     .sort((a, b) => rang(a.x) - rang(b.x) || a.i - b.i)
@@ -104,15 +184,18 @@ export function recommandations(reponse, cat, n = 3) {
     .map(({ x }) => x);
 }
 
-/** Filtre du catalogue : famille (puce) et recherche tolérante aux accents, sur le nom, la description et la famille. */
+/**
+ * Filtre du catalogue : famille (puce) et recherche tolérante aux accents, sur le nom, la description, la famille et
+ * le contenu d'un compte (« Excel », « Dynamics »). Le résultat est rangé par section.
+ */
 export function filtrer(cat, { famille = null, recherche = '' } = {}) {
   const mots = sansAccent(recherche).split(/\s+/).filter(Boolean);
-  const garde = (x) => (!famille || x.famille === famille || x.avance) && mots.every((m) => sansAccent(`${x.nom} ${x.description} ${libelleFamille(x.famille)}`).includes(m));
+  const texteDe = (x) => `${x.nom} ${x.description} ${libelleFamille(x.famille)} ${(x.contenus ?? []).map((c) => `${c.libelle} ${c.detail}`).join(' ')}`;
+  const garde = (x) => (!famille || x.famille === famille || x.avance) && mots.every((m) => sansAccent(texteDe(x)).includes(m));
   const tous = (cat ?? []).filter(garde);
+  const dans = (id) => tous.filter((x) => x.section === id && (id === 'avance' || !famille || x.famille === famille));
   return {
-    simples: tous.filter((x) => !x.avance && !x.bientot && (!famille || x.famille === famille)),
-    bientot: tous.filter((x) => x.bientot && (!famille || x.famille === famille)),
-    avances: tous.filter((x) => x.avance),
+    'un-clic': dans('un-clic'), cle: dans('cle'), avance: dans('avance'), fichier: dans('fichier'),
     total: tous.filter((x) => !x.avance && (!famille || x.famille === famille)).length,
   };
 }
@@ -124,7 +207,8 @@ export const famillesPresentes = (cat) => FAMILLES.filter((f) => (cat ?? []).som
 export const PARCOURS = Object.freeze({
   fichier: [['choisir', 'Choisir'], ['contenu', 'Contenu'], ['fichier', 'Fichier'], ['colonnes', 'Associer les colonnes'], ['pret', 'C’est prêt']],
   manuel: [['choisir', 'Choisir'], ['contenu', 'Que voulez-vous ajouter ?']],
-  outil: [['choisir', 'Choisir'], ['connexion', 'Se connecter'], ['colonnes', 'Associer les colonnes'], ['pret', 'C’est prêt']],
+  // connecter n'est PAS importer : la connexion ne fait rien entrer ; « Que récupérer ? » vient après, puis l'import
+  outil: [['choisir', 'Choisir'], ['connexion', 'Se connecter'], ['recuperer', 'Que récupérer ?'], ['colonnes', 'Associer les colonnes'], ['pret', 'C’est prêt']],
   fec: [['choisir', 'Choisir'], ['fec', 'Déposer le fichier'], ['pret', 'Vos chiffres clés']],
   zero: [['choisir', 'Choisir'], ['zero', 'Créer mon entreprise']],
 });
@@ -132,7 +216,7 @@ export const PARCOURS = Object.freeze({
 /** Parcours d'une entrée du catalogue. */
 export function parcoursDe(x) {
   if (!x) return 'fichier';
-  if (x.genre === 'outil') return 'outil';
+  if (x.genre === 'outil' || x.genre === 'compte') return 'outil';
   if (x.id === 'fec') return 'fec';
   if (x.id === 'manuel') return 'manuel';
   return 'fichier';
@@ -144,6 +228,24 @@ export function progression(parcours, etape) {
   const i = Math.max(0, etapes.findIndex(([k]) => k === etape));
   const libelle = etapes[i]?.[1] ?? '';
   return { index: i, total: etapes.length, libelle, texte: `Étape ${i + 1} sur ${etapes.length} · ${libelle}` };
+}
+
+/**
+ * Ce qu'un tableau trouvé dans l'outil contient, d'après son nom : « Clients 2026 » → la cible « Clients ».
+ * Simple proposition, toujours corrigeable à l'écran ; null quand rien ne ressort (la personne choisit).
+ */
+export function cibleProbable(nom, cibles) {
+  const t = sansAccent(nom);
+  if (!t) return null;
+  let meilleure = null;
+  for (const c of cibles ?? []) {
+    const mot = sansAccent(c.libelle);
+    if (!mot) continue;
+    // « Clients » reconnaît « client », « Commandes » reconnaît « commande »
+    const racine = mot.replace(/s$/, '');
+    if (racine.length >= 4 && t.includes(racine) && (!meilleure || racine.length > sansAccent(meilleure.libelle).length)) meilleure = c;
+  }
+  return meilleure;
 }
 
 /**

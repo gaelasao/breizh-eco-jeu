@@ -152,7 +152,7 @@ test('liste filtrable (au-delà de 15 choix, §4.6) : sans accents ni casse, cha
 
 test('assistant de connecteur : champs obligatoires vérifiés avant tout appel, résumé focalisé, erreurs sous les champs', () => {
   const app = lire('web/app.js');
-  assert.match(app, /C\.erreurs = erreursOutil\(C\);\n {2}if \(C\.erreurs\) \{ A\.focusErreur = true; majOutil\(C\); return; \}/, 'aucun appel au serveur tant qu’un champ obligatoire est vide');
+  assert.match(app, /C\.erreurs = erreursOutil\(C, true\);\n {2}if \(C\.erreurs\) \{ A\.focusErreur = true; majOutil\(C\); return; \}/, 'aucun appel au serveur tant qu’un champ obligatoire est vide');
   assert.match(app, /resumeErreurs\(erreursChamps, \{ idDe: \(k\) => `outil-\$\{k\}`, id: 'assistant-resume-erreurs' \}\)/);
   assert.match(app, /'aria-invalid': invalide/);
   assert.match(app, /id: `\$\{id\}-erreur`/);

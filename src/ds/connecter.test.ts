@@ -1,6 +1,6 @@
 /**
  * « Connecter mes données » (direction de design §6.1 P4, §4.21, §4.23) : web/connecter.js (module pur) — question
- * d'entrée, 3 recommandations, catalogue filtrable, « 1 clic » seule pastille, mode avancé, étapes de l'assistant.
+ * d'entrée, 3 recommandations, regroupement par compte, trois sections, mode avancé, étapes de l'assistant.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,17 +8,23 @@ import { readFileSync } from 'node:fs';
 import { CONNECTEURS } from '../passerelle/connecteurs.ts';
 import { ADAPTATEURS } from '../passerelle/sources.ts';
 
-type Entree = { cle: string; genre: string; id: string; nom: string; description: string; famille: string; icone: string; unClic: boolean; avance: boolean; bientot: boolean };
+type Contenu = { id: string; libelle: string; detail: string; source: string | null; disponible: boolean; unClic: boolean; cle: boolean };
+type Entree = { cle: string; genre: string; id: string; nom: string; description: string; famille: string; icone: string; section: string; unClic: boolean; avance: boolean; bientot: boolean; contenus?: Contenu[] };
+type Sections = { 'un-clic': Entree[]; cle: Entree[]; avance: Entree[]; fichier: Entree[]; total: number };
 type Module = {
   QUESTION: string;
   REPONSES: ReadonlyArray<{ id: string; titre: string; detail: string; icone: string }>;
   FAMILLES: ReadonlyArray<{ id: string; libelle: string; icone: string }>;
+  SECTIONS: ReadonlyArray<{ id: 'un-clic' | 'cle' | 'avance' | 'fichier'; titre: string; texte: string }>;
+  COMPTES: ReadonlyArray<{ id: string; nom: string; icone: string; contenus: ReadonlyArray<{ id: string; libelle: string; source: string | null }> }>;
   CONSEILS: Readonly<Record<string, readonly string[]>>;
   PARCOURS: Readonly<Record<string, ReadonlyArray<readonly [string, string]>>>;
   catalogue: (s: readonly unknown[], c: readonly unknown[], o?: { pasAPas?: boolean }) => Entree[];
+  compteDe: (id: string) => { id: string } | null;
   recommandations: (r: string, cat: Entree[], n?: number) => Entree[];
-  filtrer: (cat: Entree[], o?: { famille?: string | null; recherche?: string }) => { simples: Entree[]; bientot: Entree[]; avances: Entree[]; total: number };
+  filtrer: (cat: Entree[], o?: { famille?: string | null; recherche?: string }) => Sections;
   famillesPresentes: (cat: Entree[]) => Array<{ id: string }>;
+  cibleProbable: (nom: string, cibles: ReadonlyArray<{ libelle: string }>) => { libelle: string } | null;
   parcoursDe: (x: Partial<Entree> | null) => string;
   progression: (p: string, e: string) => { index: number; total: number; libelle: string; texte: string };
   abandonAConfirmer: (o: { etape?: string; connexionEnCours?: boolean; saisie?: boolean }) => boolean;
@@ -30,8 +36,12 @@ const normaliser = (t: string) => t.replace(/[  ]/g, ' ');
 /** Catalogue réel : celui que la passerelle publie (GET /sources et GET /connecteurs). */
 function sourcesReelles(ouverts: string[] = []) {
   const AVANCES = ['mcp', 'webhook', 'rest'];
-  return Object.values(ADAPTATEURS).map((a) => ({ id: a.id, nom: a.nom, categorie: a.categorie, description: a.description, ecriture: a.ecriture, avance: AVANCES.includes(a.id), oauth: ouverts.includes(a.id) ? { nom: a.nom } : null }));
+  return Object.values(ADAPTATEURS).map((a) => ({
+    id: a.id, nom: a.nom, categorie: a.categorie, description: a.description, champs: a.champs, ecriture: a.ecriture,
+    avance: AVANCES.includes(a.id), oauth: ouverts.includes(a.id) ? { nom: a.nom } : null,
+  }));
 }
+const ids = (l: Entree[]) => l.map((x) => x.id).sort();
 
 test('question d’entrée : 6 réponses illustrées, dans l’ordre du §6.1 P4', () => {
   assert.equal(normaliser(M.QUESTION), 'Où sont vos clients aujourd’hui ?');
@@ -43,24 +53,103 @@ test('question d’entrée : 6 réponses illustrées, dans l’ordre du §6.1 P4
     assert.doesNotMatch(`${r.titre} ${r.detail}`, /\(s\)|[A-ZÉ]{4,}/, 'ni « (s) » ni capitales écrites');
   }
   for (const f of M.FAMILLES) assert.ok(sprite.includes(`id="i-${f.icone}"`), `famille ${f.id} : icône ${f.icone}`);
+  for (const c of M.COMPTES) assert.ok(sprite.includes(`id="i-${c.icone}"`), `compte ${c.id} : icône ${c.icone}`);
 });
 
-test('catalogue : outils synchronisés et imports réunis, « 1 clic » en tête, mode avancé à part, « bientôt » honnête', () => {
-  const cat = M.catalogue(sourcesReelles(['hubspot', 'sheets']), CONNECTEURS);
-  assert.ok(cat.length >= Object.keys(ADAPTATEURS).length + CONNECTEURS.length, 'rien n’est perdu');
-  assert.deepEqual(cat.slice(0, 2).map((x) => x.id).sort(), ['hubspot', 'sheets'], 'les logiciels en « 1 clic » d’abord');
-  assert.deepEqual(cat.filter((x) => x.avance).map((x) => x.id).sort(), ['mcp', 'rest', 'webhook'], 'MCP, webhook et API : mode avancé');
-  assert.deepEqual(cat.filter((x) => x.bientot).map((x) => x.id).sort(), CONNECTEURS.filter((c) => c.statut !== 'disponible').map((c) => c.id).sort());
-  assert.ok(cat.every((x) => x.unClic === (x.genre === 'outil' && ['hubspot', 'sheets'].includes(x.id))), '« 1 clic » vient seulement du relais');
-  assert.ok(cat.some((x) => x.cle === 'action:pas-a-pas'), 'le parcours pas à pas est proposé');
-  assert.ok(!M.catalogue([], [], { pasAPas: false }).length);
-  // chaque catégorie annoncée par la passerelle tombe dans une famille connue (aucune catégorie oubliée)
+test('un compte, pas un connecteur : Google et Microsoft n’ont qu’une entrée, leur contenu se choisit après', () => {
+  const cat = M.catalogue(sourcesReelles(['sheets', 'excel365', 'dynamics365', 'businesscentral']), CONNECTEURS);
+  const comptes = cat.filter((x) => x.genre === 'compte');
+  assert.deepEqual(ids(comptes), ['google', 'microsoft'], 'deux comptes, pas quatre connecteurs');
+  // les quatre entrées d'hier (deux comptes) ne figurent plus une par une
+  for (const id of ['sheets', 'excel365', 'dynamics365', 'businesscentral']) {
+    assert.ok(!cat.some((x) => x.genre === 'outil' && x.id === id), `${id} : plus d’entrée séparée`);
+  }
+  const microsoft = comptes.find((x) => x.id === 'microsoft');
+  assert.deepEqual(microsoft?.contenus?.filter((c) => c.disponible).map((c) => c.source), ['excel365', 'dynamics365', 'businesscentral'],
+    'un seul compte Microsoft couvre Excel, Dynamics 365 et Business Central');
+  assert.ok(microsoft?.contenus?.every((c) => !c.disponible || c.unClic), 'ouverts : chacun en un clic');
+  const google = comptes.find((x) => x.id === 'google');
+  assert.deepEqual(google?.contenus?.map((c) => [c.id, c.disponible]), [['sheets', true], ['agenda', false], ['messagerie', false]],
+    'la place de l’agenda et de la messagerie est prévue, sans être proposée');
+  assert.equal(M.compteDe('excel365')?.id, 'microsoft');
+  assert.equal(M.compteDe('hubspot'), null, 'les autres outils gardent une entrée chacun');
+  assert.ok(cat.some((x) => x.genre === 'outil' && x.id === 'hubspot'));
+  // un compte dont aucun outil n'est ouvert reste proposé par sa clé, jamais en un clic
+  const sansRelais = M.catalogue(sourcesReelles(), CONNECTEURS).filter((x) => x.genre === 'compte');
+  assert.ok(sansRelais.every((x) => !x.unClic && x.section === 'cle'));
+});
+
+test('trois sections : « En un clic » n’affiche que ce que le relais ouvre vraiment ; ce qui ne marche pas n’apparaît pas', () => {
+  const cat = M.catalogue(sourcesReelles(['sheets', 'excel365', 'dynamics365', 'businesscentral', 'hubspot']), CONNECTEURS);
+  assert.deepEqual(M.SECTIONS.map((s) => s.id), ['un-clic', 'cle', 'avance', 'fichier']);
+  const r = M.filtrer(cat);
+  assert.deepEqual(ids(r['un-clic']), ['google', 'hubspot', 'microsoft'], 'seulement les comptes ouverts par le relais');
+  assert.ok(r['un-clic'].every((x) => x.unClic), 'rien qui mènerait à un refus');
+  assert.ok(r.cle.length && r.cle.every((x) => !x.unClic && !x.avance), 'la clé, pour tout le reste');
+  assert.deepEqual(ids(r.avance), ['mcp', 'rest', 'webhook'], 'webhook, API REST et serveur MCP, ensemble');
+  assert.ok(r.fichier.some((x) => x.id === 'csv') && r.fichier.some((x) => x.id === 'fec') && r.fichier.some((x) => x.id === 'pas-a-pas'));
+  // chaque entrée est dans une section et une seule
+  const sections = new Set(M.SECTIONS.map((s) => s.id as string));
+  for (const x of cat) assert.ok(sections.has(x.section), `${x.id} : section ${x.section}`);
+  for (const s of M.SECTIONS) for (const x of M.filtrer(cat)[s.id]) assert.equal(x.section, s.id);
+  // « on met pas ce qui marche pas » : plus rien n'est annoncé « bientôt »
+  assert.ok(!cat.some((x) => x.bientot), 'aucune entrée « pas encore disponible »');
+  for (const c of CONNECTEURS.filter((x) => x.statut !== 'disponible')) assert.ok(!cat.some((x) => x.id === c.id), `${c.id} ne marche pas : absent`);
+  assert.ok(!cat.some((x) => x.cle === 'import:sheets'), 'plus de doublon « Google Sheets (lien publié) » à côté du compte Google');
+  // chaque catégorie annoncée par la passerelle tombe dans une famille connue
   const familles = new Set([...M.FAMILLES.map((f) => f.id), 'avance']);
   for (const x of cat) assert.ok(familles.has(x.famille), `${x.id} : famille ${x.famille}`);
   const parFamille = (id: string) => cat.filter((x) => x.famille === id).map((x) => x.id);
   assert.ok(parFamille('facturation').includes('pennylane') && parFamille('facturation').includes('fec') && parFamille('facturation').includes('axonaut'));
-  assert.ok(parFamille('crm').includes('hubspot') && parFamille('boutique').includes('shopify') && parFamille('tableurs').includes('excel365'));
+  assert.ok(parFamille('crm').includes('hubspot') && parFamille('boutique').includes('shopify') && parFamille('tableurs').includes('microsoft'));
   assert.ok(M.famillesPresentes(cat).length >= 6);
+});
+
+test('connecter n’est pas importer : l’étape « Que récupérer ? » est entre la connexion et l’import', () => {
+  assert.deepEqual(M.PARCOURS.outil?.map(([k]) => k), ['choisir', 'connexion', 'recuperer', 'colonnes', 'pret']);
+  assert.equal(M.progression('outil', 'recuperer').texte, 'Étape 3 sur 5 · Que récupérer ?');
+  const app = lire('web/app.js');
+  // la connexion réussie le dit, et ne déclenche aucune lecture ni aucun enregistrement
+  assert.match(app, /Rien n’a encore été importé\./);
+  assert.match(app, /annoncer\(`Connecté à \$\{nomOutilDe\(C\)\}\. Rien n’a encore été importé\.`\)/);
+  const connexion = app.slice(app.indexOf('function corpsConnexion(C)'), app.indexOf('function piedConnexion(C)'));
+  assert.doesNotMatch(connexion, /selectCible\(/, 'on ne demande plus ce que contient l’outil AVANT de connecter');
+  // le seul appel qui crée un branchement reste l'import, après la correspondance des colonnes
+  assert.match(app, /boutonPrincipal\(`Importer \$\{pluriel\(A\.outil\?\.apercu\?\.enregistrements \?\? 0, 'fiche', 'fiches'\)\} dans le jeu`, \(\) => activerOutil\(A\.outil\)/);
+  const avantImport = app.slice(app.indexOf('function versRecuperer(C)'), app.indexOf('/** La personne a tout vu et tout validé'));
+  assert.ok(!/api\('POST', '\/synchro'[^/]/.test(avantImport), 'aucun branchement actif créé avant l’import');
+  assert.match(avantImport, /api\('POST', '\/synchro\/apercu'/, 'seulement un aperçu, en lecture');
+  // le compte connecté est tout de même enregistré, en pause : il figure dans la liste même si on s’arrête là
+  assert.match(app, /C\.cree = await api\('POST', '\/synchro\/connexion', \{ source: C\.s\.id, nom: C\.nom, config: C\.config \}\)/);
+  assert.match(app, /C\.cree = C\.cree\?\.id\s*\n\s*\? await api\('PUT', `\/synchro\/\$\{C\.cree\.id\}`, \{ \.\.\.reglages, actif: true \}\)/, 'on complète ce branchement, on n’en crée pas un second');
+  assert.match(app, /c\.aChoisir \? resultatAssistant\('info', 'Connecté\. Rien n’a encore été importé\.'/, 'la liste le dit');
+  // l'écran « Que récupérer ? » montre ce que le compte contient, ce que ça devient, et un aperçu
+  const recuperer = app.slice(app.indexOf('function corpsRecuperer(C)'), app.indexOf('function blocSens(C)'));
+  assert.match(recuperer, /tableauApercu\(a\)/, 'un aperçu de quelques lignes');
+  assert.match(recuperer, /selectCible\(C/, 'à quoi ça correspond dans le jeu');
+  assert.match(recuperer, /blocSens\(C\)/, 'le sens de la synchronisation');
+  assert.match(app, /À quoi ça correspond dans le jeu \?/);
+});
+
+test('correspondance des colonnes : proposée, montrée, modifiable, et un champ inconnu ne fait rien échouer', () => {
+  const app = lire('web/app.js');
+  const colonnes = app.slice(app.indexOf('function corpsColonnesOutil(C)'), app.indexOf('async function activerOutil(C)'));
+  assert.match(colonnes, /listeColonnes\(a\.champs, a\.cibles, C\.mapping/, 'la correspondance proposée est affichée et modifiable');
+  assert.match(colonnes, /Une colonne non reconnue est simplement laissée de côté : elle ne fait rien échouer\./);
+  assert.match(app, /h\('option', \{ value: '', texte: 'Ne pas importer' \}\)/, 'chaque colonne peut être écartée');
+});
+
+test('Microsoft : le compte professionnel est dit AVANT le clic, et les refus deviennent des conseils', () => {
+  const app = lire('web/app.js');
+  assert.match(app, /Il vous faut un compte Microsoft 365 professionnel\./);
+  assert.match(app, /compte personnel \(Outlook, Hotmail, Live\) est refusé par Microsoft dès la page de connexion/);
+  assert.match(app, /const microsoft = C\.compte\?\.id === 'microsoft' \|\| \['excel365', 'dynamics365', 'businesscentral'\]\.includes\(s\?\.id\)/);
+  assert.match(app, /!connecte && microsoft \? AVERTISSEMENT_MICROSOFT : null/, 'montré avant le clic, pas après le refus');
+  const relais = lire('src/passerelle/oauth-relais.ts');
+  assert.match(relais, /export function conseilMicrosoft\(texte: string\): string \| null/);
+  for (const code of ['AADSTS500208', 'AADSTS50020', 'AADSTS65001', 'AADSTS53003', 'AADSTS700016', 'AADSTS650057']) assert.ok(relais.includes(code), code);
+  assert.match(relais, /learn\.microsoft\.com/, 'la documentation officielle est citée dans le code');
+  assert.doesNotMatch(app, /AADSTS/, 'aucun code technique à l’écran');
 });
 
 test('recommandations : 3 par réponse, tirées du catalogue réel, disponibles, « 1 clic » d’abord', () => {
@@ -75,37 +164,50 @@ test('recommandations : 3 par réponse, tirées du catalogue réel, disponibles,
     }
     for (const cle of M.CONSEILS[r.id] ?? []) assert.ok(sans.some((x) => x.cle === cle), `${r.id} : ${cle} existe dans le catalogue`);
   }
-  assert.equal(M.recommandations('excel', avec)[0]?.id, 'excel365', 'Excel 365 en « 1 clic » passe en premier');
+  assert.equal(M.recommandations('excel', avec)[0]?.id, 'microsoft', 'le compte Microsoft en « 1 clic » passe en premier');
+  assert.equal(M.recommandations('google', avec)[0]?.id, 'google');
   assert.deepEqual(M.recommandations('excel', sans).map((x) => x.id).slice(0, 2), ['coller', 'csv'], 'sans « 1 clic » : le copier-coller d’abord (aucune conversion), puis le fichier CSV');
   assert.deepEqual(M.recommandations('crm', avec).map((x) => x.id).slice(0, 2), ['hubspot', 'pipedrive']);
   assert.ok(M.recommandations('nulle-part', sans).some((x) => x.id === 'pas-a-pas'));
   assert.deepEqual(M.recommandations('inconnue', sans), []);
 });
 
-test('filtre : famille, recherche sans accents, état vide, mode avancé toujours à part', () => {
-  const cat = M.catalogue(sourcesReelles(), CONNECTEURS);
+test('filtre : famille, recherche sans accents, contenu d’un compte, état vide', () => {
+  const cat = M.catalogue(sourcesReelles(['excel365']), CONNECTEURS);
   const tout = M.filtrer(cat);
   assert.equal(tout.total, cat.filter((x) => !x.avance).length);
-  assert.ok(tout.simples.every((x) => !x.bientot && !x.avance) && tout.avances.length === 3);
+  assert.equal(tout.avance.length, 3);
   const factu = M.filtrer(cat, { famille: 'facturation' });
-  assert.ok(factu.simples.length > 0 && factu.simples.every((x) => x.famille === 'facturation'));
-  assert.equal(factu.avances.length, 3, 'le mode avancé reste proposé quelle que soit la famille');
-  assert.deepEqual(M.filtrer(cat, { recherche: 'PENNYLANE' }).simples.map((x) => x.id), ['pennylane']);
-  assert.ok(M.filtrer(cat, { recherche: 'comptabilite' }).simples.some((x) => x.id === 'fec'), 'sans accent');
-  assert.ok(M.filtrer(cat, { recherche: 'webhook' }).avances.some((x) => x.id === 'webhook'));
+  assert.ok(factu.cle.length > 0 && factu.cle.every((x) => x.famille === 'facturation'));
+  assert.equal(factu.avance.length, 3, 'le mode avancé reste proposé quelle que soit la famille');
+  assert.deepEqual(M.filtrer(cat, { recherche: 'PENNYLANE' }).cle.map((x) => x.id), ['pennylane']);
+  assert.ok(M.filtrer(cat, { recherche: 'comptabilite' }).fichier.some((x) => x.id === 'fec'), 'sans accent');
+  assert.ok(M.filtrer(cat, { recherche: 'webhook' }).avance.some((x) => x.id === 'webhook'));
+  // on cherche « Excel » ou « Dynamics » et on trouve le compte Microsoft, même si son nom ne les contient pas
+  assert.ok(M.filtrer(cat, { recherche: 'excel' })['un-clic'].some((x) => x.id === 'microsoft'));
+  assert.ok(M.filtrer(cat, { recherche: 'dynamics' })['un-clic'].some((x) => x.id === 'microsoft'));
   const rien = M.filtrer(cat, { recherche: 'zzzz introuvable' });
-  assert.deepEqual([rien.simples.length, rien.bientot.length, rien.total], [0, 0, 0]);
+  assert.deepEqual([rien['un-clic'].length, rien.cle.length, rien.fichier.length, rien.total], [0, 0, 0, 0]);
+});
+
+test('ce qu’on trouve dans l’outil se devine : « Clients 2026 » propose la cible « Clients »', () => {
+  const cibles = [{ libelle: 'Clients' }, { libelle: 'Fournisseurs' }, { libelle: 'Commandes' }, { libelle: 'Équipe' }];
+  assert.equal(M.cibleProbable('Clients 2026', cibles)?.libelle, 'Clients');
+  assert.equal(M.cibleProbable('Base — tableau « Fournisseurs »', cibles)?.libelle, 'Fournisseurs');
+  assert.equal(M.cibleProbable('Suivi des commandes', cibles)?.libelle, 'Commandes');
+  assert.equal(M.cibleProbable('Feuil1', cibles), null, 'rien de sûr : la personne choisit');
+  assert.equal(M.cibleProbable('', cibles), null);
 });
 
 test('assistant : étapes du §4.21 (« Étape 2 sur 5 · … »), parcours, « Abandonner ? » seulement si commencé', () => {
   assert.deepEqual(M.PARCOURS.fichier?.map(([k]) => k), ['choisir', 'contenu', 'fichier', 'colonnes', 'pret']);
-  assert.deepEqual(M.PARCOURS.outil?.map(([k]) => k), ['choisir', 'connexion', 'colonnes', 'pret']);
   assert.deepEqual(M.PARCOURS.fec?.map(([k]) => k), ['choisir', 'fec', 'pret']);
   assert.ok(Object.values(M.PARCOURS).every((p) => p[0]?.[0] === 'choisir'));
   assert.equal(M.progression('fichier', 'colonnes').texte, 'Étape 4 sur 5 · Associer les colonnes');
-  assert.equal(M.progression('outil', 'connexion').texte, 'Étape 2 sur 4 · Se connecter');
+  assert.equal(M.progression('outil', 'connexion').texte, 'Étape 2 sur 5 · Se connecter');
   assert.equal(M.progression('inconnu', 'nulle').index, 0);
   assert.equal(M.parcoursDe({ genre: 'outil', id: 'hubspot' }), 'outil');
+  assert.equal(M.parcoursDe({ genre: 'compte', id: 'microsoft' }), 'outil');
   assert.equal(M.parcoursDe({ genre: 'import', id: 'fec' }), 'fec');
   assert.equal(M.parcoursDe({ genre: 'import', id: 'manuel' }), 'manuel');
   assert.equal(M.parcoursDe({ genre: 'import', id: 'csv' }), 'fichier');
@@ -140,7 +242,7 @@ test('fichiers acceptés : on dit vrai (CSV et copier-coller), aucune promesse d
   assert.match(coller?.description ?? '', /Depuis Excel[^.]*copiez, collez\. Aucun fichier à convertir\./);
   // « Dans un fichier Excel » reste une réponse (c'est là que sont les clients), mais le premier conseil marche sans conversion
   const cat = M.catalogue(sourcesReelles(), CONNECTEURS);
-  assert.deepEqual(M.recommandations('excel', cat).map((x) => x.cle), ['import:coller', 'import:csv', 'outil:excel365']);
+  assert.deepEqual(M.recommandations('excel', cat).map((x) => x.cle), ['import:coller', 'import:csv', 'compte:microsoft']);
   const app = lire('web/app.js');
   assert.doesNotMatch(app, /Fichier Excel ou CSV|CSV ou Excel|fichier Excel, Google Sheets/);
   assert.match(app, /accept: '\.csv,text\/csv'/, 'le sélecteur n’accepte que ce qui est lu');

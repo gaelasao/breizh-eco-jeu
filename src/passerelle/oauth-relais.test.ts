@@ -234,21 +234,24 @@ test('refus, expiration, page de connexion inattendue, jetons illisibles, Breizh
   d = await app.synchro.demarrerOAuth(p, { source: 'hubspot', config: {} });
   sim.relais.accepter('google', { acces: 'acces-google' });
   await assert.rejects(app.synchro.suivreOAuth(p, d.id), /inattendue/);
-  // outil non ouvert par l'éditeur : on ne le sait qu'au clic (le catalogue ne contacte pas Breizhcosystem), puis clé seulement
+  // outil non ouvert par l'éditeur : le catalogue le sait d'avance, donc aucun bouton « 1 clic » ne mène à un refus
   sim.relais.fournisseurs = ['hubspot'];
   const autre = await monter(sim.f);
-  assert.deepEqual((await autre.app.synchro.catalogue()).find((x) => x.id === 'notion')?.oauth, { fournisseur: 'notion', nom: 'Notion', champ: null });
+  assert.equal((await autre.app.synchro.catalogue()).find((x) => x.id === 'notion')?.oauth, null, 'pas ouvert : jamais proposé en un clic');
+  assert.ok((await autre.app.synchro.catalogue()).find((x) => x.id === 'hubspot')?.oauth, 'ouvert : proposé');
   await assert.rejects(autre.app.synchro.demarrerOAuth(autre.p, { source: 'notion', config: {} }), /mode avancé/);
-  assert.equal((await autre.app.synchro.catalogue()).find((x) => x.id === 'notion')?.oauth, null, 'appris au clic');
   await assert.rejects(autre.app.synchro.demarrerOAuth(autre.p, { source: 'odoo', config: {} }), /mode avancé/);
-  // Breizhcosystem non réglé : catalogue sans « Se connecter avec… » ; injoignable : refus au clic, sans erreur, boutons gardés
+  // Breizhcosystem non réglé : catalogue sans « Se connecter avec… », la clé reste proposée
   const sans = await monter(sim.f, null);
   assert.ok((await sans.app.synchro.catalogue()).every((x) => x.oauth === null));
   await assert.rejects(sans.app.synchro.demarrerOAuth(sans.p, { source: 'hubspot', config: {} }), /mode avancé/);
+  // panne passagère APRÈS une lecture réussie : les boutons déjà connus restent
   sim.relais.injoignable = true;
+  assert.ok((await autre.app.synchro.catalogue()).find((x) => x.id === 'hubspot')?.oauth, 'une panne passagère ne retire pas les boutons');
+  // relais jamais lu (panne dès le départ) : rien en un clic, donc rien qui mène à un refus
   const coupe = await monter(sim.f);
   await assert.rejects(coupe.app.synchro.demarrerOAuth(coupe.p, { source: 'hubspot', config: {} }), /mode avancé/);
-  assert.ok((await coupe.app.synchro.catalogue()).find((x) => x.id === 'hubspot')?.oauth, 'une panne passagère ne retire pas les boutons');
+  assert.ok((await coupe.app.synchro.catalogue()).every((x) => x.oauth === null), 'relais jamais lu : rien en un clic');
   sim.relais.injoignable = false;
   // un secret collé qui imite une connexion par le relais est refusé ; une clé collée marche comme avant (mode avancé)
   await assert.rejects(app.synchro.apercu(p, { source: 'hubspot', config: { objet: 'companies', jeton: '{"oauth":{"fournisseur":"hubspot","acces":"x"}}' }, typeObjet: 'entreprise' }), /Jeton invalide/);
@@ -614,19 +617,28 @@ test('revue-reseau-11 : débrancher prévient le relais (plus de renouvellement,
   rienDeSecret(sim.appels, ['pd-rafr', 'nt-acces', 'shpat_oauth123', 'hs-r1', 'g-r']);
 });
 
-test('relais et confidentialité (rgpd-10) : ouvrir le catalogue ne contacte pas Breizhcosystem ; lecture seule demandée par défaut', async () => {
+test('relais et confidentialité (rgpd-10) : seule la liste des outils ouverts est demandée, et rien que si Breizhcosystem est réglé ; lecture seule par défaut', async () => {
   const sim = simulation((a) => (a.url.host.endsWith('hubapi.com') ? json({ results: [] }) : null));
-  const { app, p } = await monter(sim.f);
+  const sans = await monter(sim.f, null);
   const versNexus = () => sim.appels.filter((a) => a.url.origin === RELAIS).length;
-  const avant = versNexus();
+  const zero = versNexus();
+  assert.ok((await sans.app.synchro.catalogue()).every((x) => x.oauth === null));
+  assert.equal(versNexus(), zero, 'adresse de Breizhcosystem non réglée : il n’est jamais contacté');
+
+  const { app, p } = await monter(sim.f);
   const cat = await app.synchro.catalogue();
-  assert.deepEqual(cat.find((x) => x.id === 'hubspot')?.oauth, { fournisseur: 'hubspot', nom: 'HubSpot', champ: null }, 'bouton proposé sans demander à Breizhcosystem');
+  assert.deepEqual(cat.find((x) => x.id === 'hubspot')?.oauth, { fournisseur: 'hubspot', nom: 'HubSpot', champ: null }, 'bouton proposé parce que le relais l’ouvre vraiment');
+  const demandes = sim.appels.filter((a) => a.url.origin === RELAIS && a.url.pathname === '/v0/oauth/fournisseurs');
+  assert.equal(demandes.length, 1, 'une seule demande : « quels outils sont ouverts ? »');
+  assert.equal(demandes[0]?.methode, 'GET');
+  assert.ok(!demandes[0]?.corps, 'rien n’est envoyé sur personne');
+  const avant = versNexus();
   await app.synchro.catalogue();
-  assert.equal(versNexus(), avant, 'aucun appel à Breizhcosystem tant que personne n’a cliqué « Se connecter avec… »');
+  assert.equal(versNexus(), avant, 'la réponse est gardée quelques minutes : pas une demande par ouverture d’écran');
 
   // lecture seule par défaut : le relais ne demande que la lecture, et la synchro n'écrira pas dans l'outil
   const lecture = await connecter(app, p, sim, 'hubspot', 'hubspot', { acces: 'acces-l', rafraichissement: 'rafr-l', expire: dans(3600) });
-  assert.ok(versNexus() > avant, 'Breizhcosystem contacté après le clic seulement');
+  assert.ok(versNexus() > avant, 'Breizhcosystem contacté ensuite pour la connexion elle-même');
   assert.equal(sim.relais.demarrages.at(-1)?.droits, 'lecture');
   const reglages = { source: 'hubspot', typeObjet: 'entreprise', roles: ['client'], mapping: { name: '__nom' }, intervalleS: 300 };
   assert.throws(() => app.synchro.creer(p, { ...reglages, config: { objet: 'companies', jeton: lecture }, sens: 'deux' }), (e: any) => e.code === 'droits_lecture' && e.statut === 409);
@@ -641,4 +653,40 @@ test('relais et confidentialité (rgpd-10) : ouvrir le catalogue ne contacte pas
   // une valeur inconnue vaut lecture
   await app.synchro.demarrerOAuth(p, { source: 'hubspot', config: {}, droits: 'tout' });
   assert.equal(sim.relais.demarrages.at(-1)?.droits, 'lecture');
+});
+
+test('trois comptes connectés d’affilée : les trois restent dans la liste, sans que rien ait été importé', async () => {
+  const sim = simulation(() => null);
+  const { app, p } = await monter(sim.f);
+  // Notion, Google (feuille de calcul) et Microsoft (classeur Excel), l'un après l'autre, sans rien choisir ensuite
+  const notion = await connecter(app, p, sim, 'notion', 'notion', { acces: 'ntn-a', rafraichissement: 'ntn-r', expire: dans(3600) });
+  app.synchro.connecter(p, { source: 'notion', nom: 'Notion', config: { jeton: notion } });
+  const google = await connecter(app, p, sim, 'sheets', 'google', { acces: 'g-a', rafraichissement: 'g-r', expire: dans(3600) });
+  app.synchro.connecter(p, { source: 'sheets', nom: 'Google', config: { jeton: google } });
+  const microsoft = await connecter(app, p, sim, 'excel365', 'microsoft', { acces: 'ms-a', rafraichissement: 'ms-r', expire: dans(3600) });
+  app.synchro.connecter(p, { source: 'excel365', nom: 'Microsoft', config: { jeton: microsoft } });
+
+  const liste = app.synchro.lister(p);
+  assert.deepEqual(liste.map((c) => c.source).sort(), ['excel365', 'notion', 'sheets'], 'les trois comptes sont listés');
+  assert.equal(new Set(liste.map((c) => c.id)).size, 3, 'trois branchements distincts : aucun identifiant écrasé');
+  for (const c of liste) {
+    assert.equal(c.aChoisir, true, 'connecté, rien de choisi');
+    assert.equal(c.actif, false, 'en pause : rien n’est lu ni écrit');
+    assert.equal(c.statut, 'jamais');
+    assert.ok(c.aSecret, 'la connexion est gardée, chiffrée');
+  }
+  // rien n'est entré dans le jeu
+  assert.equal(app.synchro.resume().actifs, 0);
+  await assert.rejects(app.synchro.synchroniser(liste[0]!.id, p), (e: any) => e.code === 'rien_a_recuperer');
+
+  // la personne choisit enfin ce qu'elle récupère dans l'un d'eux : lui seul devient un vrai branchement
+  const notionId = liste.find((c) => c.source === 'notion')!.id;
+  const apres = app.synchro.modifier(p, notionId, {
+    config: { base: 'a'.repeat(32) }, typeObjet: 'entreprise', roles: ['client'], mapping: { Nom: '__nom' }, sens: 'lecture', intervalleS: 300, actif: true,
+  });
+  assert.equal(apres.aChoisir, false);
+  assert.equal(apres.actif, true);
+  assert.equal(apres.id, notionId, 'le même branchement, complété — pas un second');
+  assert.equal(app.synchro.lister(p).length, 3);
+  assert.deepEqual(app.synchro.lister(p).filter((c) => c.aChoisir).map((c) => c.source).sort(), ['excel365', 'sheets']);
 });

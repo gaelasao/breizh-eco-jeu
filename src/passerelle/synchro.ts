@@ -87,6 +87,13 @@ export interface ConnecteurEnregistre {
   exclus?: string[];
   empreintes: Record<string, string>; // id objet → empreinte au dernier échange
   derniereSynchro: string | null;
+  /**
+   * Compte connecté, mais dont personne n'a encore choisi ce qu'il faut récupérer : il figure dans la liste (« Connecté.
+   * Rien n'a encore été importé. »), en pause, sans type ni correspondance, et rien n'entre dans le jeu. Effacé dès que
+   * la personne choisit. Avant, une connexion qui n'allait pas jusqu'à l'import ne laissait aucune trace : qui
+   * connectait trois comptes d'affilée n'en retrouvait qu'un, celui qu'il avait mené jusqu'au bout.
+   */
+  aChoisir?: boolean;
   statut: 'jamais' | 'ok' | 'erreur';
   message: string | null;
   historique: { le: string; sens: 'entrant' | 'sortant'; crees: number; maj: number; erreurs: number; detail: string }[];
@@ -282,13 +289,17 @@ export class Synchro {
 
   /**
    * Catalogue des connecteurs. `oauth` : « Se connecter avec… » proposé pour cet outil (null si l'adresse de Breizhcosystem
-   * n'est pas réglée, ou si le relais a dit, lors d'un clic précédent, que l'outil n'est pas encore ouvert).
-   * Aucun appel à Breizhcosystem ici : le relais n'est contacté qu'après un clic sur « Se connecter avec… » (rgpd-10).
+   * n'est pas réglée, ou si le relais n'ouvre pas encore cet outil).
+   * La liste des outils ouverts est demandée au relais (`/v0/oauth/fournisseurs`), et SEULEMENT si l'adresse de
+   * Breizhcosystem a été réglée — c'est-à-dire si l'entreprise a elle-même choisi ce relais (rgpd-10). Sans adresse
+   * réglée, aucun appel n'est fait et « En un clic » reste vide. Cette demande ne porte sur personne : elle ne dit que
+   * quels outils sont ouverts, et sa réponse est gardée quelques minutes. Ainsi rien de ce qui s'affiche en un clic ne
+   * mène à un refus — avant, les boutons étaient proposés d'office et le refus n'arrivait qu'après le clic.
    */
   async catalogue() {
     const regle = this.#relais.regle();
-    const connus = this.#relais.fournisseursConnus();
-    const ouvert = (f: FournisseurOAuth) => regle && (connus === null || connus.includes(f));
+    const connus = regle ? await this.#relais.fournisseurs() : [];
+    const ouvert = (f: FournisseurOAuth) => regle && connus.includes(f);
     return Object.values(ADAPTATEURS).map((a) => {
       const f = FOURNISSEUR_DE[a.id];
       return {
@@ -306,7 +317,7 @@ export class Synchro {
     return {
       id: c.id, source: c.source, nom: c.nom, typeObjet: c.typeObjet, roles: c.roles, mapping: c.mapping,
       config: { ...c.config, ...Object.fromEntries(CHAMPS_CHIFFRES.filter((k) => c.config[k]).map((k) => [k, masquerAdresse(c.config[k] as string)])) },
-      aSecret: c.secret !== null, oauth: this.#fournisseurConnecte(c), sens: c.sens, intervalleS: c.intervalleS, actif: c.actif, liens: Object.keys(c.liens).length,
+      aSecret: c.secret !== null, oauth: this.#fournisseurConnecte(c), sens: c.sens, intervalleS: c.intervalleS, actif: c.actif, aChoisir: c.aChoisir === true, liens: Object.keys(c.liens).length,
       aConfirmer: (c.liensFaibles ?? []).filter((x) => c.liens[x]).length,
       derniereSynchro: c.derniereSynchro, statut: c.statut, message: c.message, historique: c.historique.slice(-10).reverse(),
       entree: ADAPTATEURS[c.source].lecture === 'reception' ? `/api/v1/entrant/${c.id}` : null,
@@ -776,6 +787,32 @@ export class Synchro {
     }
   }
 
+  /**
+   * Enregistre un compte qui VIENT d'être connecté (connexion prouvée par l'outil : « Se connecter avec… », ou code
+   * d'appareil Microsoft), sans rien importer. Le branchement apparaît aussitôt dans la liste, en pause, sans type ni
+   * correspondance : rien n'est lu, rien n'est écrit, rien n'entre dans le jeu. La personne choisit ensuite ce qu'elle
+   * veut récupérer, et c'est `modifier` qui l'active.
+   */
+  connecter(p: Profil, d: unknown) {
+    this.#admin(p);
+    if (!estObj(d) || typeof d.source !== 'string' || !(d.source in ADAPTATEURS)) throw new ErreurApi(400, 'source_inconnue');
+    if (this.#connecteurs.size >= 50) throw new ErreurApi(409, 'trop_de_connecteurs');
+    const source = d.source as TypeSource;
+    const { config, secret, appareil, oauth } = this.#lireConfig(source, estObj(d.config) ? d.config : {});
+    if (!secret) throw new ErreurApi(400, 'config_incomplete', 'Connexion manquante : reconnectez-vous.');
+    const nom = typeof d.nom === 'string' && d.nom.trim() && d.nom.length <= 80 ? d.nom.trim() : ADAPTATEURS[source].nom;
+    const c: ConnecteurEnregistre = {
+      id: `cx-${randomUUID().replace(/-/g, '').slice(0, 12)}`, source, nom, typeObjet: '', roles: [], mapping: {}, config,
+      secret: this.#chiffreur.chiffrer(secret), secretEntrant: null, sens: 'lecture', intervalleS: 300, actif: false, aChoisir: true,
+      liens: {}, empreintes: {}, derniereSynchro: null, statut: 'jamais', message: null, historique: [], creeLe: this.#monde.maintenant().toISOString(),
+    };
+    this.#connecteurs.set(c.id, c);
+    if (appareil) this.#appareils.delete(appareil);
+    if (oauth) this.#oauth.delete(oauth);
+    this.#changement();
+    return this.#vue(c);
+  }
+
   creer(p: Profil, d: unknown) {
     this.#admin(p);
     if (!estObj(d) || typeof d.source !== 'string' || !(d.source in ADAPTATEURS)) throw new ErreurApi(400, 'source_inconnue');
@@ -814,6 +851,8 @@ export class Synchro {
     // nouvelle destination sans nouvelle clé : la clé enregistrée est effacée (jamais envoyée à la nouvelle adresse)
     const destinationChangee = !memeDestination(c.source, config, c.config);
     Object.assign(c, r, { config });
+    // le compte était « connecté, rien de choisi » : la personne vient de choisir, le branchement devient un vrai branchement
+    if (c.aChoisir) delete c.aChoisir;
     if (secret !== undefined) c.secret = secret ? this.#chiffreur.chiffrer(secret) : null;
     else if (destinationChangee && c.secret) { c.secret = null; c.statut = 'erreur'; c.message = 'Adresse changée : saisissez de nouveau la clé (ou reconnectez-vous).'; }
     if (appareil) this.#appareils.delete(appareil);
@@ -988,6 +1027,8 @@ export class Synchro {
   async synchroniser(id: string, p?: Profil) {
     if (p) this.#admin(p);
     const c = this.#trouver(id);
+    // compte connecté dont personne n'a choisi le contenu : rien à synchroniser, et surtout rien à faire entrer
+    if (c.aChoisir) throw new ErreurApi(409, 'rien_a_recuperer', 'Ce compte est connecté, mais vous n’avez pas encore choisi ce que vous vouliez récupérer.');
     if (this.#enCours.has(c.id)) return this.#vue(c);
     this.#enCours.add(c.id);
     try {
