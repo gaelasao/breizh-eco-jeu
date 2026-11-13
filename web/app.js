@@ -3020,7 +3020,8 @@ async function rendreListe(vue) {
   const champRecherche = h('label', { class: 'bz-recherche bz-liste__recherche' },
     icone('search'),
     h('span', { class: 'bz-visuellement-cache', texte: `Rechercher dans ${libelleListe.toLowerCase()}` }),
-    h('input', { class: 'bz-champ__saisie', type: 'search', id: 'recherche-liste', enterkeyhint: 'search', autocomplete: 'off', placeholder: `Rechercher dans ${libelleListe.toLowerCase()}…`, value: E.recherche,
+    // téléphone : le champ partage sa ligne avec le filtre, l'indication reste entière (le nom de la liste est au-dessus)
+    h('input', { class: 'bz-champ__saisie', type: 'search', id: 'recherche-liste', enterkeyhint: 'search', autocomplete: 'off', placeholder: estTelephone() ? 'Rechercher…' : `Rechercher dans ${libelleListe.toLowerCase()}…`, value: E.recherche,
       oninput: (e) => { E.recherche = e.target.value; rerendre(); } }));
   remplir($('#page'),
     h('div', { class: 'bz-ecran bz-liste', 'data-selection': coches.length ? '' : null },
@@ -3030,7 +3031,8 @@ async function rendreListe(vue) {
           exemple ? h('span', { class: 'bz-badge' }, icone('flask-conical', { taille: 'sm' }), 'Exemple') : null),
         h('div', { class: 'bz-groupe-boutons' },
           m.profil.peutAdministrer && cible.type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirSaisie(cible) }, icone('plus'), 'Ajouter') : null,
-          m.profil.peutAdministrer && cible.type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirAssistant('fichier', cible) }, icone('upload'), 'Importer un fichier') : null)),
+          // sur téléphone, « Importer » suffit : les deux boutons tiennent alors sur la ligne du compteur (F9)
+          m.profil.peutAdministrer && cible.type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirAssistant('fichier', cible) }, icone('upload'), estTelephone() ? 'Importer' : 'Importer un fichier') : null)),
       h('div', { class: 'bz-liste__outils' },
         champRecherche,
         h('div', { class: 'bz-liste__vues' },
@@ -5254,7 +5256,7 @@ async function rendreCourrier() {
       peut && toutes.length ? h('div', { class: 'bz-groupe-boutons' }, boutonAjouter('bz-bouton--secondaire')) : null),
     toutes.length ? h('div', { class: 'bz-liste__outils' },
       h('label', { class: 'bz-recherche bz-liste__recherche' }, icone('search'), h('span', { class: 'bz-visuellement-cache', texte: 'Rechercher dans le courrier' }),
-        h('input', { class: 'bz-champ__saisie', type: 'search', id: 'recherche-courrier', enterkeyhint: 'search', autocomplete: 'off', placeholder: 'Rechercher un expéditeur, un objet…', value: C.recherche, oninput: (e) => changer('recherche', e.target.value) })),
+        h('input', { class: 'bz-champ__saisie', type: 'search', id: 'recherche-courrier', enterkeyhint: 'search', autocomplete: 'off', placeholder: estTelephone() ? 'Rechercher…' : 'Rechercher un expéditeur, un objet…', value: C.recherche, oninput: (e) => changer('recherche', e.target.value) })),
       dests.length ? h('div', { class: 'bz-liste__vues' },
         h('label', { class: 'bz-visuellement-cache', for: 'courrier-pour', texte: 'Pour qui' }),
         h('div', { class: 'bz-select' },

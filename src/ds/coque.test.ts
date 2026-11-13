@@ -233,3 +233,13 @@ test('fenêtre étroite (1 024 px) : menu replié d’office, fiche par-dessus l
   assert.match(app, /\(E\.miniCarte \?\? !carteEtroite\(\)\) \? miniCarte\(\{ repliable: true \}\)/);
   assert.match(app, /miniCarte: lireLocal\('lb-minicarte'\) === 'repliee' \? false : lireLocal\('lb-minicarte'\) === 'ouverte' \? true : null,/);
 });
+
+test('listes sur téléphone : recherche et filtre sur une ligne, indications courtes (F9)', () => {
+  const css = lire('web/bz/composants.css');
+  const app = lire('web/app.js');
+  assert.match(css, /@media \(max-width: 37\.49em\) \{\s*\.bz-liste__outils \{ flex-wrap: nowrap; \}\s*\.bz-liste__recherche \{ flex: 1 1 6rem; min-inline-size: 0; \}/);
+  assert.match(app, /placeholder: estTelephone\(\) \? 'Rechercher…' : `Rechercher dans \$\{libelleListe\.toLowerCase\(\)\}…`/);
+  assert.match(app, /placeholder: estTelephone\(\) \? 'Rechercher…' : 'Rechercher un expéditeur, un objet…'/);
+  assert.match(app, /estTelephone\(\) \? 'Importer' : 'Importer un fichier'/, 'le bouton secondaire se raccourcit avant de pousser la liste plus bas');
+  assert.match(app, /texte: `Rechercher dans \$\{libelleListe\.toLowerCase\(\)\}` \}\)/, 'le nom accessible reste entier');
+});
