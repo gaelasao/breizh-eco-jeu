@@ -34,10 +34,10 @@ export const sombre = {
 // ---------- Scène 3D (indépendante du thème : l'heure de la carte décide) ----------
 // Sols des quartiers : distingués par le matériau (motif dans le shader) ET par une teinte de chroma 0,015 à 0,075.
 export const quartiers = {
-  jour: { clients: [0.82, 0.04, 30], fournisseurs: [0.76, 0.015, A], equipe: [0.8, 0.075, 135], stock: [0.74, 0.05, 65], prospects: [0.87, 0.055, 85] },
-  nuit: { clients: [0.34, 0.04, 20], fournisseurs: [0.27, 0.012, A], equipe: [0.32, 0.045, 140], stock: [0.28, 0.04, 70], prospects: [0.37, 0.035, 85] },
+  jour: { clients: [0.82, 0.04, 30], fournisseurs: [0.76, 0.015, A], partenaires: [0.7, 0.05, NU], equipe: [0.8, 0.075, 135], stock: [0.74, 0.05, 65], prospects: [0.87, 0.055, 85] },
+  nuit: { clients: [0.34, 0.04, 20], fournisseurs: [0.27, 0.012, A], partenaires: [0.325, 0.05, NU], equipe: [0.32, 0.045, 140], stock: [0.28, 0.04, 70], prospects: [0.37, 0.035, 85] },
 };
-export const materiaux = { clients: 'pavés de granit rose (damier à deux tons)', fournisseurs: 'enrobé et marquages blancs', equipe: 'pelouse', stock: 'planches de quai', prospects: 'sable et étals rayés' };
+export const materiaux = { clients: 'pavés de granit rose (damier à deux tons)', fournisseurs: 'enrobé et marquages blancs', partenaires: 'dalles d’ardoise à joints décalés', equipe: 'pelouse', stock: 'planches de quai', prospects: 'sable et étals rayés' };
 export const scene = {
   jour: {
     'ciel-zenith': '#7fb6d3', 'ciel-horizon': '#dfeceb', brume: '#dfeceb', mer: '#2f8aa0', 'mer-profonde': '#1d5f74', ecume: '#e9f5f3',

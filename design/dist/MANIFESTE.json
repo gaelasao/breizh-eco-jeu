@@ -3,16 +3,16 @@
   "genere": "design/outils/generer-jetons.mjs",
   "fichiers": {
     "tokens.css": {
-      "octets": 33167,
-      "gzip": 10087,
-      "brotli": 8824,
-      "sha256": "100d9437bc92782e3226e03be6c12e0637bef8456c9eb74b959a9786ebd7715a"
+      "octets": 33320,
+      "gzip": 10137,
+      "brotli": 8896,
+      "sha256": "90112d19be11d292e927a8736e2ed56fef82046fe7940c54f9d7789475f6b9a2"
     },
     "tokens.min.css": {
-      "octets": 18047,
-      "gzip": 4598,
-      "brotli": 4001,
-      "sha256": "9d86ff408958bf37a85255c0f6645863fef471c92386aae0e0d9564d1380b870"
+      "octets": 18137,
+      "gzip": 4620,
+      "brotli": 4015,
+      "sha256": "76200e886a3a35dab0b58357782c3198d8d0539a6695e7045f021833ad3332a1"
     }
   }
 }

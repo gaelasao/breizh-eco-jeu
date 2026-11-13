@@ -299,6 +299,29 @@ test('carte : personnalisation — nom, couleur et place, sur l’appareil, et j
   assert.match(app, /function sectionPersonnaliser\(\)/, 'un seul endroit : le panneau de la carte');
 });
 
+test('carte : chaque quartier de tiers a son sol, partenaires compris (§5.5)', async () => {
+  const { ROLES_SCENE } = await charger<Heure>('web/carte/heure.js');
+  const scene = lire('web/scene.js');
+  // un motif par quartier, numéroté, et le numéro passe tel quel dans le shader des lots
+  const sols = /const SOLS = Object\.freeze\(\{([^}]+)\}\)/.exec(scene)?.[1] ?? '';
+  const numeros = Object.fromEntries([...sols.matchAll(/(\w+): (\d+)/g)].map((m) => [m[1] as string, Number(m[2])]));
+  assert.deepEqual(Object.keys(numeros).sort(), ['clients', 'equipe', 'fournisseurs', 'partenaires', 'prospects', 'stock']);
+  assert.equal(new Set(Object.values(numeros)).size, 6, 'aucun motif partagé entre deux quartiers');
+  for (const [q, n] of Object.entries(numeros)) {
+    assert.ok(ROLES_SCENE.includes(`quartier-${q}`), `couleur du quartier ${q}`);
+    // chaque motif a sa branche dans le shader ; celui des prospects (le sable) est le repli, sans condition
+    assert.ok(new RegExp(`n == ${n}\\b`).test(scene) || n === numeros.prospects, `motif ${n} (${q}) dessiné`);
+  }
+  // le quartier du nord (partenaires, et clients et fournisseurs à la fois) n'est plus posé sur la lande nue
+  assert.match(scene, /const SOL_SECTEUR = Object\.freeze\(\{[^}]*nord: 'partenaires'/);
+  assert.match(scene, /for \(const \[secteur, quartier\] of Object\.entries\(SOL_SECTEUR\)\)/, 'un sol par secteur, aucun oublié');
+  assert.match(scene, /SOL_SECTEUR\[s\] \? matSol\(SOL_SECTEUR\[s\]\) : mat\(P\.herbe\)/, 'le lot d’un tiers prend le sol de son quartier');
+  // dalles d'ardoise : même famille que les pavés des clients (maille, joint, deux tons), à une autre échelle
+  const motif = /if \(n == 6\) \{([\s\S]*?)\n  \}/.exec(scene)?.[1] ?? '';
+  assert.match(motif, /joint/, 'un joint, comme les autres sols appareillés');
+  assert.match(motif, /h21/, 'une variation par dalle, comme les pavés');
+});
+
 test('carte : aucune surface posée sur une autre — marquages en décalque, voirie à quatre niveaux, contours écartés', () => {
   const scene = lire('web/scene.js');
   // marquages au sol : une peinture (décalque), jamais une plaque posée à quelques centimètres

@@ -1671,10 +1671,20 @@ vec3 motifSol(int n, vec2 p) {
     float v = 0.9 + 0.14 * h21(vec2(l, floor((p.x + decal) / 4.0)));
     return vec3(v * (1.0 - 0.3 * max(step(0.88, f), bout)));
   }
+  if (n == 6) { // dalles d'ardoise, grand appareil : une rangée sur deux décalée d'une demi-dalle
+    float rangee = floor(p.y / 1.3);
+    float x = (p.x + mod(rangee, 2.0) * 1.3) / 2.6;
+    vec2 c = vec2(floor(x), rangee); vec2 f = vec2(fract(x), fract(p.y / 1.3));
+    float joint = max(step(0.965, f.x), step(0.93, f.y));
+    float v = mix(1.0, 0.93, step(0.5, h21(c + 7.0))) * (0.96 + 0.09 * h21(c));
+    return vec3(v * (1.0 - 0.2 * joint));
+  }
   float r = 0.97 + 0.05 * sin(p.x * 1.3 + sin(p.y * 0.5) * 2.0); // sable du marché
   return vec3(r * (0.96 + 0.06 * h21(floor(p * 3.0))));
 }`;
-const SOLS = Object.freeze({ clients: 1, fournisseurs: 2, equipe: 3, stock: 4, prospects: 5 });
+const SOLS = Object.freeze({ clients: 1, fournisseurs: 2, partenaires: 6, equipe: 3, stock: 4, prospects: 5 });
+/** Sol de chaque secteur de tiers (§5.5) : le quartier du nord est celui des partenaires ; « autres » reste sur la lande. */
+const SOL_SECTEUR = Object.freeze({ clients: 'clients', fournisseurs: 'fournisseurs', nord: 'partenaires', prospects: 'prospects' });
 function matSol(quartier) {
   const k = `sol|${quartier}`;
   if (!mats.has(k)) {
@@ -1941,12 +1951,14 @@ export async function creerScene(conteneur, options) {
   statique.add(piece(B(larg, 0.34, 4), mat(P.sable), 0, -0.3, zCote - 2, false));
   statique.add(piece(B(34, 0.8, 6), mat(P.beton), 0, -0.5, zCote + 2));
   statique.add(piece(B(3, 0.3, 11), matTex('parquet', 1, 4), 0, -0.25, zCote + 10));
-  // sols des quartiers (§5.5) : équipe en pelouse au centre, quais en planches, clients en pavés, fournisseurs en enrobé
+  // sols des quartiers (§5.5) : équipe en pelouse au centre, quais en planches, clients en pavés, fournisseurs en
+  // enrobé, partenaires en dalles d'ardoise (le quartier du nord : partenaires, et clients et fournisseurs à la fois)
   statique.add(piece(B(84, 0.1, 30), matSol('equipe'), 0, 0, 18.5, false));
   statique.add(piece(B(84, 0.1, 30), matSol('equipe'), 0, 0, -20, false));
   statique.add(piece(B(84, 0.08, 6), matSol('stock'), 0, 0, 44, false));
-  for (const [q, z] of [['clients', ZONES.clients], ['fournisseurs', ZONES.fournisseurs], ['prospects', ZONES.prospects]]) {
-    statique.add(piece(B(z.x1 - z.x0 + 2, 0.06, z.z1 - z.z0 + 2), matSol(q), (z.x0 + z.x1) / 2, 0, (z.z0 + z.z1) / 2, false));
+  for (const [secteur, quartier] of Object.entries(SOL_SECTEUR)) {
+    const z = ZONES[secteur];
+    statique.add(piece(B(z.x1 - z.x0 + 2, 0.06, z.z1 - z.z0 + 2), matSol(quartier), (z.x0 + z.x1) / 2, 0, (z.z0 + z.z1) / 2, false));
   }
   const centreVille = new THREE.Group();
   statique.add(centreVille);
@@ -2855,7 +2867,7 @@ export async function creerScene(conteneur, options) {
         const couleur = couleurTiers(t);
         const rndT = alea(hash(t.id));
         const g = new THREE.Group();
-        g.add(piece(B(15.5 * lot.echelle, 0.16, 15.5 * lot.echelle), ['clients', 'fournisseurs', 'prospects'].includes(s) ? matSol(s) : mat(P.herbe), 0, 0, 0, false));
+        g.add(piece(B(15.5 * lot.echelle, 0.16, 15.5 * lot.echelle), SOL_SECTEUR[s] ? matSol(SOL_SECTEUR[s]) : mat(P.herbe), 0, 0, 0, false));
         let bat;
         if (s === 'prospects') {
           // étal du marché, sur la plage : table, montants et auvent rayé chaux et ardoise (§5.5)

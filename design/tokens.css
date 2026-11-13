@@ -539,7 +539,7 @@
 /* ==========================================================================
    8. SCÈNE 3D — lues par scene.js via getComputedStyle (three.js Color ne lit que hex/rgb : pas d'oklch ici).
    Indépendantes du thème : l'heure de la carte (Réelle par défaut) choisit entre jour et nuit ; aube et crépuscule
-   sont interpolés en JS. Sols des quartiers : clients = pavés de granit rose (damier à deux tons) ; fournisseurs = enrobé et marquages blancs ; equipe = pelouse ; stock = planches de quai ; prospects = sable et étals rayés.
+   sont interpolés en JS. Sols des quartiers : clients = pavés de granit rose (damier à deux tons) ; fournisseurs = enrobé et marquages blancs ; partenaires = dalles d’ardoise à joints décalés ; equipe = pelouse ; stock = planches de quai ; prospects = sable et étals rayés.
    ========================================================================== */
 :root {
   --bz-scene-jour-ciel-zenith: #7fb6d3;
@@ -566,6 +566,7 @@
   --bz-scene-jour-halo: #f4f0e7;
   --bz-scene-jour-quartier-clients: #ddbbb5;
   --bz-scene-jour-quartier-fournisseurs: #aab2ba;
+  --bz-scene-jour-quartier-partenaires: #81a4b9;
   --bz-scene-jour-quartier-equipe: #a9c999;
   --bz-scene-jour-quartier-stock: #c1a58a;
   --bz-scene-jour-quartier-prospects: #e5d2ac;
@@ -594,6 +595,7 @@
   --bz-scene-nuit-halo: #1a2028;
   --bz-scene-nuit-quartier-clients: #4b302f;
   --bz-scene-nuit-quartier-fournisseurs: #22272c;
+  --bz-scene-nuit-quartier-partenaires: #17384a;
   --bz-scene-nuit-quartier-equipe: #263922;
   --bz-scene-nuit-quartier-stock: #362512;
   --bz-scene-nuit-quartier-prospects: #483e2a;
