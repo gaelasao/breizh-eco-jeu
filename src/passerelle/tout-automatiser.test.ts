@@ -5,6 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Application } from './application.ts';
+import { ANONYMAT_MIN } from '../core/optimisations.ts';
 
 test('« J’automatise » : tout ce qui est prêt s’active d’un geste, le reste dit ce qui manque, puis agit sur le réel', async () => {
   const a = await Application.creer({ exemple: 'pme' });
@@ -57,4 +58,20 @@ test('aucune piste à zéro : « brancher vos outils » n’est proposé qu’av
   assert.ok(piste(), 'une fiche saisie à la main : la piste a un sens');
   assert.doesNotMatch(constat(), /: 0 /, 'jamais « 0 fiche saisie… qui vieillissent »');
   assert.equal(constat(), 'Aucun outil branché : 1 fiche saisie ou importée à la main, qui vieillit.', 'et les accords suivent le nombre');
+});
+
+test('baromètre d’équipe : ni piste ni automatisation sous le seuil d’anonymat (5 personnes)', async () => {
+  const app = await Application.creer({ connexion: 'comptes' });
+  const p = app.monde.initialiser({ nom: 'Maël', entreprise: 'Kerlann', depart: 'vide' });
+  const etat = () => app.automatisations.preparation(p).recettes.find((r) => r.id === 'barometre');
+  const piste = () => app.automatisations.optimisations(p).opportunites.find((o) => o.id === 'barometre') ?? null;
+  for (let i = 1; i < ANONYMAT_MIN; i++) {
+    app.monde.creerObjet(p, 's', { type: 'employe', nom: `Collègue ${i}`, champs: {} });
+    assert.equal(etat()?.etat, 'a_brancher', `${i} personne(s) : rien à proposer`);
+    assert.equal(piste(), null);
+  }
+  assert.match(etat()?.manque ?? '', /5 collaborateurs/, 'et on dit pourquoi');
+  app.monde.creerObjet(p, 's', { type: 'employe', nom: 'Collègue 5', champs: {} });
+  assert.equal(etat()?.etat, 'prete', 'à cinq, les résultats pourront être publiés');
+  assert.match(piste()?.proposition ?? '', /publiés à partir de 5 réponses/);
 });

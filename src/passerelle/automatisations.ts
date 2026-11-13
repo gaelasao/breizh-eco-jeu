@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Profil } from '../demo/donnees.ts';
 import type { ObjetMetier, ValeurChamp } from '../core/model.ts';
-import { detecterOptimisations } from '../core/optimisations.ts';
+import { ANONYMAT_MIN, detecterOptimisations } from '../core/optimisations.ts';
 import { calculerTache, ErreurTache, HORIZON_MAX, IDEES, lireHorizon, lireSaisie, RANG_VERDICT, TACHES_MAX, type SaisieTache } from '../core/taches-repetitives.ts';
 import type { Enquetes } from './enquetes.ts';
 import { ErreurApi, type Monde } from './monde.ts';
@@ -66,7 +66,8 @@ const BESOINS: Readonly<Record<string, Besoin>> = {
   'trous-planning': { donnees: 'vos collaborateurs et leur planning', vues: aDes((o) => o.famille === 'personne') },
   'satisfaction-auto': { donnees: 'vos clients et leurs commandes ou factures', vues: (os) => os.some(client) && os.some((o) => o.type === 'commande_client' || o.type === 'facture'), versOutil: true },
   'avis-bas': { donnees: 'vos clients (pour leur demander leur avis)', vues: aDes(client) },
-  barometre: { donnees: 'vos collaborateurs', vues: aDes((o) => o.famille === 'personne'), versOutil: true },
+  // en dessous du seuil d'anonymat, aucun résultat ne serait publié : l'automatisation attend l'équipe
+  barometre: { donnees: `au moins ${ANONYMAT_MIN} collaborateurs (en dessous, rien n’est publié : l’anonymat ne tiendrait pas)`, vues: (os) => os.filter((o) => o.famille === 'personne').length >= ANONYMAT_MIN, versOutil: true },
 };
 
 export type EtatRecette = 'active' | 'prete' | 'a_brancher';
