@@ -4127,17 +4127,45 @@ function choisirEntree(x) {
   if (x.genre === 'outil') { const s = (E.sources ?? []).find((y) => y.id === x.id); if (s) demarrerOutil(A, s); return; }
   if (x.id === 'fec') { A.parcours = 'fec'; A.fec ??= { envoi: false, resultat: null, nom: '' }; allerEtape('fec'); return; }
   if (x.id === 'manuel') { A.parcours = 'manuel'; A.source = 'manuel'; allerEtape('contenu'); return; }
+  const dejaChoisi = Boolean(A.cible);
   A.parcours = 'fichier';
   A.source = x.id === 'coller' ? 'coller' : x.id === 'sheets' ? 'sheets' : 'csv';
-  allerEtape(A.cible ? 'fichier' : 'contenu');
+  // sans cible connue, « Clients » est déjà coché : la question reste posée, mais « Continuer » suffit
+  if (!dejaChoisi) A.cible = cibleParDefaut();
+  allerEtape(dejaChoisi ? 'fichier' : 'contenu');
 }
 
 // ---- import d'un fichier : contenu, fichier, colonnes, résultat
-function corpsContenu(A) {
+/* « Que contient ce fichier ? » : six réponses courantes, le reste replié. On vient de répondre à « Où sont vos
+   clients ? » : « Clients » est déjà coché, « Continuer » suffit. */
+function ciblesCourantes(toutes) {
+  const famille = (id) => E.monde.univers.types.find((t) => t.id === id)?.famille;
+  const parType = (id) => toutes.find((c) => c.type === id && !c.roles.length);
+  const parFamille = (f) => toutes.find((c) => famille(c.type) === f && !c.roles.length);
   return [
-    h('fieldset', { class: 'bz-grille-choix', 'aria-labelledby': 'assistant-etape' }, ciblesImport().map((c) => h('label', { class: 'bz-choix' },
-      h('input', { type: 'radio', name: 'assistant-cible', value: c.cle, checked: A.cible?.cle === c.cle, onchange: () => { A.cible = c; if (A.erreur) { A.erreur = null; rendreAssistant(); } } }),
-      h('span', { class: 'bz-choix__texte' }, h('span', { class: 'bz-choix__titre', texte: c.libelle }), c.sous ? h('span', { class: 'bz-choix__detail', texte: c.sous }) : null)))),
+    toutes.find((c) => c.cle === 'role:client'),
+    toutes.find((c) => c.cle === 'role:fournisseur'),
+    parType('employe') ?? parFamille('personne'),
+    parType('article') ?? parFamille('ressource'),
+    parType('facture'),
+    parType('devis'),
+  ].filter((c, i, l) => c && l.indexOf(c) === i);
+}
+/** Ce qu'on importe quand on arrive par la question d'entrée : ses clients, neuf fois sur dix. */
+const cibleParDefaut = () => ciblesCourantes(ciblesImport())[0] ?? null;
+
+function corpsContenu(A) {
+  const toutes = ciblesImport();
+  const courantes = ciblesCourantes(toutes);
+  const autres = toutes.filter((c) => !courantes.includes(c));
+  const choix = (c) => h('label', { class: 'bz-choix' },
+    h('input', { type: 'radio', name: 'assistant-cible', value: c.cle, checked: A.cible?.cle === c.cle, onchange: () => { A.cible = c; if (A.erreur) { A.erreur = null; rendreAssistant(); } } }),
+    h('span', { class: 'bz-choix__texte' }, h('span', { class: 'bz-choix__titre', texte: c.libelle }), c.sous ? h('span', { class: 'bz-choix__detail', texte: c.sous }) : null));
+  return [
+    h('fieldset', { class: 'bz-grille-choix', 'aria-labelledby': 'assistant-etape' }, courantes.map(choix)),
+    autres.length ? h('details', { class: 'bz-repli', open: autres.some((c) => c.cle === A.cible?.cle) },
+      h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Autre chose' }), h('span', { class: 'bz-repli__note', texte: pluriel(autres.length, 'type', 'types') }), icone('chevron-down', { taille: 'sm' })),
+      h('fieldset', { class: 'bz-grille-choix bz-repli__corps', 'aria-label': 'Autres types d’informations' }, autres.map(choix))) : null,
     A.parcours !== 'manuel' ? h('p', { class: 'bz-t-petit' }, 'Une feuille de votre fichier = un type d’informations. Pas encore de fichier ? ',
       h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => { if (A.cible) modeleCsv(A.cible.type); else { A.erreur = 'Choisissez d’abord ce que contiendra le fichier.'; rendreAssistant(); } } }, 'Télécharger un modèle')) : null,
   ];
