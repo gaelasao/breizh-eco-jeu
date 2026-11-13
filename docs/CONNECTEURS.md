@@ -43,8 +43,13 @@ voisin : ils sont sautés dans la CI et se lancent sur le poste de l'éditeur av
 | BODACC | corrigé | Les annonces au-delà de la centième d'un lot de clients sont lues. |
 | Google Agenda | nouveau | Voir « Agenda » ci-dessous. |
 | Agenda Microsoft 365 | nouveau | Voir « Agenda » ci-dessous. |
-| Gmail | nouveau | Voir « Courrier » ci-dessous. Fermé tant que la portée n'est pas ouverte chez le relais : l'entrée n'apparaît alors nulle part dans le jeu. |
+| Gmail | nouveau | Voir « Courrier » ci-dessous. |
 | Courrier Outlook (Microsoft 365) | nouveau | Voir « Courrier » ci-dessous. |
+
+Ces quatre-là réutilisent l'application Google ou Microsoft déjà déclarée, mais chacun demande ses propres droits.
+**Le jeu ne les montre que si le relais les propose**, et le relais ne les propose que si l'hébergeur du réseau a
+déclaré ces droits dans son application : sans cela le bouton mènerait à un refus de l'outil, sans explication. Un
+outil fermé n'apparaît nulle part — ni dans le catalogue, ni derrière un « Google » ou un « Microsoft » déjà branché.
 
 « Se connecter avec… » (relais du réseau) : HubSpot passe à l'API de jetons datée, et sa révocation se fait par le
 relais ; Notion est renouvelé et vraiment révoqué au débranchement ; Shopify reçoit des jetons qui expirent ; Microsoft
