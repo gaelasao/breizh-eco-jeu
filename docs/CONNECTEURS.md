@@ -41,10 +41,137 @@ voisin : ils sont sautés dans la CI et se lancent sur le poste de l'éditeur av
 | API REST | corrigé | Une écriture réussie dont la réponse n'est pas du JSON n'est plus prise pour un échec (elle était retentée : doublons). Identifiant d'une création lu aussi dans l'en-tête `Location`. |
 | MCP (serveur `/mcp`, client, pont pour Claude Desktop) | corrigé | La norme a changé le 28 juillet 2026 (plus de poignée de main, version et en-têtes à chaque requête). Les deux générations sont servies et parlées. Le pont répond toujours par un message valide, même quand le serveur refuse. |
 | BODACC | corrigé | Les annonces au-delà de la centième d'un lot de clients sont lues. |
+| Google Agenda | nouveau | Voir « Agenda » ci-dessous. |
+| Agenda Microsoft 365 | nouveau | Voir « Agenda » ci-dessous. |
+| Gmail | nouveau | Voir « Courrier » ci-dessous. Fermé tant que la portée n'est pas ouverte chez le relais : l'entrée n'apparaît alors nulle part dans le jeu. |
+| Courrier Outlook (Microsoft 365) | nouveau | Voir « Courrier » ci-dessous. |
 
 « Se connecter avec… » (relais du réseau) : HubSpot passe à l'API de jetons datée, et sa révocation se fait par le
 relais ; Notion est renouvelé et vraiment révoqué au débranchement ; Shopify reçoit des jetons qui expirent ; Microsoft
 n'accepte que les comptes professionnels.
+
+## Agenda
+
+Écrit le 13 novembre 2026 d'après la documentation lue ce jour-là (adresses à la fin de la section). **Rien n'a été
+essayé avec un vrai compte** : les essais (`src/passerelle/agenda-courrier.test.ts`) tournent contre des outils simulés.
+
+Un compte Google ou Microsoft contient plusieurs agendas (le sien, celui de l'équipe, celui des interventions). Après
+la connexion du compte, la personne choisit **lequel** et **jusqu'où regarder** (30, 90, 180 ou 365 jours ; les
+30 derniers jours sont toujours lus). Il n'y a rien d'autre à régler : ce qui entre est connu d'avance, donc aucune
+cible à choisir et aucune colonne à associer.
+
+Ce qui entre dans le jeu, comme fiches « Rendez-vous » : le titre, le début, la fin, le lieu, l'état (confirmé, à
+confirmer) et l'adresse du rendez-vous chez l'outil. **Ni la description ni la liste des invités** : un rendez-vous en
+dit déjà beaucoup, son texte n'apporte rien au planning. Ils apparaissent dans l'écran Planning, jour par jour, à côté
+de la grille des affectations — une case dit où quelqu'un passe sa journée, un rendez-vous dit ce qui est prévu à une
+heure : les deux se lisent ensemble sans se mélanger.
+
+Dans les deux sens : un rendez-vous créé dans le jeu est ajouté à l'agenda choisi, et un rendez-vous déjà relié est
+modifié, jamais recréé. L'anti-boucle est celui de tous les connecteurs : l'empreinte de la fiche est notée après
+chaque échange, et rien ne repart tant qu'elle n'a pas changé. Le choix « lire seulement » ou « dans les deux sens » se
+fait **avant** la connexion, parce que c'est lui qui décide des droits demandés ; lire seulement est le choix par
+défaut.
+
+| | Google Agenda | Agenda Microsoft 365 |
+|---|---|---|
+| Liste des agendas | `GET /calendar/v3/users/me/calendarList` (`maxResults` 250 au plus). Un agenda en `accessRole` `freeBusyReader` ou `none` ne montre que « occupé » : il n'est pas proposé. | `GET /me/calendars` (`$select=id,name,isDefaultCalendar`). |
+| Lecture | `GET /calendar/v3/calendars/{id}/events` avec `timeMin`, `timeMax`, `singleEvents=true` (les séries répétées sont développées, un rendez-vous par date), `orderBy=startTime`, `maxResults=250`, pages par `pageToken`. Un événement `status: cancelled` n'entre pas. | `GET /me/calendars/{id}/calendarView?startDateTime&endDateTime`, qui développe lui aussi les séries ; `$select` sans `body`, `$top=250`, pages par `@odata.nextLink` (suivi seulement s'il reste sur `graph.microsoft.com`). En-tête `Prefer: outlook.timezone` : sans lui, Microsoft rend toutes les heures en UTC. |
+| Écriture | `POST …/events`, `PATCH …/events/{id}`. `start`/`end` en `date` (journée entière) ou `dateTime` + `timeZone`. | `POST /me/calendars/{id}/events`, `PATCH /me/events/{id}`. Dates en `{ dateTime, timeZone }` ; une journée entière commence et finit à minuit, avec `isAllDay`. |
+| Temps réel | Canal `POST …/events/watch` (`web_hook`, `token` = secret du réseau, `params.ttl`), un jour au plus, rouvert chaque jour (nouveau canal, puis l'ancien arrêté par `POST /calendar/v3/channels/stop`). | Abonnement `POST /subscriptions` sur `me/events` (`changeType: created,updated,deleted`, `clientState` = secret du réseau), moins de sept jours — Microsoft n'accepte pas plus de 10 080 minutes pour un événement —, renouvelé par `PATCH /subscriptions/{id}` trois jours avant la fin. |
+
+Ce que la documentation permet et que nous ne faisons pas : supprimer un rendez-vous (le jeu n'efface rien chez
+l'outil), inviter des participants (`attendees` : Google prévient alors tout le monde, ce n'est pas au jeu de le
+faire), déplacer un rendez-vous d'un agenda à l'autre, et la synchronisation incrémentale par `syncToken` (Google) ou
+`delta` (Microsoft) — la période choisie est relue en entier, ce qui tient largement pour quelques centaines de
+rendez-vous, et évite d'avoir à gérer l'expiration d'un jeton de synchronisation (Google répond alors `410`).
+
+Un rendez-vous a une heure, une échéance n'en a pas : un champ « date » accepte donc aussi bien `2026-11-20` que
+`2026-11-20T09:00` (à la minute, dans le fuseau de l'entreprise). Les deux formes se relisent telles quelles, et
+l'import de fichiers les accepte toutes les deux.
+
+Documentation lue : Google <https://developers.google.com/workspace/calendar/api/v3/reference/calendarList/list>,
+<https://developers.google.com/workspace/calendar/api/v3/reference/calendarList>,
+<https://developers.google.com/workspace/calendar/api/v3/reference/events/list>,
+<https://developers.google.com/workspace/calendar/api/v3/reference/events>,
+<https://developers.google.com/workspace/calendar/api/v3/reference/events/insert>,
+<https://developers.google.com/workspace/calendar/api/v3/reference/events/patch>,
+<https://developers.google.com/workspace/calendar/api/v3/reference/events/watch>,
+<https://developers.google.com/workspace/calendar/api/guides/sync>,
+<https://developers.google.com/workspace/calendar/api/guides/push>,
+<https://developers.google.com/workspace/calendar/api/auth> ; Microsoft
+<https://learn.microsoft.com/en-us/graph/api/user-list-calendars?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/api/calendar-list-calendarview?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/api/user-list-events?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/api/user-post-events?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/api/event-update?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/api/resources/event?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/api/subscription-post-subscriptions?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/api/subscription-update?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/change-notifications-overview>,
+<https://learn.microsoft.com/en-us/graph/change-notifications-delivery-webhooks>,
+<https://learn.microsoft.com/en-us/graph/delta-query-events>.
+
+## Courrier
+
+Écrit le 13 novembre 2026, mêmes réserves : **rien n'a été essayé avec un vrai compte**.
+
+Gmail et la boîte Outlook deviennent une source de l'écran Courrier : les messages récents de la boîte de réception
+arrivent dans les bacs existants (clients, fournisseurs, paiements, administratif, équipe, publicité, autre) et sont
+triés par les mots-clés déjà en place, les mêmes que pour un mail collé à la main (`src/passerelle/tri-courrier.ts`,
+un seul endroit pour les deux). Après la connexion du compte, il n'y a qu'à choisir combien de messages montrer.
+
+**Le texte des messages n'entre jamais dans le jeu.** Ce n'est pas une promesse, c'est la façon dont les appels sont
+faits :
+
+- Gmail est lu avec `format=metadata`, dont Google écrit qu'il « Returns only email message ID, labels, and email
+  headers » : le corps n'est pas dans la réponse. Les en-têtes demandés sont `From`, `Subject`, `Date` et `Message-ID`,
+  et rien d'autre ;
+- Outlook est lu avec `$select=id,subject,from,receivedDateTime,isRead,webLink` : ni `body` ni `bodyPreview`. En
+  lecture seule, la permission demandée est `Mail.ReadBasic`, dont Microsoft écrit elle-même qu'elle exclut le corps,
+  l'aperçu et les pièces jointes.
+
+Il n'y a donc pas de résumé sur la ligne d'un message venu d'une boîte : le tri s'appuie sur l'expéditeur et l'objet.
+Rien de tout cela ne passe par le réseau Breizhcosystem : le jeu appelle la messagerie directement, depuis le poste.
+
+Ce que le jeu peut faire chez la messagerie, et seulement si la personne a choisi « dans les deux sens » : **marquer
+comme lu** et **archiver**, quand un courrier passe à « traité » dans le jeu (réglage : ne rien faire, marquer comme
+lu, ou marquer comme lu puis archiver). Rien d'autre. Le jeu **n'envoie aucun message et n'en supprime aucun** : les
+portées demandées ne le permettent pas, et un courrier créé dans le jeu ne part jamais chez la messagerie.
+
+**Répondre depuis le jeu : non.** Répondre proprement demanderait de composer un message complet (fil, en-têtes de
+réponse) et une portée d'envoi en plus. À la place, un bouton « Ouvrir dans Gmail » ou « Ouvrir dans Outlook » ouvre le
+message chez l'outil, où la personne lit le texte et répond comme d'habitude. Pour Outlook, l'adresse est celle que
+Microsoft donne avec chaque message (`webLink`). Pour Gmail, **Google ne documente aucune adresse d'interface** : ce
+qui est documenté, c'est l'opérateur de recherche `rfc822msgid:` (page `users.messages.list`). Le bouton ouvre donc une
+recherche Gmail sur l'identifiant du message, ce qui l'affiche — et jamais une adresse devinée.
+
+**Rattacher un message à un client ou à une commande** : c'est ce qui donne sa valeur au reflet. Le menu d'une ligne
+propose « Rattacher à un client, une commande… » ; le message apparaît ensuite sur la fiche de ce client ou de cette
+commande. Un message est rattaché à une chose, pas à deux : choisir une commande détache le client, et l'inverse.
+
+| | Gmail | Courrier Outlook |
+|---|---|---|
+| Lecture | `GET /gmail/v1/users/me/messages?labelIds=INBOX&maxResults=N` (le paramètre `q` est **interdit** avec la portée de lecture seule `gmail.metadata`), puis un `GET …/messages/{id}?format=metadata&metadataHeaders=…` par message. | `GET /me/mailFolders('inbox')/messages` avec `$select` sans corps, `$orderby=receivedDateTime desc`, `$top` (1 à 1000), pages par `@odata.nextLink`. |
+| Marquer comme lu | `POST …/messages/{id}/modify` avec `{"removeLabelIds":["UNREAD"]}`. | `PATCH /me/messages/{id}` avec `{"isRead":true}`. |
+| Archiver | Même appel, en retirant aussi `INBOX` : le message quitte la boîte de réception. | `POST /me/messages/{id}/move` avec `{"destinationId":"archive"}` — `archive` est l'un des noms de dossier connus de Microsoft, celui du bouton « Archiver » d'Outlook. Un message déplacé **change d'identifiant** chez Microsoft ; il quitte la boîte de réception et n'est plus relu. |
+| Temps réel | Non. Gmail n'envoie ses avis que par Cloud Pub/Sub (un service Google de plus à tenir chez l'éditeur, et un abonnement à renouveler au moins tous les 7 jours). La boîte est relue à son intervalle. | Non, pour rester symétrique : une boîte se relit très bien toutes les quelques minutes. |
+
+Un appel par message chez Gmail : d'où le plafond proposé (25, 50 ou 100 messages récents).
+
+Documentation lue : Gmail <https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages>,
+<https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list>,
+<https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/get>,
+<https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/modify>,
+<https://developers.google.com/workspace/gmail/api/reference/rest/v1/Format>,
+<https://developers.google.com/workspace/gmail/api/guides/labels>,
+<https://developers.google.com/workspace/gmail/api/guides/sync>,
+<https://developers.google.com/workspace/gmail/api/guides/push>,
+<https://developers.google.com/workspace/gmail/api/auth/scopes> ; Microsoft
+<https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/api/message-update?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/api/message-move?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/api/resources/mailfolder?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/permissions-reference>.
 
 ## Temps réel
 

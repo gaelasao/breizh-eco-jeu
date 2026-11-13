@@ -97,14 +97,18 @@ test('courrier : balayage au-delà du seuil seulement, doublé du menu ; dates c
   const app = lire('web/app.js');
   assert.match(app, /balayageCourrier\(li, contenu, o, l\)/);
   assert.match(app, /libelle: 'Déléguer à…'/, 'le balayage est doublé du menu « ⋯ » (2.5.7)');
-  // le bouton de la rubrique dit ce qu'il fait : aucune boîte mail ne se connecte encore, on colle un mail
+  // le bouton de la rubrique dit ce qu'il fait : coller un mail. Brancher une boîte se fait dans « Connecter mes données »
   assert.doesNotMatch(app, /Connecter ma boîte mail/, 'plus de bouton qui promet de connecter une boîte mail');
   const courrier = app.slice(app.indexOf('async function rendreCourrier()'), app.indexOf('// ---------------------------------------------------------------- temps réel'));
   assert.doesNotMatch(courrier, /ouvrirAssistant\(/, 'le courrier n’ouvre plus « Où sont vos clients ? »');
   assert.match(courrier, /icone\('clipboard-paste'\), 'Ajouter un courrier'\)/);
   assert.match(courrier, /texte: 'Ajouter un courrier : coller un mail'/, 'le collage n’est plus rangé sous « Mode avancé »');
   assert.match(courrier, /C\.tri\.ouvert = true;\s+await rendreCourrier\(\);\s+const champ = \$\('#courrier-colle'\);[\s\S]{0,80}champ\?\.focus\(\);/, 'le bouton ouvre le collage et y place le curseur (une fois la page redessinée)');
-  assert.match(courrier, /Votre boîte mail ne se connecte pas encore directement\./, 'la limite est dite en clair');
+  // une boîte Gmail ou Outlook se branche maintenant : on dit où aller, sans emmener dans « Où sont vos clients ? »
+  assert.match(courrier, /« Connecter mes données », puis votre compte Google ou Microsoft/, 'la voie est dite en clair');
+  assert.match(courrier, /ne quitte jamais votre messagerie/, 'ce qui reste chez la messagerie est dit sur place');
+  assert.match(courrier, /libelle: 'Rattacher à un client, une commande…'/, 'rattacher un message : ce qui donne sa valeur au reflet');
+  assert.match(courrier, /Ouvrir dans \$\{l\.messagerie\.nom\}/, 'un message venu d’une boîte s’ouvre chez elle, pour le lire et y répondre');
   assert.match(courrier, /!toutes\.length \? videRubrique\('courrier', \{ action: peut \? boutonAjouter\('bz-bouton--principal'\) : null \}\)/);
 });
 

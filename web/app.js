@@ -3848,7 +3848,9 @@ function rendreAssistant() {
   const d = E.assistantDlg;
   if (!A || !d || !CONNECTER) return;
   const { PARCOURS, progression } = CONNECTER;
-  const p = progression(A.parcours, A.etape);
+  // un agenda ou une boîte n'a aucune colonne à associer : l'étape n'est pas annoncée non plus
+  const parcours = A.parcours === 'outil' && A.outil && cibleFixeDe(A.outil) ? 'outilDirect' : A.parcours;
+  const p = progression(parcours, A.etape);
   const avecEtapes = A.etape !== 'choisir';
   const titre = A.etape === 'choisir' ? 'Connecter mes données'
     : A.parcours === 'outil' && A.outil ? `Connecter ${A.outil.compte?.nom ?? A.outil.s?.nom ?? ''}`
@@ -3863,7 +3865,7 @@ function rendreAssistant() {
   remplir(prog, avecEtapes ? [h('progress', { class: 'bz-assistant__barre', max: String(p.total), value: String(p.index + 1), 'aria-hidden': 'true' }), h('span', { texte: p.texte })] : null);
   const grille = $('#assistant-grille');
   if (avecEtapes) grille.setAttribute('data-etapes', ''); else grille.removeAttribute('data-etapes');
-  const etapes = PARCOURS[A.parcours] ?? PARCOURS.fichier;
+  const etapes = PARCOURS[parcours] ?? PARCOURS.fichier;
   remplir($('#assistant-etapes'), avecEtapes ? h('ol', {}, etapes.map(([k, l], i) => {
     const etat = i < p.index ? 'faite' : i === p.index ? 'courante' : 'future';
     const contenu = [etat === 'faite' ? icone('check', { taille: 'sm' }) : h('span', { class: 'bz-etapes__numero', 'aria-hidden': 'true', texte: String(i + 1) }), h('span', { texte: l })];
@@ -3912,6 +3914,12 @@ function contenuAssistant(A) {
     return allerEtape('fichier');
   })]];
   if (A.etape === 'fichier') return [corpsFichier(A), [boutonRetour('contenu'), boutonPrincipal(A.source === 'coller' ? 'Lire ces lignes' : A.source === 'sheets' ? 'Lire la feuille' : 'Lire le fichier', analyser, { occupe: A.envoi, enCours: 'Lecture…' })]];
+  // agenda, boîte de réception : les noms des champs sont déjà ceux du jeu, il n'y a aucune colonne à associer.
+  // Le bouton branche donc tout de suite, au lieu de mener à un écran où il n'y aurait rien à faire.
+  if (A.etape === 'recuperer' && A.outil && cibleFixeDe(A.outil)) {
+    return [corpsRecuperer(A.outil), [boutonRetour('connexion'),
+      A.outil.apercu ? boutonPrincipal(`Brancher ${(A.outil.contenu?.libelle ?? A.outil.s?.nom ?? '').toLowerCase()}`, () => activerOutil(A.outil), { occupe: A.envoi, enCours: 'Branchement…' }) : null]];
+  }
   if (A.etape === 'recuperer') return [corpsRecuperer(A.outil), [boutonRetour('connexion'),
     A.outil?.apercu ? boutonPrincipal('Continuer', () => allerEtape('colonnes')) : null]];
   if (A.etape === 'colonnes' && A.parcours === 'outil') return [corpsColonnesOutil(A.outil), [boutonRetour('recuperer'),
@@ -4425,8 +4433,31 @@ function dessinerPlanning() {
       h('span', { class: 'bz-barre-action__titre bz-t-label', texte: pluriel(sel.cases.size, 'case sélectionnée', 'cases sélectionnées') }),
       h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'affecter-selection', onclick: (e) => ouvrirChoixCase(e.currentTarget, [...sel.cases].map(caseDeCle)) }, icone('square-pen'), 'Affecter…'),
       h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => { viderSelection(); dessinerPlanning(); } }, icone('x'), 'Désélectionner')) : null,
+    rendezVousPlanning(P),
     projetsPlanning(P),
     h('div', { class: 'bz-menu bz-planning__choix', id: 'planning-choix', popover: 'auto', role: 'dialog', 'aria-labelledby': 'planning-choix-titre' })));
+}
+
+/**
+ * Les rendez-vous de la semaine, jour par jour. Ils viennent de l'agenda branché (Google, Microsoft) ou du jeu, et ne
+ * touchent pas aux cases : une case dit où quelqu'un passe sa journée, un rendez-vous dit ce qui est prévu à une heure.
+ */
+function rendezVousPlanning(P) {
+  const liste = P.rendezVous ?? [];
+  if (!liste.length) return null;
+  const parJour = P.jours.map((j) => [j, liste.filter((r) => r.jour === j)]).filter(([, l]) => l.length);
+  return h('section', { class: 'bz-planning__section', 'aria-labelledby': 'planning-rdv-titre' },
+    h('h2', { class: 'bz-t-titre-4', id: 'planning-rdv-titre' }, h('span', { texte: 'Rendez-vous' }),
+      liste.some((r) => r.mode === 'demo') ? badgeExemple() : null),
+    h('ul', { class: 'bz-criteres__liste', role: 'list' }, parJour.map(([j, l]) => h('li', { class: 'bz-critere' },
+      h('p', { class: 'bz-t-label' }, h('span', { texte: j === P.aujourdhui ? `Aujourd’hui · ${PLAN.jourLong(j)}` : PLAN.jourLong(j) })),
+      h('ul', { class: 'bz-liste-simple', role: 'list' }, l.map((r) => h('li', {},
+        r.heure ? h('span', { class: 'bz-t-identifiant bz-texte-2', texte: `${r.heure} ` }) : h('span', { class: 'bz-t-micro bz-texte-2', texte: 'toute la journée · ' }),
+        h('button', { type: 'button', class: 'bz-lien', onclick: () => selectionner(r.id), texte: sansDemo(r.titre) }),
+        r.etat === 'à confirmer' ? h('span', { class: 'bz-badge bz-badge--attention' }, icone('circle-help', { taille: 'sm' }), 'À confirmer') : null,
+        r.lieu ? h('span', { class: 'bz-t-micro bz-texte-2', texte: ` · ${r.lieu}` }) : null,
+        r.avec ? h('span', { class: 'bz-t-micro bz-texte-2', texte: ` · avec ${sansDemo(r.avec.nom)}` }) : null,
+        r.pour ? h('span', { class: 'bz-t-micro bz-texte-2', texte: ` · ${sansDemo(r.pour.nom)}` }) : null)))))));
 }
 
 const caseDeCle = (k) => { const [employe, date] = k.split('|'); return { employe, date }; };
@@ -4802,6 +4833,59 @@ function deleguerCourrier(o) {
   });
 }
 
+/**
+ * « Rattacher à… » : ce qui donne sa valeur au reflet d'une boîte mail. Un message rattaché à un client apparaît sur
+ * la fiche de ce client, et un message rattaché à une commande sur celle de la commande. Même mécanique que
+ * « Déléguer » : une seule liste, écrite par « objet.modifier », annulable.
+ */
+function rattacherCourrier(o) {
+  const nom = (x) => sansDemo(x.nom);
+  const tiers = E.monde.objets.filter((x) => x.famille === 'tiers').sort((a, b) => nom(a).localeCompare(nom(b), 'fr'));
+  const affaires = E.monde.objets.filter((x) => x.famille === 'commande' || x.famille === 'projet').sort((a, b) => nom(a).localeCompare(nom(b), 'fr'));
+  // un tiers va dans « Client ou fournisseur », une commande ou une affaire dans « Concerne » : deux champs, une liste
+  const champDe = (id) => (tiers.some((x) => x.id === id) ? 'tiers' : 'concerne');
+  const actuel = o.champs.find((x) => x.id === 'tiers')?.lien?.id ?? o.champs.find((x) => x.id === 'concerne')?.lien?.id ?? '';
+  const S = { choix: actuel, erreur: null, envoi: false };
+  const D = dialogueVivant({
+    titre: 'Rattacher ce courrier', surtitre: 'Courrier', taille: 'sm',
+    onsubmit: async () => {
+      if (!S.choix) { S.erreur = 'Choisissez un client, un fournisseur ou une commande.'; D.rendre(); return; }
+      S.envoi = true; D.rendre();
+      try {
+        const champ = champDe(S.choix);
+        const a = await ecrireChamp(o, champ, S.choix);
+        if (a.etat === 'echouee' || a.etat === 'resultat_inconnu') throw Object.assign(new Error(a.message ?? 'Rattachement refusé.'), { statut: 409 });
+        // l'autre champ est vidé : un courrier est rattaché à une chose, pas à deux
+        const autre = champ === 'tiers' ? 'concerne' : 'tiers';
+        if (o.champs.find((x) => x.id === autre)?.lien?.id) await ecrireChamp(o, autre, null).catch(() => undefined);
+        D.fermer();
+        const quoi = nom([...tiers, ...affaires].find((x) => x.id === S.choix) ?? { nom: '' });
+        if (a.etat === 'en_attente') informer('Rattachement envoyé pour approbation.', '');
+        else actionAnnulable({ texte: `Courrier rattaché à ${quoi}.`, libelle: `rattachement du courrier à ${quoi}`, annuler: async () => { await ecrireChamp(o, champ, actuel || null); await charger(); } });
+        await charger();
+      } catch (e) { S.envoi = false; S.erreur = e.message; D.rendre(); }
+    },
+    contenu: () => ({
+      corps: [
+        h('div', { class: 'bz-champ' },
+          h('label', { class: 'bz-champ__libelle', for: 'rattacher-a', texte: 'À quel client, fournisseur ou commande ?' }),
+          h('div', { class: 'bz-select' },
+            h('select', { id: 'rattacher-a', class: 'bz-champ__saisie', 'aria-invalid': S.erreur ? 'true' : null, 'aria-describedby': S.erreur ? 'rattacher-erreur' : null, onchange: (e) => { S.choix = e.target.value; S.erreur = null; } },
+              h('option', { value: '', texte: 'Choisir' }),
+              tiers.length ? h('optgroup', { label: 'Clients et fournisseurs' }, tiers.map((x) => h('option', { value: x.id, selected: x.id === S.choix, texte: nom(x) }))) : null,
+              affaires.length ? h('optgroup', { label: 'Commandes et affaires' }, affaires.map((x) => h('option', { value: x.id, selected: x.id === S.choix, texte: nom(x) }))) : null),
+            icone('chevron-down', { taille: 'sm' })),
+          S.erreur ? h('p', { class: 'bz-champ__erreur', id: 'rattacher-erreur', role: 'alert' }, icone('circle-alert', { taille: 'sm' }), h('span', { texte: S.erreur })) : null),
+        h('p', { class: 'bz-t-petit', texte: 'Le courrier apparaîtra sur sa fiche. Vous pourrez annuler.' }),
+      ],
+      pied: [
+        h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => D.fermer() }, 'Annuler'),
+        h('button', { type: 'submit', class: 'bz-bouton bz-bouton--principal', 'aria-busy': S.envoi ? 'true' : null }, icone('link'), 'Rattacher'),
+      ],
+    }),
+  });
+}
+
 /** Crée une tâche liée au courrier, avec l'action proposée comme titre (formulaire de la fiche). */
 async function tacheDepuisCourrier(o) {
   await selectionner(o.id);
@@ -4880,6 +4964,9 @@ async function rendreCourrier() {
           l.traite ? h('span', { class: 'bz-badge bz-badge--ok' }, icone('circle-check', { taille: 'sm' }), 'Traité') : null,
           l.destinataire ? h('span', { class: 'bz-t-micro bz-texte-2', texte: `Pour ${l.destinataire.nom}` }) : null),
         l.action && !l.traite ? h('p', { class: 'bz-t-petit bz-texte-2 bz-ligne-icone' }, icone('lightbulb', { taille: 'sm' }), h('span', { texte: `Proposé : ${l.action}` })) : null,
+        // message venu d'une boîte branchée : le texte reste chez la messagerie, on l'y ouvre pour le lire et répondre
+        l.messagerie ? h('p', { class: 'bz-t-petit' }, h('a', { class: 'bz-bouton bz-bouton--lien', href: l.messagerie.url, target: '_blank', rel: 'noopener noreferrer' },
+          icone('external-link', { taille: 'sm' }), `Ouvrir dans ${l.messagerie.nom}`)) : null,
         erreurs.has(l.id) ? h('p', { class: 'bz-champ__erreur', role: 'alert' }, icone('circle-alert', { taille: 'sm' }), h('span', { texte: erreurs.get(l.id) }),
           h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => statutCourrier(o, !l.traite) }, 'Réessayer')) : null),
       h('div', { class: 'bz-courrier__actions' },
@@ -4888,8 +4975,10 @@ async function rendreCourrier() {
         menuActions({ id: `menu-courrier-${idDom(l.id)}`, libelle: `Actions pour le courrier de ${l.expediteur}`, items: [
           peut ? { libelle: l.traite ? 'Remettre à traiter' : 'Marquer comme traité', icone: l.traite ? 'rotate-ccw' : 'check', faire: () => statutCourrier(o, !l.traite) } : null,
           peut ? { libelle: 'Déléguer à…', icone: 'forward', faire: () => deleguerCourrier(o) } : null,
+          peut ? { libelle: 'Rattacher à un client, une commande…', icone: 'link', faire: () => rattacherCourrier(o) } : null,
           peut ? { libelle: 'Créer une tâche', icone: 'list-checks', faire: () => tacheDepuisCourrier(o) } : null,
           l.tiers ? { libelle: `Voir ${l.tiers.nom}`, icone: 'contact', faire: () => selectionner(l.tiers.id) } : null,
+          l.concerne ? { libelle: `Voir ${l.concerne.nom}`, icone: 'package', faire: () => selectionner(l.concerne.id) } : null,
           { libelle: 'Ouvrir la fiche', icone: 'panel-left', faire: () => selectionner(l.id) },
         ] })));
     const li = h('li', { class: 'bz-courrier__ligne', 'data-traite': l.traite ? '' : null, 'data-urgent': l.urgent && !l.traite ? '' : null, 'data-courant': E.selection === l.id ? '' : null },
@@ -4925,7 +5014,7 @@ async function rendreCourrier() {
     h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Ajouter un courrier : coller un mail' }), h('span', { class: 'bz-repli__note', texte: 'tri par mots-clés, sans IA' }), icone('chevron-down', { taille: 'sm' })),
     h('div', { class: 'bz-repli__corps bz-pile' },
       h('p', { class: 'bz-t-petit', texte: 'Collez un mail : Living Business propose le bac, l’urgence, la personne et l’action.' }),
-      h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Votre boîte mail ne se connecte pas encore directement. Pour recevoir vos mails tout seuls, il faut aujourd’hui un outil d’automatisation (Make, Zapier ou n8n) : Connecter mes données, puis « Mode avancé ».' }),
+      h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Pour que vos messages arrivent tout seuls : « Connecter mes données », puis votre compte Google ou Microsoft. Le texte des messages, lui, ne quitte jamais votre messagerie.' }),
       h('div', { class: 'bz-champ' },
         h('label', { class: 'bz-champ__libelle', for: 'courrier-colle', texte: 'Texte du mail' }),
         h('textarea', { id: 'courrier-colle', class: 'bz-champ__saisie', rows: '6', placeholder: 'De : …\nObjet : …\nTexte du mail', oninput: (e) => (C.tri.texte = e.target.value) }, C.tri.texte)),
@@ -6768,8 +6857,15 @@ function seConnecterOutil(C) {
       annoncer(`Connecté à ${nomOutilDe(C)}. Rien n’a encore été importé.`);
       enregistrerConnexion(C);
     } else if (r.code === 'oauth_indisponible') {
-      // outil pas encore ouvert sur le relais : la clé (mode avancé) reste possible, sans l'éditeur
       C.annulerOAuth = null; s.oauth = null;
+      // un agenda, une boîte de réception : il n'y a pas de clé à créer soi-même, seulement la connexion au compte
+      if (!s.champs.some((ch) => ch.secret && ch.mode !== 'oauth')) {
+        C.oauth = null;
+        A.erreur = `${s.nom} n’est pas disponible pour le moment. Réessayez plus tard : il n’y a rien d’autre à faire de votre côté.`;
+        majOutil(C);
+        return;
+      }
+      // outil pas encore ouvert sur le relais : la clé (mode avancé) reste possible, sans l'éditeur
       modeCle(C);
       informer(`« Se connecter avec ${s.nom} » n’est pas disponible pour le moment : branchez-le avec une clé créée dans ${s.nom}, sans passer par l’éditeur.`);
       return;
@@ -6927,8 +7023,24 @@ function infoRelais(nomOutil) {
  * entreprise. Un compte personnel est donc refusé dès la page de connexion de Microsoft.
  */
 const AVERTISSEMENT_MICROSOFT = resultatAssistant('attention', 'Il vous faut un compte Microsoft 365 professionnel.', {
-  detail: 'L’adresse de votre entreprise, celle qui ouvre OneDrive Entreprise ou SharePoint. Un compte personnel (Outlook, Hotmail, Live) est refusé par Microsoft dès la page de connexion : Microsoft n’ouvre pas Excel aux classeurs d’un OneDrive personnel. Vos fichiers sont sur un compte personnel ? Importez-les en fichier, section « Sans rien connecter ».',
+  detail: 'L’adresse de votre entreprise, celle qui ouvre Microsoft 365 (OneDrive Entreprise, SharePoint, votre agenda, votre courrier Outlook professionnel). Un compte personnel (Outlook.com, Hotmail, Live) est refusé par Microsoft dès la page de connexion : Microsoft n’ouvre pas Excel aux classeurs d’un OneDrive personnel. Vos fichiers sont sur un compte personnel ? Importez-les en fichier, section « Sans rien connecter ».',
 });
+/**
+ * Agenda, boîte de réception : « dans les deux sens » se choisit AVANT la connexion, parce que c'est lui qui décide
+ * des droits demandés à l'outil. Lire seulement est proposé en premier, et c'est le choix par défaut : on ne demande
+ * jamais d'écrire chez quelqu'un qui ne l'a pas demandé.
+ */
+function choixSensAvantConnexion(C) {
+  const libelles = C.s ? CONNECTER.sensAvantConnexion(C.s.id) : null;
+  if (!libelles || C.mode !== 'oauth') return null;
+  const choisir = (sens) => { C.sens = sens; C.droits = sens === 'lecture' ? 'lecture' : 'ecriture'; majOutil(C); };
+  return h('fieldset', { class: 'bz-grille-choix' },
+    h('legend', { class: 'bz-champ__libelle', texte: 'Que doit faire Living Business ?' }),
+    ...['lecture', 'deux'].map((sens) => h('label', { class: 'bz-choix' },
+      h('input', { type: 'radio', name: 'outil-sens-avant', value: sens, checked: C.sens === sens, onchange: () => choisir(sens) }),
+      h('span', { class: 'bz-choix__texte' }, h('span', { class: 'bz-choix__titre' }, h('span', { texte: libelles[sens] }))))));
+}
+
 /** Dans un compte, ce qu'on veut brancher (classeur Excel, Dynamics 365…) : choisi AVANT la connexion, pour ne demander à l'outil que les droits correspondants. */
 function choixContenu(C) {
   const contenus = C.compte.contenus;
@@ -6940,7 +7052,9 @@ function choixContenu(C) {
       h('span', { class: 'bz-choix__texte' },
         h('span', { class: 'bz-choix__titre' }, h('span', { texte: x.libelle }), x.unClic ? h('span', { class: 'bz-badge' }, icone('mouse-pointer-click'), '1 clic') : null),
         h('span', { class: 'bz-choix__detail', texte: x.cle && !x.unClic ? `${x.detail} Avec une clé.` : x.detail }))))),
-    aVenir.length ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `Plus tard dans ce même compte : ${aVenir.map((x) => x.libelle.toLowerCase()).join(', ')}. Ce n’est pas encore fait : rien n’est proposé tant que ça ne marche pas.` }) : null,
+    // ce qui n'est proposé nulle part : ou bien ce n'est pas encore fait, ou bien l'outil ne l'a pas encore ouvert.
+    // Dans les deux cas, le résultat est le même pour la personne : ça ne marche pas aujourd'hui, donc on ne le propose pas.
+    aVenir.length ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `Dans ce même compte, plus tard : ${aVenir.map((x) => x.libelle).join(', ')}. Pas aujourd’hui : on ne propose que ce qui marche.` }) : null,
   ];
 }
 function corpsConnexion(C) {
@@ -6958,9 +7072,10 @@ function corpsConnexion(C) {
           h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => { nettoyerOutil(C); C.s = null; C.contenu = null; C.ferme = false; majOutil(C); } }, 'Changer')) : null,
       !connecte && microsoft ? AVERTISSEMENT_MICROSOFT : null,
       param && !connecte ? h('div', { class: 'bz-grille-champs' }, champOutil(C, param)) : null,
+      !connecte ? choixSensAvantConnexion(C) : null,
       !C.oauth ? h('div', { class: 'bz-pile' },
         h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--lg', cle: 'outil-oauth', onclick: () => seConnecterOutil(C) }, icone('log-in'), `Se connecter avec ${nomOutil}`)),
-        h('p', { class: 'bz-t-petit', texte: `Une page ${nomOutil} s’ouvre dans un nouvel onglet : connectez-vous avec votre compte et acceptez. Votre mot de passe reste chez ${nomOutil}, aucune clé à copier. Living Business ne demande que le droit de LIRE : rien ne sera modifié chez ${nomOutil}, et rien ne sera importé tant que vous ne l’aurez pas choisi.` }),
+        h('p', { class: 'bz-t-petit', texte: `Une page ${nomOutil} s’ouvre dans un nouvel onglet : connectez-vous avec votre compte et acceptez. Votre mot de passe reste chez ${nomOutil}, aucune clé à copier. ${C.droits === 'ecriture' ? `Living Business demandera le droit de lire ET d’écrire, parce que vous l’avez choisi ci-dessus.` : 'Living Business ne demande que le droit de LIRE : rien ne sera modifié chez ' + nomOutil + '.'} Rien ne sera importé tant que vous ne l’aurez pas choisi.` }),
         infoRelais(nomOutil))
         : !connecte ? h('div', { role: 'status' }, resultatAssistant('attente', C.oauth.statut === 'ouverture' ? `Ouverture de la page ${nomOutil}…` : 'Connectez-vous dans l’onglet qui vient de s’ouvrir.', {
           detail: C.oauth.verification ? 'Avant d’accepter, Breizhcosystem vous montre le code de la demande : il doit être identique à celui-ci. Sinon, refusez : quelqu’un d’autre a lancé cette connexion. Cette fenêtre se met à jour toute seule ensuite.' : 'Cette fenêtre se met à jour toute seule dès que vous avez accepté.',
@@ -6973,7 +7088,9 @@ function corpsConnexion(C) {
             actions: h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => seConnecterOutil(C) }, 'Changer de compte')) }),
           h('p', { class: 'bz-t-petit', texte: `La connexion est chiffrée sur cet ordinateur et n’est jamais affichée. Vos données vont directement de ${nomOutil} à Living Business, sans passer par Breizhcosystem ; seuls les jetons de connexion y passent, à la connexion et à chaque renouvellement.` }),
         ],
-      h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => modeCle(C) }, icone('code-xml'), 'Mode avancé : pour votre informaticien')),
+      // un agenda, une boîte de réception : aucune clé à créer soi-même, donc aucun mode avancé à proposer
+      s.champs.some((ch) => ch.secret && ch.mode !== 'oauth')
+        ? h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => modeCle(C) }, icone('code-xml'), 'Mode avancé : pour votre informaticien')) : null,
     ];
   }
   // Parcours par clé : le jargon de l'outil (droits, noms internes, « API V2 ») reste dans les replis « pour votre
@@ -7048,12 +7165,26 @@ function nomChoisi(C) {
  * « change » sur celui qu'il retire : sans cette signature, l'aperçu se rechargerait en boucle.
  */
 const signatureRecuperation = (C) => JSON.stringify([C.config, C.cible?.cle ?? '']);
+/**
+ * Ce que ce branchement fait entrer dans le jeu, quand c'est connu d'avance (agenda → rendez-vous, boîte → courrier) :
+ * la cible n'est alors ni devinée ni demandée, et l'écran « Associer les colonnes » est sauté. null sinon.
+ */
+function cibleFixeDe(C) {
+  const type = C.s ? CONNECTER.cibleFixe(C.s.id) : null;
+  // ces types-là (rendez-vous, courrier) ne sont pas dans « à quoi ça correspond ? » : on n'importe pas un agenda
+  // depuis un tableur. Ils se lisent donc directement dans l'univers.
+  const t = type ? (E.monde?.univers?.types ?? []).find((x) => x.id === type) : null;
+  return t ? { cle: `type:${t.id}`, libelle: t.pluriel, sous: '', type: t.id, roles: [] } : null;
+}
 /** L'aperçu : quelques lignes lues chez l'outil et la correspondance proposée. Lecture seule : rien n'est enregistré. */
 async function chargerApercu(C) {
   const A = E.assistant;
   if (!A || !recuperationChoisie(C)) return;
   const nom = nomChoisi(C);
-  if (!C.cible || C.cibleAuto) { C.cible = CONNECTER.cibleProbable(nom, ciblesImport()) ?? C.cible ?? ciblesImport()[0]; C.cibleAuto = true; }
+  // agenda, boîte de réception : on sait d'avance ce que ça contient, il n'y a rien à deviner ni à demander
+  const fixe = cibleFixeDe(C);
+  if (fixe) { C.cible = fixe; C.cibleAuto = false; }
+  else if (!C.cible || C.cibleAuto) { C.cible = CONNECTER.cibleProbable(nom, ciblesImport()) ?? C.cible ?? ciblesImport()[0]; C.cibleAuto = true; }
   C.signatureApercu = signatureRecuperation(C);
   C.chargeApercu = true;
   C.erreurApercu = null;
@@ -7118,7 +7249,7 @@ function corpsRecuperer(C) {
       a.message ? resultatAssistant('info', a.message) : resultatAssistant('ok', `${pluriel(a.enregistrements, 'fiche trouvée', 'fiches trouvées')} chez ${nomOutil}.`, { detail: 'Voici les premières lignes, telles qu’elles sont aujourd’hui chez vous.' }),
       a.precision ? resultatAssistant('info', a.precision) : null,
       tableauApercu(a),
-      h('div', { class: 'bz-grille-champs' }, selectCible(C, () => { C.cibleAuto = false; relire(); }), reglagesSynchro(C, { sens: false })),
+      h('div', { class: 'bz-grille-champs' }, cibleFixeDe(C) ? null : selectCible(C, () => { C.cibleAuto = false; relire(); }), reglagesSynchro(C, { sens: false })),
       blocSens(C),
     ] : null,
   ];

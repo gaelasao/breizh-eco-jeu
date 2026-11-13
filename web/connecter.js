@@ -64,19 +64,21 @@ export const SECTIONS = Object.freeze([
 export const COMPTES = Object.freeze([
   {
     id: 'google', nom: 'Google', icone: 'sheet', famille: 'tableurs',
-    description: 'Une seule connexion pour votre compte Google. Aujourd’hui : vos feuilles de calcul.',
+    description: 'Une seule connexion pour votre compte Google : vos feuilles de calcul, votre agenda, votre courrier.',
     contenus: [
       { id: 'sheets', libelle: 'Feuilles de calcul', detail: 'Clients, commandes, stock… dans les deux sens.', source: 'sheets' },
-      { id: 'agenda', libelle: 'Agenda', detail: 'Rendez-vous et interventions.', source: null },
-      { id: 'messagerie', libelle: 'Messagerie', detail: 'Les mails de vos clients.', source: null },
+      { id: 'agenda', libelle: 'Agenda', detail: 'Vos rendez-vous dans le planning, et ceux d’ici dans votre agenda.', source: 'agendagoogle' },
+      { id: 'messagerie', libelle: 'Courrier Gmail', detail: 'Vos messages récents dans l’écran Courrier, triés dans vos bacs.', source: 'gmail' },
     ],
   },
   {
     id: 'microsoft', nom: 'Microsoft', icone: 'file-spreadsheet', famille: 'tableurs',
-    description: 'Une seule entrée pour votre compte Microsoft 365 : Excel sur OneDrive ou SharePoint, Dynamics 365, Business Central.',
+    description: 'Une seule entrée pour votre compte Microsoft 365 : Excel, agenda, courrier Outlook, Dynamics 365, Business Central.',
     professionnel: true,
     contenus: [
       { id: 'excel365', libelle: 'Un classeur Excel', detail: 'Sur OneDrive professionnel ou SharePoint.', source: 'excel365' },
+      { id: 'agenda', libelle: 'Agenda', detail: 'Vos rendez-vous dans le planning, et ceux d’ici dans votre agenda.', source: 'agendamicrosoft' },
+      { id: 'messagerie', libelle: 'Courrier Outlook', detail: 'Vos messages récents dans l’écran Courrier, triés dans vos bacs.', source: 'outlook' },
       { id: 'dynamics365', libelle: 'Dynamics 365', detail: 'Les comptes et les contacts de votre CRM.', source: 'dynamics365' },
       { id: 'businesscentral', libelle: 'Business Central', detail: 'Clients, fournisseurs et articles.', source: 'businesscentral' },
     ],
@@ -85,6 +87,25 @@ export const COMPTES = Object.freeze([
 
 /** Compte auquel appartient un outil (sheets → Google, excel365 → Microsoft…) ; null s'il est seul de son espèce. */
 export const compteDe = (sourceId) => COMPTES.find((c) => c.contenus.some((x) => x.source === sourceId)) ?? null;
+
+/**
+ * Outils dont ce qui entre dans le jeu est connu d'avance : un agenda contient des rendez-vous, une boîte contient du
+ * courrier. Il n'y a donc rien à demander (« à quoi ça correspond ? ») et aucune colonne à associer : les noms des
+ * champs sont déjà ceux du jeu. C'est ce qui tient la promesse « pas plus de trois clics après la connexion ».
+ */
+export const CIBLE_FIXE = Object.freeze({
+  agendagoogle: 'rendez_vous', agendamicrosoft: 'rendez_vous', gmail: 'courrier', outlook: 'courrier',
+});
+export const cibleFixe = (sourceId) => CIBLE_FIXE[sourceId] ?? null;
+
+/** Outils où « dans les deux sens » se choisit AVANT la connexion : la portée demandée en dépend. */
+export const SENS_AVANT_CONNEXION = Object.freeze({
+  agendagoogle: { lecture: 'Lire mes rendez-vous', deux: 'Lire mes rendez-vous, et ajouter dans l’agenda ceux que je crée ici' },
+  agendamicrosoft: { lecture: 'Lire mes rendez-vous', deux: 'Lire mes rendez-vous, et ajouter dans l’agenda ceux que je crée ici' },
+  gmail: { lecture: 'Lire l’expéditeur, l’objet et la date', deux: 'Lire, et marquer comme lu ou archiver quand je traite un courrier ici' },
+  outlook: { lecture: 'Lire l’expéditeur, l’objet et la date', deux: 'Lire, et marquer comme lu ou archiver quand je traite un courrier ici' },
+});
+export const sensAvantConnexion = (sourceId) => SENS_AVANT_CONNEXION[sourceId] ?? null;
 
 /** Pseudo-entrée : le parcours « Compléter mon entreprise » (lieux, équipe, clients et fournisseurs, pas à pas). */
 export const PAS_A_PAS = Object.freeze({
@@ -126,9 +147,14 @@ export function catalogue(sources = [], connecteurs = [], { pasAPas = true } = {
   const groupes = [];
   const regroupes = new Set();
   for (const c of COMPTES) {
+    // règle (3) jusque dans un compte : un contenu dont AUCUNE voie n'est ouverte (ni un clic, ni une clé) n'est pas
+    // « disponible ». C'est ce qui arrive quand le relais n'ouvre pas encore cet outil — Gmail, par exemple, tant que
+    // l'éditeur n'a pas fait vérifier sa portée chez Google : l'entrée disparaît au lieu de mener à un refus.
     const contenus = c.contenus.map((x) => {
       const s = x.source ? parId.get(x.source) : null;
-      return { ...x, source: s ? x.source : null, disponible: Boolean(s), unClic: Boolean(s?.oauth), cle: Boolean(s && aUneCle(s)), ecriture: Boolean(s?.ecriture) };
+      const unClic = Boolean(s?.oauth);
+      const cle = Boolean(s && aUneCle(s));
+      return { ...x, source: s ? x.source : null, disponible: Boolean(s) && (unClic || cle), unClic, cle, ecriture: Boolean(s?.ecriture) };
     });
     const vivants = contenus.filter((x) => x.disponible);
     if (!vivants.length) continue;
@@ -209,6 +235,8 @@ export const PARCOURS = Object.freeze({
   manuel: [['choisir', 'Choisir'], ['contenu', 'Que voulez-vous ajouter ?']],
   // connecter n'est PAS importer : la connexion ne fait rien entrer ; « Que récupérer ? » vient après, puis l'import
   outil: [['choisir', 'Choisir'], ['connexion', 'Se connecter'], ['recuperer', 'Que récupérer ?'], ['colonnes', 'Associer les colonnes'], ['pret', 'C’est prêt']],
+  // agenda, boîte de réception : rien à associer (les champs portent déjà les noms du jeu), donc une étape de moins
+  outilDirect: [['choisir', 'Choisir'], ['connexion', 'Se connecter'], ['recuperer', 'Que récupérer ?'], ['pret', 'C’est prêt']],
   fec: [['choisir', 'Choisir'], ['fec', 'Déposer le fichier'], ['pret', 'Vos chiffres clés']],
   zero: [['choisir', 'Choisir'], ['zero', 'Créer mon entreprise']],
 });

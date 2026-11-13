@@ -100,9 +100,13 @@ export function convertir(brut: string, c: DefChamp): Conversion {
     case 'date': {
       const fr = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v);
       const iso = fr ? `${fr[3]}-${fr[2]?.padStart(2, '0')}-${fr[1]?.padStart(2, '0')}` : v;
-      const d = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T00:00:00Z`) : null;
-      return d && !Number.isNaN(d.getTime()) && d.toISOString().startsWith(iso)
-        ? { ok: true, valeur: iso }
+      // un jour (2026-11-20), ou un jour et une heure à la minute (2026-11-20T09:00) : un rendez-vous a une heure,
+      // une échéance n'en a pas. Les deux s'écrivent dans un champ « date », et se relisent tels quels.
+      const m = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?$/.exec(iso);
+      const jour = m ? new Date(`${m[1]}T00:00:00Z`) : null;
+      const heure = m?.[2] ? Number(m[2].slice(0, 2)) * 60 + Number(m[2].slice(3)) : 0;
+      return jour && !Number.isNaN(jour.getTime()) && jour.toISOString().startsWith(m?.[1] ?? '\u0000') && heure < 24 * 60
+        ? { ok: true, valeur: m?.[2] ? `${m[1]}T${m[2]}` : (m?.[1] as string) }
         : { ok: false, erreur: `« ${v} » n'est pas une date (JJ/MM/AAAA)` };
     }
     case 'booleen': {

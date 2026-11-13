@@ -957,6 +957,16 @@
           "type": "texte"
         },
         {
+          "id": "concerne",
+          "libelle": "Concerne",
+          "type": "reference"
+        },
+        {
+          "id": "lien",
+          "libelle": "Ouvrir dans la messagerie",
+          "type": "texte"
+        },
+        {
           "id": "statut",
           "libelle": "Statut",
           "type": "choix",
@@ -1132,6 +1142,66 @@
           "id": "recu_le",
           "libelle": "Reçu le",
           "type": "date"
+        }
+      ]
+    },
+    {
+      "id": "rendez_vous",
+      "famille": "evenement",
+      "libelle": "Rendez-vous",
+      "pluriel": "Rendez-vous",
+      "icone": "evenement",
+      "champs": [
+        {
+          "id": "debut",
+          "libelle": "Début",
+          "type": "date",
+          "obligatoire": true
+        },
+        {
+          "id": "fin",
+          "libelle": "Fin",
+          "type": "date"
+        },
+        {
+          "id": "lieu",
+          "libelle": "Lieu",
+          "type": "texte"
+        },
+        {
+          "id": "avec",
+          "libelle": "Avec",
+          "type": "reference",
+          "cible": {
+            "famille": "tiers"
+          }
+        },
+        {
+          "id": "pour",
+          "libelle": "Pour",
+          "type": "reference",
+          "cible": {
+            "famille": "personne"
+          }
+        },
+        {
+          "id": "concerne",
+          "libelle": "Concerne",
+          "type": "reference"
+        },
+        {
+          "id": "etat",
+          "libelle": "État",
+          "type": "choix",
+          "choix": [
+            "confirmé",
+            "à confirmer"
+          ]
+        },
+        {
+          "id": "lien",
+          "libelle": "Ouvrir dans l’agenda",
+          "type": "texte"
         }
       ]
     },

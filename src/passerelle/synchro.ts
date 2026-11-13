@@ -203,6 +203,11 @@ export const LIBELLES_CHOIX: Readonly<Record<string, string>> = {
   companies: 'Entreprises', contacts: 'Contacts', deals: 'Affaires', clients: 'Clients', fournisseurs: 'Fournisseurs', prospects: 'Prospects',
   produits: 'Produits', accounts: 'Comptes (entreprises)', customers: 'Clients', vendors: 'Fournisseurs', items: 'Articles', invoices: 'Factures',
   products: 'Produits', orders: 'Commandes', organizations: 'Entreprises', persons: 'Contacts',
+  // agenda : jusqu'où regarder dans le futur (les 30 derniers jours sont toujours lus)
+  periode30: 'Les 30 prochains jours', periode90: 'Les 90 prochains jours', periode180: 'Les 6 prochains mois', periode365: 'Les 12 prochains mois',
+  // courrier : combien de messages récents montrer, et ce qu'un courrier « traité » déclenche dans la boîte
+  messages25: 'Les 25 derniers messages', messages50: 'Les 50 derniers messages', messages100: 'Les 100 derniers messages',
+  rien: 'Ne rien faire dans la boîte', lu: 'Marquer le message comme lu', archiver: 'Marquer comme lu, puis archiver',
 };
 
 /** « Toutes les 5 minutes », « Toutes les minutes », « Toutes les 30 secondes ». */

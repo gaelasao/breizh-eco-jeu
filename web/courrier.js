@@ -28,10 +28,31 @@ export function apercu(texte, max = 140) {
   return `${coupe.slice(0, Math.max(coupe.lastIndexOf(' '), max - 20)).trimEnd()}…`;
 }
 
+/**
+ * Adresse d'un message chez sa messagerie (bouton « Ouvrir dans Gmail », « Ouvrir dans Outlook ») : https seulement,
+ * et seulement chez une messagerie connue. Un lien venu d'ailleurs n'est pas montré : une adresse arrivée d'un outil
+ * n'a pas à ouvrir n'importe quoi.
+ */
+const MESSAGERIES = Object.freeze([
+  { hote: 'mail.google.com', nom: 'Gmail' },
+  { hote: 'outlook.office365.com', nom: 'Outlook' },
+  { hote: 'outlook.office.com', nom: 'Outlook' },
+  { hote: 'outlook.com', nom: 'Outlook' },
+]);
+export function messagerie(url) {
+  if (typeof url !== 'string' || !url || url.length > 2000) return null;
+  let u;
+  try { u = new URL(url); } catch { return null; }
+  if (u.protocol !== 'https:' || u.username || u.password) return null;
+  const m = MESSAGERIES.find((x) => u.hostname === x.hote || u.hostname.endsWith(`.${x.hote}`));
+  return m ? { url: u.toString(), nom: m.nom } : null;
+}
+
 /** Une ligne de la boîte de réception. */
 export function ligne(o) {
   const dest = lien(o, 'destinataire');
   const tiers = lien(o, 'tiers');
+  const concerne = lien(o, 'concerne');
   const expediteur = val(o, 'expediteur') ?? sansDemo(tiers?.nom) ?? '';
   return {
     id: o.id,
@@ -47,6 +68,9 @@ export function ligne(o) {
     action: val(o, 'action'),
     destinataire: dest ? { id: dest.id, nom: sansDemo(dest.nom) } : null,
     tiers: tiers ? { id: tiers.id, nom: sansDemo(tiers.nom) } : null,
+    concerne: concerne ? { id: concerne.id, nom: sansDemo(concerne.nom) } : null,
+    // message venu d'une boîte branchée : de quoi l'ouvrir chez Gmail ou Outlook, pour le lire en entier et y répondre
+    messagerie: messagerie(val(o, 'lien')),
     exemple: o.mode === 'demo',
   };
 }
