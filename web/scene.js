@@ -17,7 +17,7 @@ import { partagerAtlas, reduireImage } from '/carte/atlas.js';
 import { couleurRole, etatHeure, lirePalette, lumieres } from '/carte/heure.js';
 import { MAX_ETIQUETTES, PRIORITE, ordreClavier, placerEtiquettes, regrouperParQuartier, voisin } from '/carte/etiquettes.js';
 import { categorieDe, peintureDe } from '/carte/categories.js';
-import { CADENCE, palierInferieur, profil, qualiteInitiale, surveillance } from '/carte/qualite.js';
+import { CADENCE, palierInferieur, profil, qualiteInitiale, surveillance, vieAmbiante } from '/carte/qualite.js';
 import { ALLEGE, ATLAS_ENSEIGNES, COUCHES_CUITES, MASQUE, NB_MASQUES, NOMS_COUCHES, details, echelleMur, estMobilier, masqueCalque, mursBaisses, orientationMur, placeEnseigne, rvb, uvEnseigne } from '/carte/lots.js';
 
 CameraControls.install({ THREE });
@@ -2284,7 +2284,7 @@ export async function creerScene(conteneur, options) {
   const zoomer = (f) => { controles.dollyTo(Math.max(controles.minDistance, Math.min(controles.maxDistance, controles.distance * f)), dureeVol() > 0); reveiller(); };
   const tourner45 = (sens) => { controles.rotate((sens * Math.PI) / 4, 0, dureeVol() > 0); reveiller(); };
   // toute touche interrompt un vol : la caméra s'arrête où elle est (§5.7)
-  const arreterVol = () => { if (controles.active) controles.stop?.(); };
+  const arreterVol = () => { if (cameraEnMouvement) controles.stop?.(); };
   document.addEventListener('keydown', arreterVol, true);
   let dedans = null;
   function entrer(id) {
@@ -3291,6 +3291,12 @@ export async function creerScene(conteneur, options) {
   function couperBoucle() { cancelAnimationFrame(raf); raf = 0; clearTimeout(rappel); rappel = 0; }
   const ambianceActive = () => animations && !enPause && !mouvementReduit();
   for (const ev of ['control', 'controlstart', 'controlend', 'transitionstart', 'update', 'wake']) controles.addEventListener(ev, reveiller);
+  /* Caméra en mouvement : « wake » au départ, « sleep » ou « rest » à l'arrêt. camera-controls garde `active` à vrai
+     après un déplacement instantané (setLookAt sans transition, comme le cadrage d'ouverture) : s'y fier ferait
+     calculer une image par seconde d'écran pour toujours, alors que rien ne bouge (§5.10). */
+  let cameraEnMouvement = false;
+  controles.addEventListener('wake', () => { cameraEnMouvement = true; });
+  for (const ev of ['sleep', 'rest']) controles.addEventListener(ev, () => { cameraEnMouvement = false; });
 
   function image(t) {
     raf = 0;
@@ -3306,7 +3312,9 @@ export async function creerScene(conteneur, options) {
     const inactif = maintenant - derniereInteraction;
     const ambiance = ambianceActive() && inactif < CADENCE.pauseApresMs;
     if (bouge) { majMurs(); majOmbre(); etiquettesASituer = true; }
-    if (ambiance) animer(dt);
+    // vie ambiante : pleine de près, éteinte en vue d'ensemble (§5.8) — au loin, la carte redevient une image fixe
+    const vie = ambiance ? vieAmbiante(controles.distance) : 0;
+    if (vie > 0) animer(dt, vie);
     if (survolEnAttente) {
       const e = survolEnAttente;
       survolEnAttente = null;
@@ -3346,27 +3354,30 @@ export async function creerScene(conteneur, options) {
       if (veille.noter(calcul, maintenant) && options.qualite !== qualite && (options.qualite ?? 'auto') === 'auto' && qualite !== 'economie') descendre();
     }
     // la suite : pleine cadence tant que ça bouge ; 20 images/s pour l'ambiance après 30 s ; pause après 2 min
-    if (bouge || controles.active || zoomUneMain || fete) demander();
-    else if (ambiance) {
+    if (bouge || cameraEnMouvement || zoomUneMain || fete) demander();
+    else if (ambiance && vie > 0) {
       if (inactif < CADENCE.ambianceApresMs) demander();
       else planifier(1000 / CADENCE.ambiance);
-    } else if (!rappel && ambianceActive() && inactif >= CADENCE.pauseApresMs) { /* image fixe : reprise au premier mouvement */ }
+    } else { /* image fixe (vue d'ensemble ou longue inaction) : reprise au premier mouvement */ }
   }
-  function animer(dt) {
-    tempsAmbiance += dt;
+  /** `vie` (1 de près, 0 en vue d'ensemble) ralentit tout jusqu'à l'arrêt : rien ne bouge sans qu'on puisse le voir. */
+  function animer(dt, vie = 1) {
+    const pas = dt * vie;
+    tempsAmbiance += pas; // mer, fanions, phare, bateaux : leur temps se fige avec l'éloignement
     const t = tempsAmbiance;
     uTemps.value = t;
-    for (const f of flux) { f.t = (f.t + f.v * dt) % 1; f.colis.position.copy(f.courbe.getPoint(f.t)).setY(f.colis.position.y - 0.6); }
+    for (const f of flux) { f.t = (f.t + f.v * pas) % 1; f.colis.position.copy(f.courbe.getPoint(f.t)).setY(f.colis.position.y - 0.6); }
     // anneau critique : une pulsation de 1,2 s toutes les 4 s
     pulsation = (t % 4) / 1.2;
-    for (const { a } of anneauxAlerte) { const s = pulsation < 1 ? 1 + 0.12 * Math.sin(Math.PI * pulsation) : 1; a.scale.set(s, 1, s); }
+    for (const { a } of anneauxAlerte) { const s = pulsation < 1 ? 1 + 0.12 * vie * Math.sin(Math.PI * pulsation) : 1; a.scale.set(s, 1, s); }
     if (faisceau) faisceau.rotation.y = (t * Math.PI * 2) / 8; // une rotation en 8 s
-    for (const { b, y, phase } of bateaux) { b.position.y = y + Math.sin(t * Math.PI + phase) * 0.05; b.rotation.z = Math.sin(t * Math.PI + phase) * 0.03; } // 0,5 Hz, 0,05 unité
+    for (const { b, y, phase } of bateaux) { b.position.y = y + Math.sin(t * Math.PI + phase) * 0.05 * vie; b.rotation.z = Math.sin(t * Math.PI + phase) * 0.03 * vie; } // 0,5 Hz, 0,05 unité
     if (couches.trafic.visible) for (const c of trafic) {
-      c.t = (c.t + c.vitesse * dt * 4) % 1;
+      c.t = (c.t + c.vitesse * pas * 4) % 1;
       c.v.position.lerpVectors(c.a, c.b, c.t);
       c.v.rotation.y = Math.atan2(c.b.x - c.a.x, c.b.z - c.a.z) - Math.PI / 2;
     }
+    // mouettes : seulement quand la caméra passe tout près, donc toujours en pleine vie
     for (const m of mouettes) {
       const proche = camera.position.distanceTo(m.depart) < 22;
       if (proche && m.vol === 0) m.vol = 0.001;
@@ -3377,7 +3388,8 @@ export async function creerScene(conteneur, options) {
         if (m.vol > 6) { m.vol = proche ? 6 : 0; if (!proche) { m.g.position.copy(m.depart); m.battement.value = 0; } }
       }
     }
-    if (Math.floor(t * 20) % 3 === 0) renderer.shadowMap.needsUpdate = true; // véhicules et bateaux : ombres rafraîchies par moments
+    // ombres rafraîchies par moments pour les véhicules et les bateaux : inutile quand plus rien ne bouge
+    if (vie > 0.05 && Math.floor(t * 20) % 3 === 0) renderer.shadowMap.needsUpdate = true;
   }
   function descendre() {
     const q = palierInferieur(qualite);

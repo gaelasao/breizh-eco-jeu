@@ -30,6 +30,7 @@ type Qualite = {
   qualiteInitiale: (o: Record<string, unknown>) => string; profil: (q: string, o?: { telephone?: boolean }) => { ombres: number; densiteMax: number; gtao: boolean; materiauPbr: boolean; accessoires: boolean };
   palierInferieur: (q: string) => string; surveillance: (o: { budgetMs: number; debut: number }) => { noter: (ms: number, t: number) => boolean }; reseauFaible: (c: unknown) => boolean;
   BUDGETS: Record<string, { appels: number; triangles: number; ombres: number; densite: number }>; CADENCE: { ambiance: number; ambianceApresMs: number; pauseApresMs: number };
+  VIE: { pleine: number; immobile: number }; vieAmbiante: (d: number, o?: { pleine?: number; immobile?: number }) => number;
 };
 type Lots = {
   NOMS_COUCHES: readonly string[]; COUCHES_CUITES: readonly string[]; MASQUE: Record<string, number>; NB_MASQUES: number; masqueCalque: (n: string) => number;
@@ -212,6 +213,30 @@ test('carte : qualité automatique, budgets du §5.10, palier inférieur après 
   assert.equal(reseauFaible({ effectiveType: '4g' }), false);
   assert.equal(reseauFaible(undefined), false, 'iOS n’a pas navigator.connection');
   assert.deepEqual(CADENCE, { ambiance: 20, ambianceApresMs: 30000, pauseApresMs: 120000 });
+});
+
+test('carte : la vie ambiante se calme avec l’éloignement, jusqu’à l’image fixe en vue d’ensemble (§5.8)', async () => {
+  const { VIE, vieAmbiante } = await charger<Qualite>('web/carte/qualite.js');
+  assert.ok(VIE.pleine < VIE.immobile);
+  assert.equal(vieAmbiante(6), 1, 'de près : pleine vie');
+  assert.equal(vieAmbiante(VIE.pleine), 1);
+  assert.equal(vieAmbiante(VIE.immobile), 0, 'vue d’ensemble : carte immobile');
+  assert.equal(vieAmbiante(360), 0, 'dézoom complet : plus rien ne bouge');
+  assert.equal(vieAmbiante(Number.NaN), 1, 'distance inconnue : on n’éteint rien par accident');
+  // décroissance continue et monotone : aucune marche, rien ne s'arrête d'un coup
+  let avant = 1;
+  for (let d = VIE.pleine; d <= VIE.immobile; d += 2) {
+    const v = vieAmbiante(d);
+    assert.ok(v >= 0 && v <= 1 && v <= avant + 1e-12, `vie décroissante à ${d}`);
+    assert.ok(avant - v < 0.09, `pas de marche à ${d}`);
+    avant = v;
+  }
+  assert.ok(vieAmbiante((VIE.pleine + VIE.immobile) / 2) > 0.3, 'à mi-chemin, la vie est encore perceptible');
+  // la scène ralentit tout avec ce facteur et ne redemande plus d'image quand il est nul
+  const scene = lire('web/scene.js');
+  assert.match(scene, /vieAmbiante\(controles\.distance\)/);
+  assert.match(scene, /if \(vie > 0\) animer\(dt, vie\)/);
+  assert.match(scene, /else if \(ambiance && vie > 0\)/, 'vie éteinte : aucune image de plus n’est demandée');
 });
 
 test('carte : scene.js pilote camera-controls 3.1.2, rend à la demande, sans MapControls ni boucle permanente', () => {
