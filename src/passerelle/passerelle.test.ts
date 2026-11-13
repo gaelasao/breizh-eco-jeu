@@ -81,7 +81,8 @@ test('R05 périmètres : la technicienne ne voit que l’atelier, ni par liste n
   await c.connecter('terrain');
   const m = await c.monde();
   const ids = m.objets.map((o: any) => o.id).sort();
-  assert.deepEqual(ids, ['a-joints', 'a-peinture', 'e-loic', 'e-nacelle', 'e-nolwenn', 'l-atelier', 'pr-camping', 'pr-hotel', 'v-utilitaire']);
+  // « ev-1 » et « ev-2 » : l'entretien du véhicule de l'atelier suit le véhicule (champ « concerne »)
+  assert.deepEqual(ids, ['a-joints', 'a-peinture', 'e-loic', 'e-nacelle', 'e-nolwenn', 'ev-1', 'ev-2', 'l-atelier', 'pr-camping', 'pr-hotel', 'v-utilitaire']);
   assert.equal(m.vitalite, null);
   assert.equal((await c.appel('GET', '/api/v1/objets/a-panneaux')).statut, 404);
   assert.equal((await c.appel('GET', '/api/v1/objets/f-041')).statut, 404);

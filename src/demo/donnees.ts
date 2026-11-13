@@ -104,12 +104,41 @@ export function donneesDemo(maintenant: Date): ObjetMetier[] {
     o('a-peinture', 'ressource', 'article', 'Peinture', { lieu: 'l-atelier', quantite: 3, seuil_alerte: 8, unite: 'pots', fournisseur: 't-grossiste' }, { source: 'tableur' }),
     o('a-joints', 'ressource', 'article', 'Joints', { lieu: 'l-atelier', quantite: 15, seuil_alerte: 10, unite: 'unités' }, { source: 'tableur' }),
 
-    // ---- Véhicules et équipements
-    o('v-utilitaire', 'ressource', 'vehicule', 'Utilitaire 1', { lieu: 'l-atelier', immatriculation: 'DEMO-001', disponible: false }, { provenance: 'declare' }),
-    o('v-camion', 'ressource', 'vehicule', 'Camion de livraison', { lieu: 'l-entrepot', immatriculation: 'DEMO-002', disponible: true }),
-    o('v-voiture', 'ressource', 'vehicule', 'Voiture commerciale', { lieu: 'l-agence', immatriculation: 'DEMO-003', disponible: true }),
+    // ---- Véhicules et équipements (échéances fictives, périodicités indicatives)
+    o('v-utilitaire', 'ressource', 'vehicule', 'Utilitaire 1', {
+      lieu: 'l-atelier', immatriculation: 'DEMO-001', disponible: false, genre: 'camionnette', conducteur: 'e-nolwenn',
+      kilometrage: 128_400, kilometrage_le: dans(-10),
+      controle_technique: dans(18), ct_tous_les_mois: 24,
+      prochaine_revision: dans(95), revision_km: 128_900, revision_tous_les_mois: 12, revision_tous_les_km: 20_000,
+      assurance_le: dans(120), assurance_tous_les_mois: 12,
+      pneus_saison: 'hiver', etat_pneus: 'à surveiller',
+    }, { provenance: 'declare' }),
+    o('v-camion', 'ressource', 'vehicule', 'Camion de livraison', {
+      lieu: 'l-entrepot', immatriculation: 'DEMO-002', disponible: true, genre: 'camion', conducteur: 'e-yann',
+      kilometrage: 212_300, kilometrage_le: dans(-3),
+      controle_technique: dans(-5), ct_tous_les_mois: 12,
+      prochaine_revision: dans(60), revision_km: 220_000, revision_tous_les_mois: 12, revision_tous_les_km: 30_000,
+      assurance_le: dans(25), assurance_tous_les_mois: 12,
+      carte_grise_le: dans(240), carte_grise_tous_les_mois: 12,
+      pneus_saison: '4 saisons', etat_pneus: 'bons',
+    }),
+    o('v-voiture', 'ressource', 'vehicule', 'Voiture commerciale', {
+      lieu: 'l-agence', immatriculation: 'DEMO-003', disponible: true, genre: 'voiture', conducteur: 'e-erwan',
+      kilometrage: 54_200, kilometrage_le: dans(-200),
+      controle_technique: dans(300), ct_tous_les_mois: 24,
+      prochaine_revision: dans(150), revision_km: 60_000, revision_tous_les_mois: 12, revision_tous_les_km: 15_000,
+      assurance_le: dans(200), assurance_tous_les_mois: 12,
+      autre_libelle: 'Changement des plaquettes', autre_le: dans(15), autre_tous_les_mois: 18,
+      pneus_saison: 'été', etat_pneus: 'bons',
+    }),
     o('e-chariot', 'ressource', 'equipement', 'Chariot élévateur', { lieu: 'l-entrepot', disponible: true }),
     o('e-nacelle', 'ressource', 'equipement', 'Nacelle', { lieu: 'l-atelier', disponible: true }),
+    // ---- ce qui a déjà été fait sur les véhicules (montants fictifs)
+    o('ev-1', 'evenement', 'entretien_vehicule', 'Révision ou entretien — Utilitaire 1', { concerne: 'v-utilitaire', echeance: 'révision ou entretien', fait_le: dans(-270), kilometrage: 108_900, cout: 420 }, { provenance: 'declare' }),
+    o('ev-2', 'evenement', 'entretien_vehicule', 'Pneus — Utilitaire 1', { concerne: 'v-utilitaire', echeance: 'pneus', fait_le: dans(-60), kilometrage: 124_100, cout: 560, note: 'Jeu hiver monté' }, { provenance: 'declare' }),
+    o('ev-3', 'evenement', 'entretien_vehicule', 'Contrôle technique — Camion de livraison', { concerne: 'v-camion', echeance: 'contrôle technique', fait_le: dans(-370), kilometrage: 186_500, cout: 92 }, { provenance: 'declare' }),
+    o('ev-4', 'evenement', 'entretien_vehicule', 'Révision ou entretien — Camion de livraison', { concerne: 'v-camion', echeance: 'révision ou entretien', fait_le: dans(-120), kilometrage: 198_400, cout: 1_180 }, { provenance: 'declare' }),
+    o('ev-5', 'evenement', 'entretien_vehicule', 'Assurance — Voiture commerciale', { concerne: 'v-voiture', echeance: 'assurance', fait_le: dans(-165), cout: 640 }, { provenance: 'declare' }),
 
     // ---- Commandes, devis, factures
     o('c-negoce', 'commande', 'commande_fournisseur', 'Commande fournisseur CF-104', { fournisseur: 't-negoce', montant: 2300, livraison_prevue: dans(3), statut: 'confirmée' }),
@@ -187,12 +216,12 @@ export const PROFILS_DEMO: readonly Profil[] = [
   { id: 'dirigeante', nom: 'Anna — dirigeante', role: 'dirigeant', types: 'tous', lieux: 'tous', rolesTiers: 'tous', departements: 'tous', peutPreparer: true, peutApprouver: true, voitScore: true, peutAdministrer: true, voitMotifsAbsence: true },
   {
     id: 'responsable-stock', nom: 'Yann — responsable stock', role: 'responsable',
-    types: ['entrepot', 'article', 'equipement', 'vehicule', 'commande_fournisseur', 'entreprise', 'tache', 'employe', 'departement', 'courrier'], lieux: ['l-entrepot'], rolesTiers: ['fournisseur'], departements: ['d-logistique'],
+    types: ['entrepot', 'article', 'equipement', 'vehicule', 'entretien_vehicule', 'commande_fournisseur', 'entreprise', 'tache', 'employe', 'departement', 'courrier'], lieux: ['l-entrepot'], rolesTiers: ['fournisseur'], departements: ['d-logistique'],
     peutPreparer: true, peutApprouver: false, voitScore: false, peutAdministrer: false, voitMotifsAbsence: false,
   },
   {
     id: 'terrain', nom: 'Nolwenn — technicienne', role: 'collaborateur',
-    types: ['atelier', 'projet', 'article', 'tache', 'employe', 'equipement', 'vehicule', 'departement', 'courrier'], lieux: ['l-atelier'], rolesTiers: [], departements: ['d-production'],
+    types: ['atelier', 'projet', 'article', 'tache', 'employe', 'equipement', 'vehicule', 'entretien_vehicule', 'departement', 'courrier'], lieux: ['l-atelier'], rolesTiers: [], departements: ['d-production'],
     peutPreparer: false, peutApprouver: false, voitScore: false, peutAdministrer: false, voitMotifsAbsence: false,
   },
 ];
