@@ -610,6 +610,9 @@
     .bz-bandeau { flex-wrap: nowrap; padding-block: var(--bz-e-1); font-size: var(--bz-t-petit); }
     .bz-bandeau__secondaire, .bz-bandeau__long { display: none; }
     .bz-bandeau__court { display: inline; }
+    /* une seule ligne : le texte se raccourcit, les actions ne passent jamais au-dessous */
+    .bz-bandeau__texte { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bz-bandeau__actions { flex: none; flex-wrap: nowrap; margin-inline-start: auto; }
   }
   /* Simulation : trame hachurée dessinée en CSS ; jamais masqué pendant la simulation */
   .bz-bandeau--simulation { background-image: repeating-linear-gradient(45deg, transparent 0 0.5rem, color-mix(in oklch, var(--bz-sur-inverse) 10%, transparent) 0.5rem 1rem); }
