@@ -7,6 +7,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Mises à jour de version en pause (13 novembre 2026) : chaque proposition lançait la CI et ses e-mails d'échec.
+    # Les correctifs de sécurité de Dependabot ne sont pas concernés. Remettre une limite (5) pour reprendre.
+    open-pull-requests-limit: 0
     cooldown:
       default-days: 7
       semver-major-days: 14
@@ -14,5 +17,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Mises à jour de version en pause (13 novembre 2026) : chaque proposition lançait la CI et ses e-mails d'échec.
+    # Les correctifs de sécurité de Dependabot ne sont pas concernés. Remettre une limite (5) pour reprendre.
+    open-pull-requests-limit: 0
     cooldown:
       default-days: 7
