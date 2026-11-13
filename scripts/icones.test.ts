@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
-import { crc32, ICONES, lignesBrutes, pixelsIcone, png, POINTS, QUEUE, RAYON_CONTENEUR } from './icones.ts';
+import { crc32, ICONES, lignesBrutes, pixelsIcone, pixelsIconeMac, png, POINTS, QUEUE, RAYON_CONTENEUR } from './icones.ts';
 
 /** Lecture minimale d'un PNG : blocs (CRC vérifié), en-tête, données décompressées. */
 function lirePng(b: Buffer) {
@@ -59,4 +59,19 @@ test('icônes : même Moucheture que web/symbole-living-business.svg (§2.3), pl
   const px = pixelsIcone(i.cote, i.forme, i.echelle);
   const k = (Math.round((9.5 / 48) * i.cote) * i.cote + Math.round(i.cote / 2)) * 4;
   assert.deepEqual([px[k], px[k + 1], px[k + 2]], [0xf7, 0xc3, 0x23]);
+});
+
+test('icône Mac : même Moucheture, conteneur à 824/1024 du côté sur fond transparent (gabarit macOS)', () => {
+  const cote = 256;
+  const px = pixelsIconeMac(cote);
+  const alpha = (x: number, y: number) => px[(y * cote + x) * 4 + 3];
+  for (const [x, y] of [[0, 0], [cote - 1, 0], [0, cote - 1], [cote - 1, cote - 1], [10, cote / 2], [cote / 2, 10]] as const) assert.equal(alpha(x, y), 0, `marge transparente en ${x},${y}`);
+  const corps = Math.round((cote * 824) / 1024);
+  const marge = Math.floor((cote - corps) / 2);
+  const seul = pixelsIcone(corps, 'arrondie', 1);
+  for (const [x, y] of [[corps / 2, corps / 2], [corps / 2, Math.round(corps * 0.2)], [Math.round(corps * 0.15), corps / 2]] as [number, number][]) {
+    const i = (y * corps + x) * 4;
+    const j = ((y + marge) * cote + x + marge) * 4;
+    assert.deepEqual([...px.subarray(j, j + 4)], [...seul.subarray(i, i + 4)], 'même dessin que l’icône arrondie');
+  }
 });

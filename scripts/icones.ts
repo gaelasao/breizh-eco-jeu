@@ -93,6 +93,19 @@ export function pixelsIcone(cote: number, forme: Forme, echelle: number): Buffer
   return px;
 }
 
+/**
+ * Icône de l'application Mac : le conteneur arrondi occupe 824/1024 du côté, centré sur un fond transparent (gabarit
+ * des icônes macOS), comme les autres applications du Dock. Assemblée en .icns par scripts/icone-mac.ts.
+ */
+export function pixelsIconeMac(cote: number): Buffer {
+  const corps = Math.round((cote * 824) / 1024);
+  const marge = Math.floor((cote - corps) / 2);
+  const interieur = pixelsIcone(corps, 'arrondie', 1);
+  const px = Buffer.alloc(cote * cote * 4);
+  for (let y = 0; y < corps; y++) interieur.copy(px, ((y + marge) * cote + marge) * 4, y * corps * 4, (y + 1) * corps * 4);
+  return px;
+}
+
 // ---------------------------------------------------------------- PNG (RGBA 8 bits, sans filtre, zlib)
 const TABLE_CRC = Array.from({ length: 256 }, (_, n) => {
   let c = n;
