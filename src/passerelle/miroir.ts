@@ -49,8 +49,7 @@ export const STATUT_SUPPRIMEE = 'Supprimée';
 export const COL_NOM = 'Nom';
 export const COL_ROLES = 'Rôles';
 
-/** Référence posée par le jeu sur une ligne écrite à la main dans un tableur. */
-const REFERENCE_MANUELLE = /^lb-[0-9a-f]{10}$/;
+/** Référence que le jeu pose sur une ligne écrite à la main dans un tableur : « lb- » et dix caractères. */
 const nouvelleReference = () => `lb-${randomBytes(5).toString('hex')}`;
 
 /** Onglets au plus dans un classeur de suivi (un par type d'objet). */
@@ -886,11 +885,6 @@ export class Miroir {
     }
     if (posees) this.#changement();
     return posees;
-  }
-
-  /** Référence posée à la main dans le classeur (reconnue par le jeu). */
-  static estReferenceManuelle(x: string): boolean {
-    return REFERENCE_MANUELLE.test(x);
   }
 }
 
