@@ -1904,8 +1904,12 @@ function sectionPersonnaliser() {
       : null);
 }
 
-/** Calques, préréglages, légende et gestes : le même contenu dans le menu (ordinateur) et la feuille (téléphone). */
-function contenuCalques() {
+/**
+ * Calques, préréglages, personnalisation, légende et gestes : le même contenu dans le menu (ordinateur) et dans la
+ * feuille (téléphone), qui n'en prend que certaines parties — d'où les sections nommées plutôt que numérotées.
+ */
+const SECTIONS_CARTE = Object.freeze(['prereglages', 'calques', 'personnaliser', 'legende', 'gestes']);
+function contenuCalques(quoi = SECTIONS_CARTE) {
   const m = E.monde;
   const cal = E.scene?.etatCalques() ?? {};
   const u = m.univers;
@@ -1918,19 +1922,19 @@ function contenuCalques() {
   const appliquer = (etat) => { E.scene?.calques(etat); rendreHud(); };
   const actif = (k) => (k === 'toits' ? cal[k] === true : cal[k] !== false);
   const cat = (forme, ic) => h('span', { class: `bz-cat bz-cat--${forme} bz-cat--carte`, 'aria-hidden': 'true' }, icone(ic, { taille: 'sm' }));
-  return [
-    h('section', { class: 'bz-pile', 'aria-labelledby': 'titre-prereglages' },
+  const sections = {
+    prereglages: () => h('section', { class: 'bz-pile', 'aria-labelledby': 'titre-prereglages' },
       h('h3', { id: 'titre-prereglages', texte: 'Préréglages' }),
       h('div', { class: 'bz-calques' },
         h('button', { type: 'button', cle: 'preset-essentiel', onclick: () => appliquer(PRESETS_CALQUES.essentiel) }, 'L’essentiel'),
         h('button', { type: 'button', cle: 'preset-travail', onclick: () => appliquer(PRESETS_CALQUES.travail) }, 'Le travail en cours'),
         h('button', { type: 'button', cle: 'preset-tout', onclick: () => appliquer(PRESETS_CALQUES.tout) }, 'Tout'),
         h('button', { type: 'button', cle: 'preset-dessus', onclick: () => { E.scene?.vueDessus(); } }, 'Vue de dessus'))),
-    h('section', { class: 'bz-pile', 'aria-labelledby': 'titre-calques' },
+    calques: () => h('section', { class: 'bz-pile', 'aria-labelledby': 'titre-calques' },
       h('h3', { id: 'titre-calques', texte: 'Ce que la carte affiche' }),
       h('div', { class: 'bz-calques' }, calques.map(([k, titre]) => h('button', { type: 'button', cle: `calque-${k}`, 'aria-pressed': actif(k), onclick: () => appliquer({ [k]: !actif(k) }) }, icone('check'), titre)))),
-    sectionPersonnaliser(),
-    h('section', { class: 'bz-pile', 'aria-labelledby': 'titre-legende' },
+    personnaliser: sectionPersonnaliser,
+    legende: () => h('section', { class: 'bz-pile', 'aria-labelledby': 'titre-legende' },
       h('h3', { id: 'titre-legende', texte: 'Légende' }),
       h('dl', { class: 'bz-legende-carte' },
         h('dt', {}, cat('goutte', 'building-2')), h('dd', { texte: 'Vos lieux' }),
@@ -1944,10 +1948,11 @@ function contenuCalques() {
         h('dt', {}, h('span', { class: 'bz-etiquette__alerte bz-etiquette__alerte--attention' }, icone('triangle-alert', { taille: 'sm' }))), h('dd', { texte: 'À traiter' }),
         h('dt', {}, h('span', { class: 'bz-etiquette__alerte' }, icone('circle-help', { taille: 'sm' }))), h('dd', { texte: 'À vérifier (donnée manquante ou ancienne)' })),
       h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Ce qui ne repose sur aucune donnée réelle reste en plâtre blanc. Positions : mise en page ; circulation et flux : illustratifs.' })),
-    h('section', { class: 'bz-pile', 'aria-labelledby': 'titre-gestes' },
+    gestes: () => h('section', { class: 'bz-pile', 'aria-labelledby': 'titre-gestes' },
       h('h3', { id: 'titre-gestes', texte: matchMedia('(pointer: coarse)').matches ? TITRES_GESTES.tactile : TITRES_GESTES.souris }),
       h('ul', { class: 'bz-gestes' }, (matchMedia('(pointer: coarse)').matches ? GESTES.tactile : GESTES.souris).map((g) => h('li', { texte: g })))),
-  ];
+  };
+  return quoi.map((k) => sections[k]?.()).filter(Boolean);
 }
 /** Mini-carte (§5.5) : plan 2D des quartiers en SVG, cadre de la vue courante ; un clic y emmène la caméra. */
 const NS_SVG = 'http://www.w3.org/2000/svg';
@@ -2174,9 +2179,8 @@ function feuilleCarte({ basculeVue, visite, camera }) {
   if (E.visite !== null && E.cranFeuille === 'poignee') E.cranFeuille = 'mi';
   const cran = E.cranFeuille;
   const onglet = E.ongletFeuille;
-  const sections = onglet === 'aujourdhui' ? [] : contenuCalques();
-  const corps = onglet === 'calques' ? [h('div', { class: 'bz-pile' }, segmentsVueCarte(), camera, basculeVue, miniCarte()), sections[0], sections[1]]
-    : onglet === 'legende' ? [sections[2], sections[3]] : [visite, contenuAujourdhui('feuille')];
+  const corps = onglet === 'calques' ? [h('div', { class: 'bz-pile' }, segmentsVueCarte(), camera, basculeVue, miniCarte()), ...contenuCalques(['prereglages', 'calques', 'personnaliser'])]
+    : onglet === 'legende' ? contenuCalques(['legende', 'gestes']) : [visite, contenuAujourdhui('feuille')];
   const f = h('section', { class: 'bz-feuille', id: 'feuille-carte', 'data-cran': cran, 'aria-label': `Panneau : ${TITRES_FEUILLE[onglet]}` },
     h('button', { type: 'button', class: 'bz-feuille__poignee', cle: 'feuille-poignee', 'aria-label': LIBELLE_POIGNEE[cran], 'aria-expanded': cran !== 'poignee', 'aria-controls': 'feuille-corps' }),
     // « Aujourd'hui » prend toute la feuille (héros et actions au pouce) ; le choix Calques · Légende n'apparaît
