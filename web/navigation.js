@@ -156,7 +156,7 @@ export function salutation(nomProfil, maintenant = new Date()) {
 }
 
 /** Titre de l'en-tête pour une vue. */
-export function titreDeVue(groupes, vue, { nomProfil = '', maintenant = new Date(), departement = '' } = {}) {
+export function titreDeVue(groupes, vue, { nomProfil = '', maintenant = new Date(), departement = '', vehicule = '' } = {}) {
   if (vue === 'carte' || vue === 'matin') return salutation(nomProfil, maintenant).texte;
   if (vue === 'tableau') return 'Liste des lieux';
   if (vue === 'pipeline') return 'Pipeline';
@@ -165,5 +165,6 @@ export function titreDeVue(groupes, vue, { nomProfil = '', maintenant = new Date
   if (vue === 'progression') return 'Progression';
   if (vue === 'accueil') return 'Compléter mon entreprise';
   if (String(vue).startsWith('dep:') && departement) return sansDemo(departement);
+  if (String(vue).startsWith('vehicule:') && vehicule) return sansDemo(vehicule);
   return placeDeVue(groupes, vue)?.entree.libelle ?? 'Living Business';
 }

@@ -154,7 +154,7 @@ const ecrireLocal = (k, v) => { try { localStorage.setItem(k, v); } catch { /* s
 const ouvrirSurListe = () => lireLocal('lb-ouvrir-sur') === 'liste';
 const vueAujourdhui = () => (E.sceneEchec || ouvrirSurListe() ? 'matin' : 'carte');
 /** Vue demandée par l'adresse (#/planning, #/role:client…) ; rien si elle n'a pas la forme d'une vue. */
-const VUE_VALIDE = /^(carte|tableau|pipeline|matin|sante|departements|planning|courrier|reglages|compte|accueil|satisfaction|optimiser|nexus|progression)$|^(dep|role|famille|type|reglages):[\w-]+$/;
+const VUE_VALIDE = /^(carte|tableau|pipeline|matin|sante|departements|planning|courrier|reglages|compte|accueil|satisfaction|optimiser|nexus|progression|vehicules)$|^(dep|role|famille|type|reglages|vehicule):[\w-]+$/;
 /** Dans la barre d'adresse, l'écran du réseau s'appelle « reseau » (#/reseau, #/reglages:reseau) ; la clé interne de la
     vue reste « nexus », et les anciennes adresses (#/nexus) sont toujours comprises. */
 const adresseDepuisVue = (v) => (v === 'nexus' ? 'reseau' : v === 'reglages:nexus' ? 'reglages:reseau' : v);
@@ -1322,7 +1322,8 @@ function basculerRail() {
 
 function titreCourant() {
   const dep = E.vue.startsWith('dep:') ? E.monde.objets.find((o) => o.id === E.vue.slice(4))?.nom ?? '' : '';
-  const t = titreDeVue(navigation(), E.vue, { nomProfil: E.monde.profil.nom, departement: dep });
+  const veh = E.vue.startsWith('vehicule:') ? E.monde.objets.find((o) => o.id === E.vue.slice(9))?.nom ?? '' : '';
+  const t = titreDeVue(navigation(), E.vue, { nomProfil: E.monde.profil.nom, departement: dep, vehicule: veh });
   if (t === MARQUE.jeu && estVueListe(E.vue)) { // liste hors du rail (prospects, tâches…) : le nom de la liste
     const [g, k] = E.vue.split(':');
     const u = E.monde.univers;
@@ -8553,8 +8554,7 @@ const peutAgirVehicule = () => Boolean(E.monde.profil.peutPreparer);
 function badgeEcheance(e) {
   const ton = VEH.TON_STATUT[e.statut];
   if (!ton) return h('span', { class: 'bz-t-petit bz-texte-2', texte: 'À renseigner' });
-  return h('span', { class: `bz-badge bz-badge--${ton === 'ok' ? 'info' : ton}` }, icone(VEH.ICONE_STATUT[e.statut], { taille: 'sm' }),
-    e.statut === 'ok' ? `Prévue ${VEH.delaiEcheance(e)}` : VEH.delaiEcheance(e));
+  return h('span', { class: `bz-badge bz-badge--${ton === 'ok' ? 'info' : ton}` }, icone(VEH.ICONE_STATUT[e.statut], { taille: 'sm' }), casseDePhrase(VEH.delaiEcheance(e)));
 }
 
 /** « C'est fait » : un clic enregistre la date du jour et le compteur connu ; le coût se saisit dans la foulée. */
@@ -8587,7 +8587,7 @@ function ouvrirCoutVehicule(vehiculeId) {
       try {
         const champs = { cout: n };
         if (S.note.trim()) champs.note = S.note.trim();
-        await api('POST', '/actions', { cle: cle(), capacite: 'objet.modifier', cible: ligne.id, parametres: { champs, nom: null }, executer: E.monde.profil.peutApprouver });
+        await api('POST', '/actions', { cle: cle(), capacite: 'objet.modifier', cible: ligne.id, parametres: { champs }, executer: E.monde.profil.peutApprouver });
         D.fermer();
         await charger();
         informer('Coût enregistré.', 'ok');
@@ -8619,7 +8619,7 @@ function ouvrirKilometrage(vehiculeId) {
       if (!(Number.isFinite(n) && n >= 0)) { S.erreur = 'Indiquez le kilométrage lu au compteur.'; D.rendre(); return; }
       S.envoi = true; D.rendre();
       try {
-        await api('POST', '/actions', { cle: cle(), capacite: 'objet.modifier', cible: v.id, parametres: { champs: { kilometrage: Math.round(n), kilometrage_le: jourLocal() }, nom: null }, executer: E.monde.profil.peutApprouver });
+        await api('POST', '/actions', { cle: cle(), capacite: 'objet.modifier', cible: v.id, parametres: { champs: { kilometrage: Math.round(n), kilometrage_le: jourLocal() } }, executer: E.monde.profil.peutApprouver });
         D.fermer();
         await charger();
         informer('Kilométrage mis à jour.', 'ok');
@@ -8660,7 +8660,7 @@ function ouvrirEcheance(vehiculeId, echeanceId) {
       if (Object.values(champs).some((x) => Number.isNaN(x))) { S.erreur = 'Les durées et les kilométrages s’écrivent en chiffres.'; D.rendre(); return; }
       S.envoi = true; D.rendre();
       try {
-        await api('POST', '/actions', { cle: cle(), capacite: 'objet.modifier', cible: v.id, parametres: { champs, nom: null }, executer: E.monde.profil.peutApprouver });
+        await api('POST', '/actions', { cle: cle(), capacite: 'objet.modifier', cible: v.id, parametres: { champs }, executer: E.monde.profil.peutApprouver });
         D.fermer();
         await charger();
         informer('Échéance enregistrée.', 'ok');
@@ -8726,9 +8726,10 @@ async function rendreVehicules() {
   const plan = VEH.planListe(E.monde, { filtre: dansFiltre });
   const admin = E.monde.profil.peutAdministrer;
   if (!VEH.vehiculesDe(E.monde).length) {
+    const type = E.monde.univers.types.find((t) => t.famille === 'ressource' && /v[eé]hicule/i.test(t.id));
     remplir($('#page'), h('div', { class: 'bz-ecran' }, videRubrique('vehicules', {
-      action: admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirNouveauVehicule() }, icone('plus'), 'Ajouter un véhicule') : null,
-      secondaire: boutonConnecter({ type: 'vehicule' }),
+      action: h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirNouveauVehicule() }, icone('plus'), 'Ajouter un véhicule'),
+      secondaire: type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirAssistant('fichier', { type: type.id }) }, icone('upload'), 'Reprendre d’un fichier') : null,
     })));
     return;
   }
@@ -8737,7 +8738,7 @@ async function rendreVehicules() {
     h('div', { class: 'bz-priorite__texte' },
       h('p', { class: 'bz-priorite__titre' },
         h('a', { href: `#/vehicule:${r.id}`, class: 'bz-lien-cible', onclick: (ev) => allerA(`vehicule:${r.id}`, ev), texte: r.nom }),
-        r.echeance ? h('span', { texte: ` — ${r.echeance.libelle} ${VEH.delaiEcheance(r.echeance)}` }) : h('span', { class: 'bz-texte-2', texte: ' — aucune échéance renseignée' })),
+        r.echeance ? h('span', { texte: ` — ${r.echeance.libelle} : ${VEH.delaiEcheance(r.echeance)}` }) : h('span', { class: 'bz-texte-2', texte: ' — aucune échéance renseignée' })),
       h('p', { class: 'bz-t-micro bz-texte-2', texte: [r.identite, VEH.texteKilometrage(r.kilometrage).replace(/\.$/, ''), r.aRelever ? 'kilométrage à relever' : null].filter(Boolean).join(' · ') })),
     h('div', { class: 'bz-priorite__action bz-groupe-boutons' },
       r.aRegler ? h('span', { class: 'bz-badge bz-badge--attention', texte: pluriel(r.aRegler, 'à prévoir', 'à prévoir') }) : null,
@@ -8766,7 +8767,7 @@ async function rendreVehicule(id) {
     h('span', { class: 'bz-priorite__icone' }, icone(ICONE_ECHEANCE[e.id] ?? 'calendar')),
     h('div', { class: 'bz-priorite__texte' },
       h('p', { class: 'bz-priorite__titre' }, h('span', { texte: e.libelle }), ' ', badgeEcheance(e)),
-      h('p', { class: 'bz-t-micro bz-texte-2', texte: [e.date ? `Prévue le ${VEH.dateCourte(e.date)}` : null, e.km !== null ? `à ${VEH.km(e.km)}` : null, VEH.texteRepetition(e), e.etat ? `Pneus ${e.etat}` : null].filter(Boolean).join(' · ') })),
+      h('p', { class: 'bz-t-micro bz-texte-2', texte: [e.date ? `Prochaine fois le ${VEH.dateCourte(e.date)}` : null, e.km !== null ? `à ${VEH.km(e.km)}` : null, VEH.texteRepetition(e), e.etat ? `Pneus ${e.etat}` : null].filter(Boolean).join(' · ') })),
     h('div', { class: 'bz-priorite__action bz-groupe-boutons' },
       peut && e.statut !== 'absente' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--sm', 'data-infobulle': VEH.texteSuivante(e), onclick: () => marquerFait(v, e) }, icone('check', { taille: 'sm' }), 'C’est fait') : null,
       peut ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => ouvrirEcheance(v.id, e.id) }, icone('pencil', { taille: 'sm' }), e.statut === 'absente' ? 'Renseigner' : 'Modifier') : null));
@@ -8776,7 +8777,8 @@ async function rendreVehicule(id) {
     h('td', { class: 'bz-num', 'data-colonne': 'Kilométrage' }, h('span', { class: 'bz-t-chiffre', texte: VEH.km(l.km) })),
     h('td', { class: 'bz-num', 'data-colonne': 'Coût' }, l.cout === null
       ? h('span', { class: 'bz-texte-2' }, '—', h('span', { class: 'bz-visuellement-cache', texte: ' Pas encore renseigné' }))
-      : h('span', { class: 'bz-t-chiffre', texte: nfEuro.format(l.cout) })));
+      // le montant exact, centimes compris : une ligne d'historique n'arrondit pas ce qui a été payé
+      : h('span', { class: 'bz-t-chiffre', texte: euros(l.cout) })));
   remplir($('#page'), h('div', { class: 'bz-ecran bz-pile' },
     h('p', {}, h('a', { href: '#/vehicules', class: 'bz-lien-fleche', onclick: (ev) => allerA('vehicules', ev) }, icone('arrow-left', { taille: 'sm' }), 'Tous les véhicules')),
     h('div', { class: 'bz-liste__tete' },

@@ -36,12 +36,13 @@ export const km = (n) => (typeof n === 'number' && Number.isFinite(n) ? `${nombr
 
 /**
  * Ce qu'on lit sous une échéance : le délai, en jours et en kilomètres, dans l'ordre du plus pressant.
- * Jamais un chiffre tout seul : toujours la phrase qui dit s'il reste du temps ou s'il n'y en a plus.
+ * Jamais un chiffre tout seul, et jamais un adjectif accordé : l'intitulé qui précède peut être masculin
+ * (« Contrôle technique ») comme féminin (« Révision »), ou porter le nom que l'entreprise a choisi.
  */
 export function delaiEcheance(e) {
   const bouts = [];
   if (e.joursRestants !== null) {
-    bouts.push(e.joursRestants < 0 ? `dépassée de ${pluriel(-e.joursRestants, 'jour', 'jours')}`
+    bouts.push(e.joursRestants < 0 ? `en retard de ${pluriel(-e.joursRestants, 'jour', 'jours')}`
       : e.joursRestants === 0 ? 'aujourd’hui'
       : e.joursRestants === 1 ? 'demain'
       : `dans ${pluriel(e.joursRestants, 'jour', 'jours')}`);
@@ -154,9 +155,10 @@ export function planFiche(v, m) {
     historique: suivi.historique.map((l) => ({ ...l, libelle: sansDemo(l.libelle) })),
     annee: suivi.annee,
     totalAnnee: suivi.totalAnnee,
+    // le total au centime près : c'est de l'argent dépensé, il ne s'arrondit pas
     texteTotal: suivi.totalAnnee === null
       ? `Aucun coût saisi en ${suivi.annee}.`
-      : `${euros(suivi.totalAnnee, { arrondi: true })} en ${suivi.annee}, sur ${pluriel(suivi.historique.filter((l) => l.cout !== null && String(l.faitLe ?? '').startsWith(`${suivi.annee}-`)).length, 'ligne', 'lignes')}.`,
+      : `${euros(suivi.totalAnnee)} en ${suivi.annee}, sur ${pluriel(suivi.historique.filter((l) => l.cout !== null && String(l.faitLe ?? '').startsWith(`${suivi.annee}-`)).length, 'ligne', 'lignes')}.`,
   };
 }
 
