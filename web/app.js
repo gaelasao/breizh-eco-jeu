@@ -2355,7 +2355,24 @@ function faireAction(a) {
   if (a.type === 'attente') return approuver(a.attente);
   // déjà prise en charge : on ouvre la tâche en cours, là où l'on est (ni nouvelle tâche, ni changement d'écran)
   if (a.suivi) return selectionner(a.suivi.tacheId);
+  // le geste le plus fréquent, en un clic : la tâche porte le titre de la quête, l'écran ne bouge pas (G6)
+  if (a.direct === 'tache.creer' && E.monde.profil.peutApprouver && tacheProposee(a.objetId).titre) return creerTacheDirecte(a.objetId);
   return ouvrirSurCarte(a.objetId, Boolean(a.direct));
+}
+
+/**
+ * « Créer une tâche » en un geste depuis « Aujourd'hui » : titre et échéance déjà écrits, rien à vérifier pour qui
+ * peut approuver, et on reste sur l'écran où l'on est. Le toast dit ce qui a été créé et mène à la tâche.
+ */
+async function creerTacheDirecte(objetId) {
+  const p = tacheProposee(objetId);
+  try {
+    const a = await api('POST', '/actions', { cle: cle(), capacite: 'tache.creer', cible: objetId, parametres: { titre: p.titre, echeance: p.echeance }, executer: true });
+    if (a.etat !== 'reussie_technique') { informer(a.message ? `${LIBELLES.etat[a.etat] ?? a.etat} : ${a.message}` : LIBELLES.etat[a.etat] ?? a.etat, a.etat === 'en_attente' ? '' : 'erreur'); await charger(); return; }
+    await charger();
+    const t = E.monde.objets.find((x) => x.famille === 'tache' && x.nom === p.titre && valeurDe(x, 'concerne') === objetId);
+    toast({ texte: typo(`Tâche créée : ${p.titre}, pour le ${date(p.echeance)}.`), ton: 'ok', action: t ? { libelle: 'Voir la tâche', faire: () => selectionner(t.id) } : null });
+  } catch (e) { if (!e.session) informer(e.message, 'erreur'); }
 }
 
 const sauverReports = () => ecrireLocal('lb-plus-tard', JSON.stringify(E.reports));
@@ -3595,8 +3612,21 @@ function resumeParametres(a) {
 }
 
 // ---------------------------------------------------------------- actions (préparer → vérifier → confirmer)
+/**
+ * Ce qu'on proposerait pour une tâche liée à une fiche : le titre de la quête ouverte (« Relancer F-041 ») et une
+ * échéance à huit jours. Le geste le plus fréquent du produit n'a ainsi plus rien à saisir.
+ */
+function tacheProposee(objetId) {
+  const o = E.monde.objets.find((x) => x.id === objetId);
+  const q = o ? (E.monde.quetes ?? []).find((x) => x.origine?.objetId === o.id && x.statut === 'ouverte') : null;
+  return {
+    titre: q ? JEU.titreQuete(q.origine.regle, [o.nom]) : '',
+    echeance: jourLocal(new Date(Date.now() + 7 * 86_400_000)),
+  };
+}
 const nouveauFormulaire = (a) => {
   const f = { ...a, cle: cle(), etape: 'saisie', valeurs: { sens: 'entree', quantite: '', motif: '', titre: '', echeance: '' }, erreur: null, envoi: false };
+  if (a.capacite === 'tache.creer' && E.fiche) Object.assign(f.valeurs, tacheProposee(E.fiche.objet.id));
   if (a.capacite === 'objet.modifier' && E.fiche) {
     f.valeurs.nom = E.fiche.objet.nom;
     f.valeurs.champs = Object.fromEntries(E.fiche.objet.champs.map((c) => [c.id, c.lien ? c.lien.id : c.valeur]));
@@ -3647,6 +3677,9 @@ function rendreActions(f, entete = []) {
           champAction('action-titre', 'Titre de la tâche', h('input', { id: 'action-titre', class: 'bz-champ__saisie', type: 'text', maxlength: '200', required: true, value: v.titre, 'aria-invalid': F.erreur ? 'true' : null, oninput: (e) => (v.titre = e.target.value) })),
           champAction('action-echeance', 'Échéance (facultatif)', h('input', { id: 'action-echeance', class: 'bz-champ__saisie', type: 'date', value: v.echeance, oninput: (e) => (v.echeance = e.target.value) })),
         ];
+    // une tâche, pour qui a le droit d'approuver : un seul bouton. L'écran de contrôle n'apprend rien à cette personne,
+    // et le geste est le plus fréquent du produit. Qui prépare sans approuver garde « Vérifier » avant l'envoi.
+    const unGeste = F.capacite === 'tache.creer' && E.monde.profil.peutApprouver && !sim;
     return h('form', { class: 'bz-fiche__section bz-formulaire', 'aria-labelledby': 'fiche-action-titre', onsubmit: (e) => {
         e.preventDefault();
         const q = Number(String(v.quantite).replace(',', '.'));
@@ -3654,13 +3687,17 @@ function rendreActions(f, entete = []) {
         if (F.capacite === 'mouvement') v.quantite = String(q);
         if (F.capacite === 'tache.creer' && !v.titre.trim()) { F.erreur = 'Indiquez un titre.'; rendreFiche(); return; }
         F.erreur = null;
+        if (unGeste) { if (!F.envoi) envoyerAction(f, 0); return; }
         F.etape = 'confirmation';
         rendreFiche();
         setTimeout(() => $('#fiche-confirmation')?.focus(), 0);
       } },
       h('h3', { class: 'bz-t-titre-4', id: 'fiche-action-titre', texte: titre }), champs,
       F.erreur ? h('p', { class: 'bz-champ__erreur', role: 'alert' }, icone('circle-alert', { taille: 'sm' }), h('span', { texte: F.erreur })) : null,
-      h('div', { class: 'bz-groupe-boutons' }, h('button', { class: 'bz-bouton bz-bouton--principal', type: 'submit' }, 'Vérifier'), h('button', { class: 'bz-bouton bz-bouton--fantome', type: 'button', onclick: fermerForm }, 'Annuler')));
+      h('div', { class: 'bz-groupe-boutons' },
+        h('button', { class: 'bz-bouton bz-bouton--principal', type: 'submit', 'aria-busy': unGeste && F.envoi ? 'true' : null },
+          unGeste && F.envoi ? icone('loader-circle') : null, unGeste ? (F.envoi ? 'Création…' : 'Créer la tâche') : 'Vérifier'),
+        h('button', { class: 'bz-bouton bz-bouton--fantome', type: 'button', onclick: fermerForm }, 'Annuler')));
   }
   const delta = (v.sens === 'sortie' ? -1 : 1) * Number(v.quantite);
   const effet = F.capacite === 'mouvement'
@@ -3690,9 +3727,12 @@ async function envoyerAction(f, delta) {
     : F.capacite === 'mouvement' ? { champ: F.champ, delta, motif: F.valeurs.motif.trim() } : { titre: F.valeurs.titre.trim(), ...(F.valeurs.echeance ? { echeance: F.valeurs.echeance } : {}) };
   try {
     const a = await api('POST', '/actions', { cle: F.cle, capacite: F.capacite, cible: f.objet.id, parametres, executer: E.monde.profil.peutApprouver });
+    const titreTache = F.capacite === 'tache.creer' ? F.valeurs.titre.trim() : null;
     E.formulaire = null;
     const t = { reussie_technique: ['ok', `Action enregistrée${a.message ? ` : ${a.message}` : ''}.`], en_attente: ['', 'Action envoyée pour approbation.'], echouee: ['erreur', `Action refusée : ${a.message ?? 'échec'}`], resultat_inconnu: ['erreur', 'Résultat inconnu : vérifiez avant de relancer.'] }[a.etat] ?? ['', LIBELLES.etat[a.etat]];
-    informer(t[1], t[0]);
+    // une tâche créée se dit par son nom, et mène à elle : « Action enregistrée » ne dit pas ce qui existe maintenant
+    if (titreTache && a.etat === 'reussie_technique') toast({ texte: typo(`Tâche créée : ${titreTache}.`), ton: 'ok' });
+    else informer(t[1], t[0]);
     await charger();
     // la confirmation a disparu : le focus revient au titre de la fiche, jamais sur <body>
     if (!$('#fiche')?.contains(document.activeElement)) $('#fiche-titre')?.focus({ preventScroll: true });
@@ -9872,7 +9912,7 @@ function lignePriorite(s) {
       h('p', { class: 'bz-priorite__titre', texte: o ? `${sansDemo(o.nom)} : ${s.description}` : s.description }),
       h('p', { class: 'bz-t-micro bz-texte-2', texte: [o?.libelleType, s.preuve.source.libelle, s.preuve.observeLe ? dateRelative(s.preuve.observeLe) : null, LIBELLES.fraicheur[s.preuve.fraicheur]].filter(Boolean).join(' · ') })),
     h('div', { class: 'bz-priorite__action bz-groupe-boutons' },
-      quete ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--sm', onclick: () => ouvrirSurCarte(o.id, true) }, quete.actionProposee === 'mouvement' ? 'Enregistrer un mouvement' : 'Créer une tâche') : null,
+      quete ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--sm', onclick: () => faireAction({ objetId: o.id, direct: quete.actionProposee }) }, quete.actionProposee === 'mouvement' ? 'Enregistrer un mouvement' : 'Créer une tâche') : null,
       h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => ouvrirSurCarte(s.objetId) }, 'Voir')));
 }
 
