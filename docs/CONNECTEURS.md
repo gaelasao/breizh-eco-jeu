@@ -160,6 +160,110 @@ Lu : <https://airtable.com/developers/web/api/create-base>, <https://airtable.co
 <https://airtable.com/developers/web/api/list-bases>, <https://airtable.com/developers/web/api/field-model>,
 <https://airtable.com/developers/web/api/rate-limits>, <https://airtable.com/developers/web/api/scopes>.
 
+## Alertes : être prévenu sur Telegram ou WhatsApp
+
+Écrit le 13 novembre 2026 d'après la documentation officielle lue ce jour-là (adresses à la fin de cette section).
+**Rien n'a été essayé avec un vrai compte Telegram ni un vrai compte Meta** : pas de robot déclaré chez BotFather, pas
+de portefeuille d'entreprise chez Meta. Les essais (`src/passerelle/alertes.test.ts`, 32 cas) tournent contre un
+service simulé ; la chaîne complète (branchement, message d'essai, alertes composées à partir des données, signature,
+nouvel essai) a été vérifiée de bout en bout contre un service local, à l'écran, dans Chrome sans tête.
+
+Le module est `src/passerelle/alertes.ts`, l'écran est dans Réglages, Notifications, « Telegram et WhatsApp ». Sans
+canal branché il ne fait rien : aucune minuterie utile, aucun appel sortant, aucun changement dans le jeu.
+
+### Telegram — proposé, et c'est le chemin conseillé
+
+Trois étapes : créer un robot chez BotFather et coller son jeton, écrire un message au robot, brancher. Trois appels,
+tous en POST sur `https://api.telegram.org/bot<jeton>/<méthode>` :
+
+- `getMe` : vérifie le jeton tout de suite et donne le nom du robot (pour le lien `https://t.me/<robot>`).
+- `getUpdates` (`limit` 100, `timeout` 0, `allowed_updates` `["message"]`, **sans `offset`**) : retrouve la conversation
+  à partir du message que la personne vient d'écrire. Sans `offset`, les messages ne sont pas confirmés : un deuxième
+  essai les revoit. Telegram garde 24 heures au plus les messages non récupérés.
+- `sendMessage` (`chat_id`, `text`, `link_preview_options.is_disabled`) : **texte brut, sans `parse_mode`**. Rien à
+  échapper, donc rien à casser (MarkdownV2 demande d'échapper dix-huit caractères, HTML trois). Texte coupé à 4096
+  caractères, comme la documentation l'impose.
+
+Réponses lues telles que Telegram les décrit : `{ ok: true, result }`, ou `{ ok: false, error_code, description,
+parameters: { retry_after } }`. Le statut HTTP n'est pas supposé : c'est le JSON qui décide. Un `retry_after` fixe
+l'heure du nouvel essai. Un 401, un 403, « chat not found » ou « bot was blocked » sont tenus pour définitifs : le
+canal se met en pause et l'écrit, plutôt que de retenter sans fin.
+
+Un robot qui sert déjà ailleurs a un webhook posé, et `getUpdates` échoue : l'écran propose d'en créer un second chez
+BotFather. **Le jeu n'appelle jamais `deleteWebhook`** : il ne débranche pas l'intégration d'un autre logiciel.
+
+Débit : la documentation dit un message par seconde et par conversation, environ 30 par seconde en tout. Le jeu envoie
+quelques messages par jour, regroupés, avec un plafond réglé par l'entreprise.
+
+### WhatsApp — proposé seulement à qui a déjà un compte WhatsApp Business
+
+La documentation de Meta est claire : il n'existe **aucun moyen officiel** pour un logiciel auto-hébergé d'écrire sur
+WhatsApp sans passer par l'API WhatsApp Business (Cloud API). Il faut un portefeuille d'entreprise Meta, un compte
+WhatsApp et un compte de messagerie, une application Meta, un numéro de téléphone **dédié** (un numéro déjà utilisé
+dans l'application WhatsApp grand public est déconnecté de l'API), un jeton d'accès d'utilisateur système, et un moyen
+de paiement. La « coexistence » avec l'application WhatsApp Business est réservée aux partenaires et aux fournisseurs
+techniques : elle n'est pas ouverte à un éditeur qui s'intègre directement.
+
+Surtout, la **fenêtre de 24 heures** : un message libre n'est accepté que dans les 24 heures qui suivent un message de
+la personne. Une alerte arrive rarement dans cette fenêtre. Hors d'elle, seul un **modèle approuvé** passe ; la revue
+de Meta peut prendre jusqu'à 24 heures, et chaque message est facturé.
+
+D'où le choix fait ici :
+
+- l'écran **dit tout cela en toutes lettres**, avant le formulaire, et renvoie à Telegram pour qui n'a pas ce compte ;
+- aucun bouton « se connecter à WhatsApp » n'est proposé : il ne pourrait pas marcher ;
+- le branchement demande les cinq choses qui, elles, marchent vraiment : identifiant du numéro, jeton permanent, numéro
+  destinataire, nom du modèle approuvé, langue du modèle ;
+- l'envoi est **toujours** un message de modèle (`type: "template"`), jamais un message libre, pour ne pas dépendre de
+  la fenêtre de 24 heures : `POST https://graph.facebook.com/v27.0/<identifiant du numéro>/messages`, en-tête
+  `Authorization: Bearer <jeton>`, corps `{ messaging_product, recipient_type, to, type: "template", template: { name,
+  language: { code }, components: [{ type: "body", parameters: [{ type: "text", text }] }] } }`. Le modèle doit donc
+  contenir **une seule variable** dans son corps, ce que l'écran explique (« Living Business : {{1}} »).
+- la phrase glissée dans la variable est mise sur une seule ligne, sans tabulation ni espaces multiples : Meta refuse
+  un paramètre mis en forme.
+- `v27.0` est la version la plus récente servie par Meta au 13 novembre 2026 (vérifié : `v28.0` répond « unknown path
+  components »). C'est la constante `VERSION_WHATSAPP`.
+- une réponse acceptée ne veut pas dire livrée : Meta ne le dit que par webhook, que le jeu ne reçoit pas. L'écran ne
+  promet donc pas la livraison, il dit que le message a été accepté.
+- un 401, un 403, le code 190 (jeton expiré ou révoqué) ou un code 132xxx (modèle inconnu, non approuvé, mal rempli)
+  mettent le canal en pause avec le mot de Meta : réessayer n'y changerait rien.
+
+### Un autre service (webhook)
+
+Pour qui veut brancher autre chose : une adresse https à soi, Make, Zapier, n8n, Slack. Le corps est
+`{ evenement: "alerte", le, urgent, texte, lignes }`. Avec un secret, il est signé comme les envois entrants :
+`X-LB-Signature: t=<secondes>,v1=<HMAC-SHA256 de « t.corps »>`. L'adresse passe par l'anti-SSRF de `sortant.ts`
+(https obligatoire, adresse interne ou privée refusée, pas de redirection, taille et délai bornés).
+
+### Ce qui n'a pas pu être vérifié
+
+- Aucun envoi réel vers Telegram ni vers WhatsApp : ni robot, ni compte Meta, ni numéro.
+- Les textes exacts des erreurs de Telegram (« chat not found », « bot was blocked by the user ») ne figurent pas dans
+  les pages lues : ils viennent de l'usage courant de l'API. S'ils changent, la reconnaissance échoue sans danger — le
+  canal réessaie au lieu de se mettre en pause, et finit en pause après huit échecs.
+- La catégorie exacte à choisir pour un modèle d'alerte interne (« utilitaire » proposé par l'écran), le nombre de
+  destinataires d'un numéro de test, les montants facturés par Meta et la durée d'un jeton temporaire n'ont pas été
+  confirmés : les pages correspondantes n'ont pas été lues ou sont tronquées.
+- La vérification d'entreprise chez Meta : les pages lues ne disent pas qu'elle est obligatoire, seulement qu'elle
+  relève le plafond de destinataires (250 par 24 h sans elle, ce qui suffit largement ici).
+
+### Adresses lues le 13 novembre 2026
+
+Telegram : <https://core.telegram.org/bots/api>, <https://core.telegram.org/bots/api/methods/getme.md>,
+<https://core.telegram.org/bots/api/methods/sendmessage.md>, <https://core.telegram.org/bots/api/formatting.md>,
+<https://core.telegram.org/bots/api/types/responseparameters.md>, <https://core.telegram.org/bots/faq>,
+<https://core.telegram.org/bots/features>.
+Meta : <https://developers.facebook.com/docs/whatsapp/cloud-api/overview>,
+<https://developers.facebook.com/docs/whatsapp/cloud-api/get-started>,
+<https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages>,
+<https://developers.facebook.com/docs/whatsapp/pricing>,
+<https://developers.facebook.com/docs/whatsapp/business-management-api/message-templates>,
+<https://developers.facebook.com/documentation/business-messaging/whatsapp/access-tokens>,
+<https://developers.facebook.com/documentation/business-messaging/whatsapp/messaging-limits>,
+<https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users>.
+(<https://developers.facebook.com/docs/whatsapp/cloud-api/guides/set-up-message-templates> répond 404 : les modèles
+sont documentés sur la page « message-templates » ci-dessus.)
+
 ## Échéances à surveiller
 
 | Quand | Quoi | État |
@@ -171,6 +275,7 @@ Lu : <https://airtable.com/developers/web/api/create-base>, <https://airtable.co
 | Hiver 2027 (Odoo en ligne 21.1), automne 2028 (Odoo 22) | Odoo retire l'accès JSON-RPC dont le connecteur se sert. | À faire : passer à l'API « JSON-2 » (`/json/2/<modèle>/<méthode>`, clé en en-tête). |
 | Sans date | Pennylane remplacera les adresses de création et de modification par type de client. | À surveiller dans son journal des changements. |
 | Sans date | Notion annonce une prochaine version d'API ; HubSpot arrêtera un jour la version 2026-03 de ses jetons. | À surveiller. |
+| Environ deux ans après sa sortie | Meta cesse de servir la version `v27.0` de l'API Graph (WhatsApp). | À faire avant : relever `VERSION_WHATSAPP` dans `src/passerelle/alertes.ts`. |
 
 ## Limites connues
 
@@ -209,6 +314,10 @@ Lu : <https://airtable.com/developers/web/api/create-base>, <https://airtable.co
   est réessayé tout de suite, deux fois au plus).
 - **Google** : une connexion demandée en lecture seule peut porter aussi l'écriture si la personne l'avait déjà
   accordée à l'application.
+- **Alertes** : aucun envoi réel vers Telegram ni vers WhatsApp (ni robot, ni compte Meta) ; chez WhatsApp, une réponse
+  acceptée par Meta ne prouve pas la livraison (elle n'arrive que par un webhook que le jeu ne reçoit pas) ; un message
+  n'est envoyé qu'une fois par fait et, s'il n'a pas pu partir en 48 heures, il est abandonné (la chose reste à l'écran
+  du jeu) ; quand plusieurs canaux sont branchés, il suffit qu'un seul accepte le message pour qu'il quitte la file.
 - **Temps réel** : Airtable demande d'être « créateur » de la base et n'accepte que 2 webhooks par base pour une même
   application ; Microsoft refuse un second abonnement au même lecteur (le second branchement reste relu à son
   intervalle), écrit que ses abonnements n'acceptent pas un droit d'écriture quand la lecture suffit (connexion « dans

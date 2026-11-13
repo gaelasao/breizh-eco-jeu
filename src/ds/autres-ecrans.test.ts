@@ -172,17 +172,19 @@ test('onglet Breizhcosystem : verrous visibles avant l’action, vitrine, opport
 // ---------------------------------------------------------------- Réglages et « Mettre en ligne »
 test('réglages : les sections du §6.1 P9 dans l’ordre, anciennes adresses rangées, aucune route perdue', () => {
   assert.deepEqual(G.SECTIONS.map((s) => s.libelle), ['Entreprise', 'Accès et équipe', 'Apparence et accessibilité', 'Clavier', 'Carte', 'Notifications', 'Connecteurs', 'Mon fichier de suivi', 'Sauvegardes', 'Mettre en ligne', 'Breizhcosystem', 'Confidentialité', 'À propos']);
-  for (const ancienne of ['acces', 'apparence', 'carte', 'reseau', 'en-ligne', 'nexus', 'outils', 'cles', 'sauvegardes']) assert.equal(G.pageDemandee(ancienne), ancienne, `#/reglages:${ancienne} marche toujours`);
+  for (const ancienne of ['acces', 'apparence', 'carte', 'reseau', 'en-ligne', 'nexus', 'outils', 'cles', 'sauvegardes', 'alertes']) assert.equal(G.pageDemandee(ancienne), ancienne, `#/reglages:${ancienne} marche toujours`);
   assert.equal(G.sectionDe('cles'), 'outils', 'clés d’API dans Connecteurs (mode avancé)');
   assert.equal(G.sectionDe('reseau'), 'acces');
+  assert.equal(G.sectionDe('alertes'), 'notifications', 'Telegram et WhatsApp dans Notifications');
   assert.equal(G.pageDemandee('en-ligne', { enLigne: true }), 'reseau', 'déjà en ligne : réseau');
   assert.equal(G.pageDemandee('inconnue'), null);
   assert.equal(G.pageDemandee(null), null);
   assert.ok(!G.sectionsVisibles({ enLigne: true }).some((s) => s.id === 'en-ligne'));
   assert.deepEqual(G.sousPages('outils').map((p) => p.id), ['outils', 'cles']);
+  assert.deepEqual(G.sousPages('notifications').map((p) => p.id), ['notifications', 'alertes']);
   const app = lire('web/app.js');
   const carte = app.slice(app.indexOf('  const R = {\n    entreprise:'), app.indexOf('return (R[page] ?? rendreEntreprise)();'));
-  for (const s of [...G.SECTIONS.map((x) => x.id), 'cles', 'reseau']) assert.ok(carte.includes(`${s.includes('-') ? `'${s}'` : s}:`), `page de réglages ${s}`);
+  for (const s of [...G.SECTIONS.map((x) => x.id), 'cles', 'reseau', 'alertes']) assert.ok(carte.includes(`${s.includes('-') ? `'${s}'` : s}:`), `page de réglages ${s}`);
 });
 
 test('mettre en ligne : assistant en 3 étapes, « Faire installer par Claude » en tête, vérification sur le téléphone', () => {

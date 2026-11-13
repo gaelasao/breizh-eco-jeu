@@ -6,6 +6,7 @@
  * Rien n'est envoyé à l'éditeur ; seule la couche Breizhcosystem (optionnelle, payante) échange avec l'extérieur.
  */
 import { randomBytes } from 'node:crypto';
+import { Alertes, type EtatAlertes } from './alertes.ts';
 import { Automatisations, type EtatAutomatisations } from './automatisations.ts';
 import { adresseNexus } from './bureau.ts';
 import { Cles, type EtatCles } from './cles.ts';
@@ -47,6 +48,8 @@ export interface EtatApplication {
   securite?: { avis: AvisSecurite[] };
   /** Dernière version publiée vue sur Breizhcosystem (alerte « nouvelle version »). */
   misesAJour?: EtatMisesAJour;
+  /** Alertes sur un canal de l'entreprise (Telegram, WhatsApp, webhook) ; absentes tant que rien n'est branché. */
+  alertes?: EtatAlertes;
 }
 
 /** Avis montré aux AUTRES administrateurs jusqu'à ce qu'ils l'aient vu (90 jours au plus, 20 avis au plus). */
@@ -136,6 +139,8 @@ export class Application {
   readonly cles: Cles;
   readonly comptes: Comptes;
   readonly nexus: LienNexus;
+  /** Alertes en temps réel sur un canal de l'entreprise (Telegram, WhatsApp, webhook). */
+  readonly alertes: Alertes;
   /** Canal des avis des outils (temps réel), ouvert vers Breizhcosystem quand le jeu y est relié et a des abonnements. */
   readonly tempsReel: CanalTempsReel;
   readonly stockage: Stockage | null;
@@ -194,6 +199,19 @@ export class Application {
     });
     monde.brancherNexus(() => this.nexus.etatPavillon());
     this.automatisations = new Automatisations(monde, this.enquetes, this.synchro, { etat: etat?.automatisations ?? null, changement, trous: () => monde.trousPlanningReel(), trousProchains: () => monde.trousPlanningReel('prochains') });
+    // alertes : le module lit ce que le jeu voit déjà (situations, fiches, connecteurs, réseau) et n'écrit rien dans le monde
+    this.alertes = new Alertes({
+      maintenant: () => monde.maintenant(),
+      objets: () => monde.objetsReels(),
+      situations: () => monde.situationsReelles(),
+      univers: () => monde.univers,
+      connecteursEnErreur: () => this.synchro.lister(SYSTEME).filter((c) => c.actif && c.statut === 'erreur').map((c) => ({ nom: c.nom, message: c.message })),
+      reseau: async () => {
+        if (!this.nexus.relie) return null;
+        const r = await this.nexus.echanges();
+        return r.echanges.filter((e) => e.attend === 'vous').length;
+      },
+    }, this.#chiffreur, { etat: etat?.alertes ?? null, changement, ...(f ? { fetch: f } : {}) });
     monde.abonner((ev) => {
       this.synchro.surChangement(ev.action);
       this.miroir.surChangement(ev.action);
@@ -245,6 +263,7 @@ export class Application {
       sante: { historique: this.#historiqueSante.map((p) => ({ ...p })) },
       securite: { avis: this.#avis.map((a) => ({ ...a, vusPar: [...a.vusPar] })) },
       misesAJour: { ...this.#majs },
+      alertes: this.alertes.instantane(),
     };
   }
 
@@ -590,6 +609,12 @@ export class Application {
         try { c.config = { ...c.config, [k]: this.#chiffreur.chiffrer(ancien.dechiffrer(v)) }; } catch { c.config = { ...c.config, [k]: '' }; }
       }
     }
+    // canaux d'alerte : réglages ré-chiffrés pour cette installation ; illisibles, le canal est retiré (à rebrancher)
+    if (etat.alertes?.canaux) {
+      etat.alertes.canaux = etat.alertes.canaux.filter((c) => {
+        try { c.prive = this.#chiffreur.chiffrer(ancien.dechiffrer(c.prive)); return true; } catch { return false; }
+      });
+    }
     // validation en deux étapes : secret ré-chiffré pour cette installation (illisible : désactivée, à refaire)
     for (const c of etat.comptes?.comptes ?? []) {
       if (!c.deuxEtapes) continue;
@@ -656,8 +681,12 @@ export class Application {
     const t13 = setInterval(() => { void this.miroir.passer().catch(() => undefined); }, 30_000);
     const t14 = setInterval(() => { void this.miroir.adopter().catch(() => undefined); }, 2 * 60_000);
     const t15 = setTimeout(() => { void this.miroir.adopter().catch(() => undefined); }, 30_000);
-    for (const t of [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15]) t.unref?.();
-    this.#minuteries.push(t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15);
+    // alertes : une passe par minute, qui ne fait rien tant qu'aucun canal n'est branché
+    const t16 = setInterval(() => { void this.alertes.passer().catch(() => undefined); }, 60_000);
+    const t17 = setTimeout(() => { void this.alertes.passer().catch(() => undefined); }, 30_000);
+    const tous = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17];
+    for (const t of tous) t.unref?.();
+    this.#minuteries.push(...tous);
     this.tempsReel.demarrer();
   }
 

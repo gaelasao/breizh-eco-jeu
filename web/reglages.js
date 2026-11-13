@@ -10,7 +10,7 @@ export const SECTIONS = Object.freeze([
   { id: 'apparence', libelle: 'Apparence et accessibilité', icone: 'sliders-horizontal', description: 'Thème, texte, contraste, mode Calme' },
   { id: 'clavier', libelle: 'Clavier', icone: 'keyboard', description: 'Raccourcis et touches seules' },
   { id: 'carte', libelle: 'Carte', icone: 'map', description: 'Qualité, heure, animations' },
-  { id: 'notifications', libelle: 'Notifications', icone: 'bell', description: 'Alertes, suggestions, célébrations' },
+  { id: 'notifications', libelle: 'Notifications', icone: 'bell', description: 'Telegram, WhatsApp, suggestions, célébrations' },
   { id: 'outils', libelle: 'Connecteurs', icone: 'plug', description: 'Logiciels connectés, clés d’API' },
   { id: 'suivi', libelle: 'Mon fichier de suivi', icone: 'table', description: 'Le classeur où tout s’écrit aussi' },
   { id: 'sauvegardes', libelle: 'Sauvegardes', icone: 'archive', description: 'Copies automatiques et chiffrées' },
@@ -21,7 +21,7 @@ export const SECTIONS = Object.freeze([
 ].map((s) => Object.freeze(s)));
 
 /** Pages rangées dans une section (anciennes adresses comprises) : page → section. */
-const RANGEMENT = Object.freeze({ cles: 'outils', reseau: 'acces' });
+const RANGEMENT = Object.freeze({ cles: 'outils', reseau: 'acces', alertes: 'notifications' });
 
 /** Section d'une page de réglages (« cles » est dans Connecteurs, « reseau » dans Accès et équipe). */
 export const sectionDe = (page) => RANGEMENT[page] ?? (SECTIONS.some((s) => s.id === page) ? page : null);
@@ -43,6 +43,7 @@ export const sectionsVisibles = ({ enLigne = false } = {}) => SECTIONS.filter((s
 export function sousPages(section) {
   if (section === 'acces') return [{ id: 'acces', libelle: 'Personnes et droits' }, { id: 'reseau', libelle: 'Réseau du bureau' }];
   if (section === 'outils') return [{ id: 'outils', libelle: 'Logiciels connectés' }, { id: 'cles', libelle: 'Clés d’API, Claude et MCP' }];
+  if (section === 'notifications') return [{ id: 'notifications', libelle: 'Dans le jeu' }, { id: 'alertes', libelle: 'Telegram et WhatsApp' }];
   return [];
 }
 

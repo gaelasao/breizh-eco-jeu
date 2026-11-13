@@ -5261,7 +5261,7 @@ function rendreReglages(sous = E.sousReglages) {
         h('div', { class: 'bz-reglages__page', id: 'reglages-page', 'aria-labelledby': 'reglages-titre' })))));
   const R = {
     entreprise: rendreEntreprise, acces: rendreAcces, reseau: rendreReseau, apparence: () => remplir(zoneReglages(), blocApparence({ titre: false })),
-    clavier: rendreClavier, carte: () => remplir(zoneReglages(), blocCarte()), notifications: rendreNotifications, outils: rendreOutils, cles: rendreCles,
+    clavier: rendreClavier, carte: () => remplir(zoneReglages(), blocCarte()), notifications: rendreNotifications, alertes: rendreAlertes, outils: rendreOutils, cles: rendreCles,
     suivi: rendreSuivi, sauvegardes: rendreSauvegardes, 'en-ligne': rendreEnLigne, nexus: rendreReglagesNexus, confidentialite: rendreConfidentialite, 'a-propos': rendreAPropos,
   };
   return (R[page] ?? rendreEntreprise)();
@@ -5469,6 +5469,202 @@ function dessinerSuivi(V) {
           if (!(await confirmerDialogue({ titre: 'Ne plus suivre ce fichier ?', texte: SUIVI.TEXTE_DETACHER, confirmer: 'Ne plus suivre', annuler: 'Garder', danger: true }))) return;
           await appel(e.currentTarget, async () => { await api('DELETE', '/suivi'); return 'Le jeu n’écrit plus dans ce fichier. Il reste chez vous.'; });
         } }, icone('unlink'), 'Ne plus suivre'))) : null);
+}
+
+// ----- Alertes : être prévenu en temps réel sur Telegram, WhatsApp ou son propre service
+/* Trois étapes au plus pour brancher un canal, une liste à cocher pour ce qu'on reçoit, et le moment des envois.
+   Les jetons ne reviennent jamais ici : la passerelle ne renvoie qu'un résumé (« @robot → Gaël »). */
+const CANAUX_ALERTES = [
+  { id: 'telegram', titre: 'Telegram', icone: 'message-square', detail: 'Gratuit, trois minutes, rien à installer.' },
+  { id: 'whatsapp', titre: 'WhatsApp Business', icone: 'phone', detail: 'Seulement si vous avez déjà un compte WhatsApp Business chez Meta.' },
+  { id: 'webhook', titre: 'Un autre service', icone: 'link', detail: 'Votre propre adresse, ou Make, Zapier, n8n, Slack…' },
+];
+
+async function rendreAlertes() {
+  const Z = zoneReglages();
+  if (!Z) return;
+  let A;
+  try { A = await api('GET', '/alertes'); } catch (e) {
+    if (zoneReglages()) remplir(zoneReglages(), blocVide({ titre: 'Les alertes n’ont pas pu être chargées.', texte: e.message, role: 'alert', actions: h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => rendreAlertes() }, icone('refresh-cw'), 'Réessayer') }));
+    return;
+  }
+  if (!zoneReglages()) return;
+  const S = { brancher: null, erreur: null, occupe: false,
+    tg: { etape: 1, jeton: '', ref: null, robot: '', lien: '', conversation: '', message: null },
+    wa: { jeton: '', numeroId: '', destinataire: '', modele: '', langue: 'fr' },
+    hook: { url: '', secret: '' } };
+  const ici = () => E.vue === 'reglages' && E.sousReglages === 'alertes';
+  const recharger = async () => { if (ici()) { try { A = await api('GET', '/alertes'); } catch (e) { S.erreur = e.message; } } rendre(); };
+  /** Enveloppe un appel : message d'erreur en haut de page, bouton occupé pendant ce temps. */
+  const agir = async (f) => {
+    if (S.occupe) return;
+    S.occupe = true; S.erreur = null; rendre();
+    try { await f(); } catch (e) { S.erreur = e.message; }
+    S.occupe = false;
+    await recharger();
+  };
+  // l'adresse du jeu sert au lien à la fin de chaque message : elle est posée toute seule, puis modifiable
+  if (!A.adresseJeu && location.protocol === 'https:') { try { A = await api('PUT', '/alertes', { adresseJeu: location.origin }); } catch { /* sans lien, les messages restent utiles */ } }
+
+  const bouton = (cle, classe, ico, texte, onclick) => h('button', { type: 'button', cle, class: `bz-bouton ${classe}`, 'aria-busy': S.occupe ? 'true' : null, onclick }, icone(ico, { taille: 'sm' }), texte);
+  const champ = (id, libelle, valeur, poser, attrs = {}, aide = null) => h('div', { class: 'bz-champ' },
+    h('label', { class: 'bz-champ__libelle', for: id, texte: libelle }),
+    h('input', { id, class: 'bz-champ__saisie', type: 'text', autocomplete: 'off', spellcheck: 'false', value: valeur, 'aria-describedby': aide ? `${id}-aide` : null, oninput: (e) => poser(e.target.value), ...attrs }),
+    aide ? h('p', { class: 'bz-champ__aide', id: `${id}-aide`, texte: aide }) : null);
+  const etape = (n, titre, ...contenu) => h('div', { class: 'bz-champ' }, h('p', { class: 'bz-t-label', texte: `${n}. ${titre}` }), contenu);
+
+  // ---- brancher : Telegram en trois étapes
+  const formTelegram = () => {
+    const T = S.tg;
+    return h('div', { class: 'bz-formulaire' },
+      etape(1, 'Créez votre robot dans Telegram',
+        h('ul', { class: 'bz-liste-simple', role: 'list' },
+          h('li', { texte: 'Ouvrez Telegram et cherchez BotFather (celui avec la coche bleue).' }),
+          h('li', { texte: 'Écrivez-lui /newbot, puis donnez un nom (par exemple : Alertes de mon entreprise).' }),
+          h('li', { texte: 'Il demande ensuite un identifiant, qui doit finir par bot (par exemple : alertes_du_port_bot).' }),
+          h('li', { texte: 'Il répond avec une longue suite de caractères : c’est le jeton. Copiez-le et collez-le ci-dessous.' })),
+        champ('tg-jeton', 'Jeton du robot', T.jeton, (v) => { T.jeton = v; }, { maxlength: '120', disabled: T.etape > 1 || null, class: 'bz-champ__saisie bz-t-identifiant' },
+          'Ce jeton reste sur votre serveur, chiffré. Il ne revient jamais à cet écran.'),
+        T.etape === 1 ? h('div', { class: 'bz-groupe-boutons' }, bouton('tg-verifier', 'bz-bouton--principal', 'check', 'Vérifier le robot', () => agirTelegram1())) : null),
+      T.etape >= 2 ? etape(2, 'Écrivez un message à votre robot',
+        h('p', { class: 'bz-t-petit bz-texte-2', texte: `Dans Telegram, ouvrez @${T.robot} et envoyez-lui n’importe quoi, par exemple « bonjour ». C’est ce message qui dit à Living Business où vous écrire.` }),
+        h('div', { class: 'bz-groupe-boutons' },
+          lienExterne(T.lien, `Ouvrir @${T.robot}`),
+          T.etape === 2 ? bouton('tg-conversation', 'bz-bouton--principal', 'refresh-cw', 'J’ai écrit, retrouvez-moi', () => agirTelegram2()) : null),
+        T.message ? messageEnLigne('attention', T.message) : null) : null,
+      T.etape >= 3 ? etape(3, 'C’est prêt',
+        messageEnLigne('ok', `Conversation trouvée : ${T.conversation}.`),
+        h('div', { class: 'bz-groupe-boutons' }, bouton('tg-brancher', 'bz-bouton--principal', 'send', 'Brancher et m’envoyer un message d’essai', () => agirBrancher({ canal: 'telegram', ref: T.ref })))) : null);
+  };
+  const agirTelegram1 = () => agirSansRecharger(async () => {
+    const r = await api('POST', '/alertes/telegram/robot', { jeton: S.tg.jeton.trim() });
+    S.tg = { ...S.tg, etape: 2, ref: r.ref, robot: r.robot, lien: r.lien, message: null };
+  });
+  const agirTelegram2 = () => agirSansRecharger(async () => {
+    const r = await api('POST', '/alertes/telegram/conversation', { ref: S.tg.ref });
+    if (!r.trouve) { S.tg = { ...S.tg, message: r.message }; return; }
+    S.tg = { ...S.tg, etape: 3, conversation: r.conversation, message: null };
+  });
+  /** Comme `agir`, mais sans relire la page : les étapes gardent ce qu’elles ont obtenu. */
+  const agirSansRecharger = async (f) => {
+    if (S.occupe) return;
+    S.occupe = true; S.erreur = null; rendre();
+    try { await f(); } catch (e) { S.erreur = e.message; }
+    S.occupe = false;
+    rendre();
+  };
+
+  const formWhatsapp = () => h('div', { class: 'bz-formulaire' },
+    encadre('attention', 'WhatsApp n’est pas un branchement en un clic, et Meta le facture.',
+      'Pour qu’un logiciel écrive sur WhatsApp, Meta impose son API WhatsApp Business : un compte Meta Business, un numéro de téléphone dédié (pas celui de votre application WhatsApp habituelle, qui serait déconnecté), un jeton d’accès permanent, et un modèle de message approuvé par Meta — la validation peut prendre jusqu’à 24 heures. Chaque message est payant. Living Business ne peut rien simplifier de tout cela : si vous n’avez pas déjà ce compte, Telegram prend trois minutes et ne coûte rien.'),
+    h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Si vous avez déjà tout cela, remplissez ces cinq champs. Hors des 24 heures qui suivent un message de votre part, Meta n’accepte qu’un modèle approuvé : Living Business envoie donc toujours votre modèle, avec la phrase d’alerte dans sa variable.' }),
+    h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Créez dans Meta un modèle de catégorie « utilitaire » dont le corps contient une seule variable, par exemple : Living Business : {{1}}' }),
+    h('div', { class: 'bz-grille-champs' },
+      champ('wa-numero', 'Identifiant du numéro', S.wa.numeroId, (v) => { S.wa.numeroId = v; }, { inputmode: 'numeric', maxlength: '30' }, 'Le « Phone number ID » de la console Meta : des chiffres, pas le numéro de téléphone.'),
+      champ('wa-jeton', 'Jeton d’accès permanent', S.wa.jeton, (v) => { S.wa.jeton = v; }, { maxlength: '400', class: 'bz-champ__saisie bz-t-identifiant' }, 'Celui d’un utilisateur système. Il reste chiffré sur votre serveur.'),
+      champ('wa-destinataire', 'Numéro qui recevra les alertes', S.wa.destinataire, (v) => { S.wa.destinataire = v; }, { inputmode: 'tel', maxlength: '25', autocomplete: 'tel' }, 'Avec l’indicatif du pays, par exemple +33612345678.'),
+      champ('wa-modele', 'Nom du modèle approuvé', S.wa.modele, (v) => { S.wa.modele = v; }, { maxlength: '120' }, 'Tel qu’il apparaît chez Meta, en minuscules.'),
+      champ('wa-langue', 'Langue du modèle', S.wa.langue, (v) => { S.wa.langue = v; }, { maxlength: '6' }, 'Par exemple fr, ou fr_FR.')),
+    h('div', { class: 'bz-groupe-boutons' }, bouton('wa-brancher', 'bz-bouton--principal', 'send', 'Brancher et m’envoyer un message d’essai', () => agirBrancher({ canal: 'whatsapp', ...S.wa }))),
+    h('p', { class: 'bz-t-petit bz-texte-2' }, lienExterne('https://developers.facebook.com/docs/whatsapp/cloud-api/get-started', 'Lire la marche à suivre chez Meta', 'bz-lien-fleche')));
+
+  const formWebhook = () => h('div', { class: 'bz-formulaire' },
+    h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Living Business enverra chaque alerte en https, dans un petit message JSON, à l’adresse que vous donnez. Make, Zapier, n8n, Slack ou votre propre service la recevront. Avec un secret, le message est signé : votre service peut vérifier qu’il vient bien de chez vous.' }),
+    h('div', { class: 'bz-grille-champs' },
+      champ('hook-url', 'Adresse qui reçoit les alertes', S.hook.url, (v) => { S.hook.url = v; }, { type: 'url', inputmode: 'url', maxlength: '300', placeholder: 'https://' }, 'Adresse publique en https. Les adresses internes sont refusées.'),
+      champ('hook-secret', 'Secret de signature', S.hook.secret, (v) => { S.hook.secret = v; }, { maxlength: '200' }, 'Facultatif. En-tête X-LB-Signature : t=<secondes>,v1=<HMAC-SHA256 de « t.corps »>.')),
+    h('div', { class: 'bz-groupe-boutons' }, bouton('hook-brancher', 'bz-bouton--principal', 'send', 'Brancher et envoyer un message d’essai', () => agirBrancher({ canal: 'webhook', url: S.hook.url.trim(), secret: S.hook.secret.trim() }))));
+
+  const agirBrancher = (corps) => agir(async () => {
+    const c = await api('POST', '/alertes/canaux', corps);
+    const r = await api('POST', `/alertes/canaux/${encodeURIComponent(c.id)}/essai`, {});
+    informer(r.ok ? `Canal branché. ${r.message}` : `Canal branché, mais le message d’essai n’est pas passé : ${r.message}`, r.ok ? 'ok' : 'attention');
+    S.brancher = null;
+  });
+
+  // ---- canaux déjà branchés
+  const carteCanal = (c) => h('li', { class: 'bz-champ' },
+    h('p', { class: 'bz-t-label' }, icone(CANAUX_ALERTES.find((x) => x.id === c.canal)?.icone ?? 'bell', { taille: 'sm' }), ` ${c.nom}`),
+    h('p', { class: 'bz-t-petit bz-texte-2', texte: c.resume }),
+    h('p', { class: 'bz-t-micro bz-texte-2', texte: c.actif
+      ? c.dernierEnvoi ? `En marche. Dernier message ${dateRelative(c.dernierEnvoi)}.` : 'En marche. Aucun message envoyé pour l’instant.'
+      : 'En pause : rien ne part vers ce canal.' }),
+    c.statut === 'erreur' && c.message ? messageEnLigne('critique', c.message) : null,
+    h('div', { class: 'bz-groupe-boutons' },
+      bouton(`essai-${c.id}`, 'bz-bouton--secondaire bz-bouton--sm', 'send', 'M’envoyer un message d’essai', () => agir(async () => {
+        const r = await api('POST', `/alertes/canaux/${encodeURIComponent(c.id)}/essai`, {});
+        informer(r.ok ? r.message : `Le message n’est pas passé : ${r.message}`, r.ok ? 'ok' : 'erreur');
+      })),
+      bouton(`pause-${c.id}`, 'bz-bouton--fantome bz-bouton--sm', c.actif ? 'pause' : 'play', c.actif ? 'Mettre en pause' : 'Relancer', () => agir(async () => {
+        await api('PUT', `/alertes/canaux/${encodeURIComponent(c.id)}`, { actif: !c.actif });
+        informer(c.actif ? 'Canal en pause : plus rien ne part vers lui.' : 'Canal relancé.', 'ok');
+      })),
+      bouton(`retirer-${c.id}`, 'bz-bouton--fantome bz-bouton--critique bz-bouton--sm', 'trash-2', 'Retirer', async () => {
+        if (!(await confirmerDialogue({ titre: `Retirer le canal « ${c.nom} » ?`, texte: 'Plus aucune alerte ne partira vers lui, et son jeton sera effacé. Vous pourrez le rebrancher plus tard.', confirmer: 'Retirer', annuler: 'Garder', danger: true }))) return;
+        await agir(async () => { await api('DELETE', `/alertes/canaux/${encodeURIComponent(c.id)}`); informer('Canal retiré.', 'ok'); });
+      })));
+
+  // ---- ce que je veux recevoir
+  const reglerSujets = (id, coche) => agir(async () => {
+    const choisis = new Set(A.sujets.filter((s) => s.choisi).map((s) => s.id));
+    if (coche) choisis.add(id); else choisis.delete(id);
+    await api('PUT', '/alertes', { sujets: [...choisis] });
+  });
+  const reglerQuand = (patch) => agir(async () => { await api('PUT', '/alertes', { quand: { ...A.quand, ...patch } }); });
+
+  const sectionSujets = () => sectionReglage('alertes-sujets', 'Ce que je veux recevoir',
+    'Cochez ce qui vous intéresse. Au départ, trois cases seulement : vous en ajouterez quand vous verrez ce qui vous sert.',
+    h('div', { class: 'bz-grille-choix' }, A.sujets.map((s) => h('label', { class: 'bz-choix' },
+      h('input', { type: 'checkbox', cle: `sujet-${s.id}`, checked: s.choisi, onchange: (e) => reglerSujets(s.id, e.target.checked) }),
+      h('span', { class: 'bz-choix__texte' }, h('span', { class: 'bz-choix__titre', texte: s.libelle }), h('span', { class: 'bz-choix__detail', texte: s.aide }))))));
+
+  const sectionQuand = () => sectionReglage('alertes-quand', 'Quand', 'Un message dit quoi, combien et quoi faire, avec un lien vers le bon écran.',
+    h('fieldset', { class: 'bz-champ' },
+      h('legend', { class: 'bz-champ__libelle', texte: 'Moment des envois' }),
+      h('div', { class: 'bz-grille-choix' }, [
+        ['tout_de_suite', 'Tout de suite', 'Dès que Living Business le voit, pendant les heures que vous autorisez.'],
+        ['une_fois_par_jour', 'Une fois par jour', 'Tout regroupé en un seul message, à l’heure choisie.'],
+      ].map(([v, t, d]) => h('label', { class: 'bz-choix' },
+        h('input', { type: 'radio', name: 'alertes-mode', value: v, cle: `mode-${v}`, checked: A.quand.mode === v, onchange: () => reglerQuand({ mode: v }) }),
+        h('span', { class: 'bz-choix__texte' }, h('span', { class: 'bz-choix__titre', texte: t }), h('span', { class: 'bz-choix__detail', texte: d })))))),
+    h('div', { class: 'bz-grille-champs' },
+      champ('alertes-heure', 'Heure du regroupement et du résumé du matin', A.quand.heure, () => {}, { type: 'time', onchange: (e) => reglerQuand({ heure: e.target.value }) }),
+      champ('alertes-avant', 'Rien avant', A.quand.silenceAvant, () => {}, { type: 'time', onchange: (e) => reglerQuand({ silenceAvant: e.target.value }) }),
+      champ('alertes-apres', 'Rien après', A.quand.silenceApres, () => {}, { type: 'time', onchange: (e) => reglerQuand({ silenceApres: e.target.value }) }),
+      champ('alertes-max', 'Au plus, par jour', String(A.quand.maxParJour), () => {}, { type: 'number', min: '1', max: '50', step: '1', inputmode: 'numeric', onchange: (e) => reglerQuand({ maxParJour: Number(e.target.value) }) },
+        A.envoyesAujourdhui ? `${pluriel(A.envoyesAujourdhui, 'message envoyé', 'messages envoyés')} aujourd’hui.` : 'Aucun message envoyé aujourd’hui.')),
+    interrupteurReglage({ cle: 'alertes-week-end', titre: 'Écrire aussi le samedi et le dimanche', actif: A.quand.weekEnd, regler: (v) => reglerQuand({ weekEnd: v }) }),
+    interrupteurReglage({ cle: 'alertes-urgences', titre: 'Laisser passer les urgences hors de ces heures', aide: 'Une situation critique seulement : une facture très en retard, un contrôle technique dépassé.', actif: A.quand.urgencesPassent, regler: (v) => reglerQuand({ urgencesPassent: v }) }),
+    A.enAttente ? messageEnLigne('info', `${pluriel(A.enAttente, 'chose attend', 'choses attendent')} d’être envoyée au prochain créneau.`) : null);
+
+  const sectionLien = () => sectionReglage('alertes-adresse', 'Le lien dans les messages',
+    'Chaque message finit par un lien qui ouvre le bon écran. Donnez l’adresse à laquelle vous ouvrez Living Business depuis votre téléphone.',
+    h('form', { class: 'bz-formulaire', novalidate: true, onsubmit: (e) => { e.preventDefault(); agir(async () => { await api('PUT', '/alertes', { adresseJeu: $('#alertes-adresse-jeu')?.value.trim() || null }); informer('Adresse enregistrée.', 'ok'); }); } },
+      h('div', { class: 'bz-champ' },
+        h('label', { class: 'bz-champ__libelle', for: 'alertes-adresse-jeu', texte: 'Adresse de Living Business' }),
+        h('div', { class: 'bz-edition__ligne' },
+          h('input', { id: 'alertes-adresse-jeu', class: 'bz-champ__saisie', type: 'url', inputmode: 'url', autocomplete: 'off', placeholder: 'https://', value: A.adresseJeu ?? '' }),
+          h('button', { type: 'submit', class: 'bz-bouton bz-bouton--secondaire' }, 'Enregistrer')),
+        h('p', { class: 'bz-champ__aide', texte: A.adresseJeu ? 'Laissez vide pour envoyer les messages sans lien.' : 'Sans adresse, les messages partent quand même, simplement sans lien.' }))));
+
+  const rendre = () => {
+    if (!zoneReglages()) return;
+    const choix = CANAUX_ALERTES.map((c) => h('label', { class: 'bz-choix' },
+      h('input', { type: 'radio', name: 'alertes-brancher', value: c.id, cle: `brancher-${c.id}`, checked: S.brancher === c.id, onchange: () => { S.brancher = c.id; rendre(); } }),
+      h('span', { class: 'bz-choix__texte' }, h('span', { class: 'bz-choix__titre' }, icone(c.icone, { taille: 'sm' }), ` ${c.titre}`), h('span', { class: 'bz-choix__detail', texte: c.detail }))));
+    remplir(zoneReglages(),
+      h('p', { class: 'bz-t-petit bz-texte-2 bz-reglages__intro', texte: 'Soyez prévenu, sur votre téléphone, de ce que vous devez savoir : une facture en retard, une échéance qui approche, un stock bas. Vous choisissez quoi, et quand. Sans canal branché, Living Business ne change pas d’un pouce.' }),
+      messageEnLigne('critique', S.erreur),
+      sectionReglage('alertes-canaux', `Mes canaux · ${A.canaux.length}`, null,
+        A.canaux.length ? h('ul', { class: 'bz-liste-simple', role: 'list' }, A.canaux.map(carteCanal)) : blocVide({ titre: 'Aucun canal branché.', texte: 'Choisissez ci-dessous où vous voulez être prévenu.', compact: true })),
+      A.canaux.length >= A.canauxMax ? null : sectionReglage('alertes-brancher', 'Brancher un canal', 'Trois étapes au plus, et un message d’essai pour vérifier.',
+        h('fieldset', { class: 'bz-champ' }, h('legend', { class: 'bz-champ__libelle', texte: 'Où voulez-vous être prévenu ?' }), h('div', { class: 'bz-grille-choix' }, choix)),
+        S.brancher === 'telegram' ? formTelegram() : S.brancher === 'whatsapp' ? formWhatsapp() : S.brancher === 'webhook' ? formWebhook() : null),
+      sectionSujets(),
+      sectionQuand(),
+      sectionLien());
+  };
+  rendre();
 }
 
 // ----- Confidentialité : ce qui sort, et vers qui (P3 : la vérité des données)
