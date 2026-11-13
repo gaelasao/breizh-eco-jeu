@@ -838,6 +838,21 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
     if (methode === 'DELETE' && mx) return envoyer(res, 200, await app.synchro.supprimer(profil, decodeURIComponent(mx[1] as string)));
     mx = /^\/synchro\/([^/]+)\/maintenant$/.exec(chemin);
     if (methode === 'POST' && mx) return envoyer(res, 200, await app.synchro.synchroniser(decodeURIComponent(mx[1] as string), profil));
+    // fichier de suivi (miroir.ts). Comme les connecteurs : il se règle depuis l'écran, jamais avec une clé d'API
+    // (créer le classeur se sert d'une connexion à un outil) ; lire son état et relancer un envoi restent permis.
+    if (cle && chemin.startsWith('/suivi') && !(methode === 'GET' && chemin === '/suivi') && chemin !== '/suivi/maintenant') {
+      throw new ErreurApi(403, 'session_requise', 'Le fichier de suivi se règle depuis l’écran de Living Business, pas avec une clé d’API.');
+    }
+    if (methode === 'GET' && chemin === '/suivi') return envoyer(res, 200, app.miroir.vue(profil));
+    if (methode === 'POST' && chemin === '/suivi') return envoyer(res, 200, await app.miroir.creer(profil, await lireCorps(req)));
+    if (methode === 'PUT' && chemin === '/suivi') return envoyer(res, 200, app.miroir.regler(profil, await lireCorps(req)));
+    if (methode === 'DELETE' && chemin === '/suivi') return envoyer(res, 200, app.miroir.detacher(profil));
+    if (methode === 'POST' && chemin === '/suivi/reecrire') return envoyer(res, 200, app.miroir.toutReecrire(profil));
+    if (methode === 'POST' && chemin === '/suivi/maintenant') {
+      const r = await app.miroir.passer();
+      await app.miroir.adopter().catch(() => 0);
+      return envoyer(res, 200, { ...app.miroir.vue(profil), envoyees: r.envoyees, restants: r.restants });
+    }
     // satisfaction
     if (methode === 'GET' && chemin === '/satisfaction') return envoyer(res, 200, app.enquetes.resume(profil));
     if (methode === 'POST' && chemin === '/enquetes') return envoyer(res, 200, app.enquetes.inviter(profil, ((await lireCorps(req)) as { cible?: unknown }).cible, origineDe(req)));

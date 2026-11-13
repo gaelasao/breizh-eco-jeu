@@ -17,6 +17,7 @@ import { clientsSurveilles, proceduresCollectives, type AlerteBodacc } from './b
 import { Comptes, normaliserIdentifiant, problemeMotDePasse, type EtatComptes } from './comptes.ts';
 import { Enquetes, type EtatEnquetes } from './enquetes.ts';
 import { LienNexus, type EtatLienNexus } from './lien-nexus.ts';
+import { Miroir, type EtatMiroir } from './miroir.ts';
 import { ErreurApi, Monde, SYSTEME, type EtatMonde, type Exemple, type OptionsMonde } from './monde.ts';
 import { recuperateurProtege, type Recuperateur } from './sortant.ts';
 import { chiffrerAvecPhrase, CONSERVATION_JOURS, creerChiffreur, dechiffrerAvecPhrase, Stockage, type Chiffreur, type SauvegardeAuto } from './stockage.ts';
@@ -31,6 +32,8 @@ export interface EtatApplication {
   version: 1;
   monde: EtatMonde;
   synchro: EtatSynchro;
+  /** Miroir vers le fichier de suivi de l'entreprise (`miroir.ts`) : aucun secret, seulement des identifiants. */
+  miroir?: EtatMiroir;
   enquetes: EtatEnquetes;
   automatisations: EtatAutomatisations;
   cles: EtatCles;
@@ -126,6 +129,8 @@ function lireAvis(x: unknown): AvisSecurite[] {
 export class Application {
   readonly monde: Monde;
   readonly synchro: Synchro;
+  /** Miroir vers le fichier de suivi de l'entreprise (Google Sheets, Notion ou Airtable). */
+  readonly miroir: Miroir;
   readonly enquetes: Enquetes;
   readonly automatisations: Automatisations;
   readonly cles: Cles;
@@ -162,6 +167,7 @@ export class Application {
     // « Se connecter avec… » : relais de connexion sur l'adresse de Breizhcosystem connue du jeu (lue à chaque appel)
     const relais = new RelaisOAuth({ adresse: () => this.nexus.instantane().url, ...(f ? { fetch: f } : {}) });
     this.synchro = new Synchro(monde, this.#chiffreur, { etat: etat?.synchro ?? null, changement, relais, ...(f ? { fetch: f } : {}) });
+    this.miroir = new Miroir(monde, this.synchro, { etat: etat?.miroir ?? null, changement });
     this.enquetes = new Enquetes(monde, { etat: etat?.enquetes ?? null, changement });
     this.cles = new Cles(monde, { etat: etat?.cles ?? null, changement });
     this.comptes = new Comptes({ etat: etat?.comptes ?? null, changement, maintenant: () => monde.maintenant(), chiffreur: this.#chiffreur, ...(o.horloge ? { horloge: o.horloge } : {}) });
@@ -190,6 +196,7 @@ export class Application {
     this.automatisations = new Automatisations(monde, this.enquetes, this.synchro, { etat: etat?.automatisations ?? null, changement, trous: () => monde.trousPlanningReel(), trousProchains: () => monde.trousPlanningReel('prochains') });
     monde.abonner((ev) => {
       this.synchro.surChangement(ev.action);
+      this.miroir.surChangement(ev.action);
       this.#planifierNexus();
       if (!ev.acteur.startsWith('automatisation:')) this.automatisations.planifier();
       this.#signaler(ev.action);
@@ -227,6 +234,7 @@ export class Application {
       version: 1,
       monde: this.monde.instantane(),
       synchro: this.synchro.instantane(),
+      miroir: this.miroir.instantane(),
       enquetes: this.enquetes.instantane(),
       automatisations: this.automatisations.instantane(),
       cles: this.cles.instantane(),
@@ -394,6 +402,8 @@ export class Application {
    */
   effacerObjet(p: Profil, sid: string, id: unknown, d: unknown) {
     const r = this.monde.effacerObjet(p, sid, id, d);
+    // fichier de suivi : la ligne est MARQUÉE supprimée, jamais retirée (les données de l'entreprise sont à elle)
+    this.miroir.surEffacement(r.id);
     const outils = this.synchro.oublierObjet(r.id);
     this.enquetes.oublierObjet(r.id);
     this.automatisations.oublierObjet(r.id);
@@ -415,7 +425,7 @@ export class Application {
     const c = this.#reglages.conservation;
     const avant = (jours: number | null) => (jours ? new Date(this.monde.maintenant().getTime() - jours * 86_400_000).toISOString().slice(0, 10) : null);
     const r = this.monde.purgerAnciennes({ planningAvant: avant(c.planning), avisAvant: avant(c.avis), courrierAvant: avant(c.courrier) });
-    for (const id of r.ids) { this.synchro.oublierObjet(id); this.enquetes.oublierObjet(id); this.automatisations.oublierObjet(id); }
+    for (const id of r.ids) { this.miroir.surEffacement(id); this.synchro.oublierObjet(id); this.enquetes.oublierObjet(id); this.automatisations.oublierObjet(id); }
     this.#purgeeLe = Date.now();
     return { cases: r.cases, fiches: r.ids.length };
   }
@@ -436,6 +446,7 @@ export class Application {
   #rejouerEffacements(stockage: Stockage) {
     for (const e of stockage.lireEffacements()) {
       if (!this.monde.rejouerEffacement(e.id, e.mode)) continue;
+      this.miroir.surEffacement(e.id);
       this.synchro.oublierObjet(e.id);
       this.enquetes.oublierObjet(e.id);
       this.automatisations.oublierObjet(e.id);
@@ -640,8 +651,13 @@ export class Application {
     const entretien = () => { void this.synchro.entretenirTempsReel().then(() => this.tempsReel.relancer(), () => undefined); };
     const t11 = setInterval(entretien, 5 * 60_000);
     const t12 = setTimeout(entretien, 10_000);
-    for (const t of [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12]) t.unref?.();
-    this.#minuteries.push(t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12);
+    // fichier de suivi : les envois en attente repartent toutes les 30 s ; les lignes ajoutées à la main dans un
+    // tableur reçoivent leur référence toutes les 2 minutes (elles entrent ensuite par la synchronisation)
+    const t13 = setInterval(() => { void this.miroir.passer().catch(() => undefined); }, 30_000);
+    const t14 = setInterval(() => { void this.miroir.adopter().catch(() => undefined); }, 2 * 60_000);
+    const t15 = setTimeout(() => { void this.miroir.adopter().catch(() => undefined); }, 30_000);
+    for (const t of [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15]) t.unref?.();
+    this.#minuteries.push(t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15);
     this.tempsReel.demarrer();
   }
 
