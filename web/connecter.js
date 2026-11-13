@@ -64,26 +64,45 @@ export const SECTIONS = Object.freeze([
 export const COMPTES = Object.freeze([
   {
     id: 'google', nom: 'Google', icone: 'sheet', famille: 'tableurs',
-    description: 'Une seule connexion pour votre compte Google : vos feuilles de calcul, votre agenda, votre courrier.',
+    phrase: (quoi) => `Une seule connexion pour votre compte Google : ${quoi}.`,
+    phraseSansListe: 'Une seule connexion pour tout votre compte Google, sans rien copier.',
     contenus: [
-      { id: 'sheets', libelle: 'Feuilles de calcul', detail: 'Clients, commandes, stock… dans les deux sens.', source: 'sheets' },
-      { id: 'agenda', libelle: 'Agenda', detail: 'Vos rendez-vous dans le planning, et ceux d’ici dans votre agenda.', source: 'agendagoogle' },
-      { id: 'messagerie', libelle: 'Courrier Gmail', detail: 'Vos messages récents dans l’écran Courrier, triés dans vos bacs.', source: 'gmail' },
+      { id: 'sheets', libelle: 'Feuilles de calcul', resume: 'vos feuilles de calcul', detail: 'Clients, commandes, stock… dans les deux sens.', source: 'sheets' },
+      { id: 'agenda', libelle: 'Agenda', resume: 'votre agenda', detail: 'Vos rendez-vous dans le planning, et ceux d’ici dans votre agenda.', source: 'agendagoogle' },
+      { id: 'messagerie', libelle: 'Courrier Gmail', resume: 'votre courrier', detail: 'Vos messages récents dans l’écran Courrier, triés dans vos bacs.', source: 'gmail' },
     ],
   },
   {
     id: 'microsoft', nom: 'Microsoft', icone: 'file-spreadsheet', famille: 'tableurs',
-    description: 'Une seule entrée pour votre compte Microsoft 365 : Excel, agenda, courrier Outlook, Dynamics 365, Business Central.',
+    phrase: (quoi) => `Une seule entrée pour votre compte Microsoft 365 : ${quoi}.`,
+    phraseSansListe: 'Une seule entrée pour tout votre compte Microsoft 365, sans rien copier.',
     professionnel: true,
     contenus: [
-      { id: 'excel365', libelle: 'Un classeur Excel', detail: 'Sur OneDrive professionnel ou SharePoint.', source: 'excel365' },
-      { id: 'agenda', libelle: 'Agenda', detail: 'Vos rendez-vous dans le planning, et ceux d’ici dans votre agenda.', source: 'agendamicrosoft' },
-      { id: 'messagerie', libelle: 'Courrier Outlook', detail: 'Vos messages récents dans l’écran Courrier, triés dans vos bacs.', source: 'outlook' },
-      { id: 'dynamics365', libelle: 'Dynamics 365', detail: 'Les comptes et les contacts de votre CRM.', source: 'dynamics365' },
-      { id: 'businesscentral', libelle: 'Business Central', detail: 'Clients, fournisseurs et articles.', source: 'businesscentral' },
+      { id: 'excel365', libelle: 'Un classeur Excel', resume: 'vos classeurs Excel', detail: 'Sur OneDrive professionnel ou SharePoint.', source: 'excel365' },
+      { id: 'agenda', libelle: 'Agenda', resume: 'votre agenda', detail: 'Vos rendez-vous dans le planning, et ceux d’ici dans votre agenda.', source: 'agendamicrosoft' },
+      { id: 'messagerie', libelle: 'Courrier Outlook', resume: 'votre courrier Outlook', detail: 'Vos messages récents dans l’écran Courrier, triés dans vos bacs.', source: 'outlook' },
+      { id: 'dynamics365', libelle: 'Dynamics 365', resume: 'Dynamics 365', detail: 'Les comptes et les contacts de votre CRM.', source: 'dynamics365' },
+      { id: 'businesscentral', libelle: 'Business Central', resume: 'Business Central', detail: 'Clients, fournisseurs et articles.', source: 'businesscentral' },
     ],
   },
 ].map(Object.freeze));
+
+/** Énumération à la française : « a », « a et b », « a, b et c ». */
+export function enumerer(mots) {
+  const l = (mots ?? []).filter(Boolean);
+  if (l.length <= 1) return l[0] ?? '';
+  return `${l.slice(0, -1).join(', ')} et ${l[l.length - 1]}`;
+}
+
+/**
+ * Description d'un compte, tirée de ce que le relais ouvre VRAIMENT (et non d'une phrase figée) : l'hébergeur peut
+ * n'avoir fait vérifier qu'une partie de ses droits chez Google ou Microsoft. Tant que rien n'est connu, on ne
+ * promet aucune liste.
+ */
+export const descriptionCompte = (compte, ouverts) => {
+  const quoi = enumerer((ouverts ?? []).map((x) => x.resume).filter(Boolean));
+  return quoi ? compte.phrase(quoi) : compte.phraseSansListe;
+};
 
 /** Compte auquel appartient un outil (sheets → Google, excel365 → Microsoft…) ; null s'il est seul de son espèce. */
 export const compteDe = (sourceId) => COMPTES.find((c) => c.contenus.some((x) => x.source === sourceId)) ?? null;
@@ -162,7 +181,7 @@ export function catalogue(sources = [], connecteurs = [], { pasAPas = true } = {
     const unClic = vivants.some((x) => x.unClic);
     if (!unClic && !vivants.some((x) => x.cle)) continue;
     groupes.push({
-      cle: `compte:${c.id}`, genre: 'compte', id: c.id, nom: c.nom, description: c.description, famille: c.famille, icone: c.icone,
+      cle: `compte:${c.id}`, genre: 'compte', id: c.id, nom: c.nom, description: descriptionCompte(c, vivants), famille: c.famille, icone: c.icone,
       unClic, avance: false, bientot: false, ecriture: vivants.some((x) => x.ecriture), professionnel: Boolean(c.professionnel),
       section: unClic ? 'un-clic' : 'cle', contenus,
     });

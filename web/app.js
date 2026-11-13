@@ -4132,13 +4132,12 @@ function resultatsCatalogue(A) {
 }
 /** Carte d'un logiciel ou d'un compte (§4.23) : pictogramme, nom en entier ; « 1 clic » est la seule pastille. */
 function carteLogiciel(x, { conseil = false, faire = null } = {}) {
-  const dedans = (x.contenus ?? []).filter((c) => c.disponible).map((c) => c.libelle);
+  // la description d'un compte énumère déjà ce qui est vraiment ouvert : pas de seconde liste sous la première
   return h('button', { type: 'button', class: `bz-logiciel${conseil ? ' bz-logiciel--conseil' : ''}`, cle: `${conseil ? 'conseil' : 'logiciel'}-${x.cle}`, onclick: () => (faire ? faire(x) : choisirEntree(x)) },
     h('span', { class: 'bz-logiciel__icone', 'aria-hidden': 'true' }, icone(x.icone)),
     h('span', { class: 'bz-logiciel__texte' },
       h('span', { class: 'bz-logiciel__nom' }, h('span', { texte: x.nom }), x.unClic ? h('span', { class: 'bz-badge' }, icone('mouse-pointer-click'), '1 clic') : null),
-      x.description ? h('span', { class: 'bz-logiciel__description', texte: x.description }) : null,
-      dedans.length > 1 ? h('span', { class: 'bz-logiciel__description', texte: `Dans ce compte : ${dedans.join(', ')}.` }) : null));
+      x.description ? h('span', { class: 'bz-logiciel__description', texte: x.description }) : null));
 }
 function choisirEntree(x) {
   const A = E.assistant;
@@ -4912,6 +4911,18 @@ let COURRIER = null;
 const chargerCourrier = async () => (COURRIER ??= await import('/courrier.js'));
 const RANG_URGENCE = { haute: 0, normale: 1, basse: 2 };
 
+/**
+ * Boîtes mail réellement branchables aujourd'hui (le relais n'ouvre un produit que si l'hébergeur a fait vérifier ses
+ * droits chez Google ou Microsoft). Liste vide : recevoir ses mails tout seuls n'est pas possible ici, et on le dit.
+ */
+let boitesPromesse = null;
+const boitesMail = () => (boitesPromesse ??= (async () => {
+  try {
+    E.sources ??= await api('GET', '/sources');
+    return ['gmail', 'outlook'].map((id) => (E.sources ?? []).find((s) => s.id === id)).filter((s) => s?.oauth).map((s) => ({ id: s.id, nom: s.nom }));
+  } catch { return []; }
+})());
+
 /** Écrit le statut d'un courrier, optimiste et annulable ; un refus revient en arrière avec sa raison sous la ligne. */
 async function statutCourrier(o, traite) {
   const c = o.champs.find((x) => x.id === 'statut');
@@ -5155,12 +5166,17 @@ async function rendreCourrier() {
     champ?.focus();
   };
   const boutonAjouter = (classe) => h('button', { type: 'button', class: `bz-bouton ${classe}`, cle: 'courrier-ajouter', 'aria-controls': 'courrier-avance', onclick: ajouterCourrier }, icone('clipboard-paste'), 'Ajouter un courrier');
+  // B6 : boîte vide, on dit ce qui est possible AUJOURD'HUI, selon ce que le relais ouvre vraiment
+  const boites = await boitesMail();
+  if (E.vue !== 'courrier') return;
   const avance = peut ? h('details', { class: 'bz-repli', id: 'courrier-avance', open: Boolean(C.tri.ouvert || C.tri.texte || C.tri.resultat || C.tri.erreur) || null,
     ontoggle: (e) => { C.tri.ouvert = e.currentTarget.open; } },
     h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Ajouter un courrier : coller un mail' }), h('span', { class: 'bz-repli__note', texte: 'tri par mots-clés, sans IA' }), icone('chevron-down', { taille: 'sm' })),
     h('div', { class: 'bz-repli__corps bz-pile' },
       h('p', { class: 'bz-t-petit', texte: 'Collez un mail : Living Business propose le bac, l’urgence, la personne et l’action.' }),
-      h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Pour que vos messages arrivent tout seuls : « Connecter mes données », puis votre compte Google ou Microsoft. Le texte des messages, lui, ne quitte jamais votre messagerie.' }),
+      h('p', { class: 'bz-t-petit bz-texte-2', texte: boites.length
+        ? `Pour que vos messages arrivent tout seuls : branchez votre boîte ${boites.map((b) => b.nom).join(' ou ')}. Le texte des messages, lui, ne quitte jamais votre messagerie.`
+        : 'Recevoir vos messages tout seuls n’est pas encore possible ici : c’est le seul chemin aujourd’hui.' }),
       h('div', { class: 'bz-champ' },
         h('label', { class: 'bz-champ__libelle', for: 'courrier-colle', texte: 'Texte du mail' }),
         h('textarea', { id: 'courrier-colle', class: 'bz-champ__saisie', rows: '6', placeholder: 'De : …\nObjet : …\nTexte du mail', oninput: (e) => (C.tri.texte = e.target.value) }, C.tri.texte)),
@@ -5170,6 +5186,17 @@ async function rendreCourrier() {
         h('dl', { class: 'bz-champs-fiche' }, [['Expéditeur', C.tri.resultat.expediteur], ['Objet', C.tri.resultat.objet], ['Bac', K.libelleBac(C.tri.resultat.bac)], ['Urgence', C.tri.resultat.urgence],
           ['Pour', C.tri.resultat.destinataire ? sansDemo(C.tri.resultat.destinataire.nom) : 'À choisir'], ['Action proposée', C.tri.resultat.action]].map(([k, v]) => h('div', { class: 'bz-champ-fiche' }, h('dt', { class: 'bz-champ-fiche__libelle', texte: k }), h('dd', { class: 'bz-champ-fiche__valeur', texte: v ?? '—' })))),
         m.profil.peutAdministrer ? h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: ajouter }, icone('plus'), 'Ajouter au courrier')) : null) : null)) : null;
+
+  const boutonBoite = () => h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'courrier-brancher', onclick: () => ouvrirConnecteur(boites[0].id) },
+    icone('mail'), 'Brancher ma boîte mail');
+  const videCourrier = () => videRubrique('courrier', {
+    titre: 'Aucun courrier pour le moment.',
+    texte: boites.length
+      ? `Branchez votre boîte ${boites.map((b) => b.nom).join(' ou ')} : vos messages récents arrivent ici, triés par bac et par urgence. Leur texte, lui, reste dans votre messagerie.`
+      : 'Recevoir vos mails tout seuls n’est pas encore possible ici. En attendant, collez un mail : Living Business propose le bac, l’urgence, la personne et l’action.',
+    action: boites.length ? boutonBoite() : peut ? boutonAjouter('bz-bouton--principal') : null,
+    secondaire: boites.length && peut ? boutonAjouter('bz-bouton--secondaire') : null,
+  });
 
   const filtre = C.bac !== 'tous' || C.pour !== 'tous' || C.recherche.trim();
   remplir($('#page'), h('div', { class: 'bz-ecran bz-courrier' },
@@ -5193,7 +5220,7 @@ async function rendreCourrier() {
         C.bac === b.id ? icone('check', { taille: 'sm' }) : null, `${b.libelle} · ${b.nb}`, b.urgents ? icone('octagon-alert', { taille: 'sm', classe: 'bz-courrier__urgent' }) : null))),
       h('li', {}, h('button', { type: 'button', class: 'bz-puce', 'aria-pressed': C.traites, onclick: () => changer('traites', !C.traites) }, icone(C.traites ? 'eye' : 'eye-off', { taille: 'sm' }), 'Afficher les traités'))) : null,
     filtreDepartements(),
-    !toutes.length ? videRubrique('courrier', { action: peut ? boutonAjouter('bz-bouton--principal') : null })
+    !toutes.length ? videCourrier()
       : !liste.length ? (filtre
         ? blocVide({ titre: 'Aucun courrier pour ces filtres.', texte: 'Essayez d’élargir la recherche.', actions: h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { Object.assign(C, { bac: 'tous', pour: 'tous', recherche: '' }); rendreCourrier(); } }, icone('x'), 'Effacer les filtres') })
         : blocVide({ titre: 'Rien à traiter.', texte: 'Tout le courrier est traité.', actions: h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => changer('traites', true) }, icone('eye'), 'Afficher les traités') }))
@@ -7250,7 +7277,10 @@ function corpsConnexion(C) {
       ? h('div', { class: 'bz-pile' }, h('p', { class: 'bz-t-surtitre', texte: 'Mode avancé : pour votre informaticien' }),
         h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => modeOAuth(C) }, `Revenir à « Se connecter avec ${nomOutil} », plus simple`)))
       : s.avance ? h('p', { class: 'bz-t-surtitre', texte: 'Mode avancé : pour votre informaticien' })
-      : h('p', { texte: `${s.nom} se branche avec une clé d’accès créée dans ${s.nom}. Votre informaticien peut s’en charger : la marche à suivre est juste en dessous. Se connecter n’importe rien : vous choisirez ensuite ce que vous voulez récupérer.` }),
+      // le client veut savoir ce qu'il peut faire aujourd'hui, pas pourquoi l'éditeur n'a pas encore ouvert le clic
+      : h('div', { class: 'bz-pile bz-pile--serre' },
+        h('p', { texte: `La connexion en un clic à ${s.nom} arrive. En attendant, deux chemins : une clé à créer dans ${s.nom} (la marche à suivre est juste en dessous), ou un fichier exporté de ${s.nom}. Dans les deux cas, se connecter n’importe rien : vous choisirez ensuite ce que vous voulez récupérer.` }),
+        h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', cle: 'outil-vers-fichier', onclick: () => importerFichierALaPlace() }, icone('file-spreadsheet'), 'Importer un fichier à la place'))),
     microsoft ? AVERTISSEMENT_MICROSOFT : null,
     s.avance ? h('ol', { class: 'bz-consignes' }, s.etapes.map((e) => h('li', { texte: e })))
       : h('details', { class: 'bz-repli' },
@@ -7266,6 +7296,20 @@ function corpsConnexion(C) {
     h('p', { class: 'bz-t-petit', texte: s.id === 'excel365' ? 'Aucun mot de passe ne passe par Living Business : la connexion se fait sur la page Microsoft, et elle est chiffrée sur cet ordinateur.' : 'La clé est chiffrée sur cet ordinateur et ne sera plus jamais affichée.' }),
   ];
 }
+/** « Importer un fichier à la place » : on quitte la connexion par clé pour le parcours fichier, rien n'est perdu. */
+function importerFichierALaPlace() {
+  const A = E.assistant;
+  if (!A) return;
+  if (A.outil) nettoyerOutil(A.outil);
+  A.outil = null;
+  A.erreur = null;
+  A.entree = (catalogueDe(A) ?? []).find((x) => x.cle === 'import:csv') ?? null;
+  A.parcours = 'fichier';
+  A.source = 'csv';
+  A.cible ??= cibleParDefaut();
+  allerEtape('contenu');
+}
+
 /** Action principale de l'étape « Se connecter » : continuer vers « Que voulez-vous récupérer ? ». */
 function piedConnexion(C) {
   const A = E.assistant;
@@ -7396,11 +7440,31 @@ function corpsRecuperer(C) {
       a.message ? resultatAssistant('info', a.message) : resultatAssistant('ok', `${pluriel(a.enregistrements, 'fiche trouvée', 'fiches trouvées')} chez ${nomOutil}.`, { detail: 'Voici les premières lignes, telles qu’elles sont aujourd’hui chez vous.' }),
       a.precision ? resultatAssistant('info', a.precision) : null,
       tableauApercu(a),
-      h('div', { class: 'bz-grille-champs' }, cibleFixeDe(C) ? null : selectCible(C, () => { C.cibleAuto = false; relire(); }), reglagesSynchro(C, { sens: false })),
-      blocSens(C),
+      cibleFixeDe(C) ? null : h('div', { class: 'bz-grille-champs' }, selectCible(C, () => { C.cibleAuto = false; relire(); })),
+      // le sens et la fréquence ont déjà une valeur raisonnable : on la dit, et on ne la met pas sur le chemin
+      reglagesRepli(C),
     ] : null,
   ];
 }
+/**
+ * Sens et fréquence, repliés sous « Réglages facultatifs » : ils ont une valeur par défaut qui convient (lecture
+ * seule, toutes les 5 minutes), dite en une ligne au-dessus du repli. Un réglage déjà changé garde le repli ouvert.
+ */
+function reglagesRepli(C) {
+  const champs = reglagesSynchro(C, { sens: false }).filter(Boolean);
+  const sens = blocSens(C);
+  if (!champs.length && !sens) return null;
+  const minutes = C.intervalle >= 60 ? `${Math.round(C.intervalle / 60)} min` : `${C.intervalle} s`;
+  const resume = C.s.lecture === 'appel' ? `Relu toutes les ${minutes}.` : 'Reçu en direct.';
+  return h('div', { class: 'bz-pile bz-pile--serre' },
+    h('p', { class: 'bz-t-petit bz-texte-2', texte: resume }),
+    h('details', { class: 'bz-repli', open: Boolean(C.reglagesOuverts), ontoggle: (e) => { C.reglagesOuverts = e.currentTarget.open; } },
+      h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Réglages facultatifs' }), icone('chevron-down', { taille: 'sm' })),
+      h('div', { class: 'bz-repli__corps bz-pile bz-pile--serre' },
+        champs.length ? h('div', { class: 'bz-grille-champs' }, champs) : null,
+        sens)));
+}
+
 /** Le sens : lecture seule par défaut, puisque la connexion n'a demandé que le droit de lire. */
 function blocSens(C) {
   const nomOutil = nomOutilDe(C);

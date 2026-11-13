@@ -104,12 +104,17 @@ test('courrier : balayage au-delà du seuil seulement, doublé du menu ; dates c
   assert.match(courrier, /icone\('clipboard-paste'\), 'Ajouter un courrier'\)/);
   assert.match(courrier, /texte: 'Ajouter un courrier : coller un mail'/, 'le collage n’est plus rangé sous « Mode avancé »');
   assert.match(courrier, /C\.tri\.ouvert = true;\s+await rendreCourrier\(\);\s+const champ = \$\('#courrier-colle'\);[\s\S]{0,80}champ\?\.focus\(\);/, 'le bouton ouvre le collage et y place le curseur (une fois la page redessinée)');
-  // une boîte Gmail ou Outlook se branche maintenant : on dit où aller, sans emmener dans « Où sont vos clients ? »
-  assert.match(courrier, /« Connecter mes données », puis votre compte Google ou Microsoft/, 'la voie est dite en clair');
+  // B6, second temps : l'écran vide dit ce qui est possible AUJOURD'HUI, d'après ce que le relais ouvre vraiment
+  assert.match(app, /const boitesMail = \(\) => \(boitesPromesse \?\?= /, 'les boîtes branchables sont lues, pas supposées');
+  assert.match(app, /\['gmail', 'outlook'\]\.map\(\(id\) => \(E\.sources \?\? \[\]\)\.find\(\(s\) => s\.id === id\)\)\.filter\(\(s\) => s\?\.oauth\)/);
+  assert.match(courrier, /const boites = await boitesMail\(\);/);
+  assert.match(courrier, /Branchez votre boîte \$\{boites\.map\(\(b\) => b\.nom\)\.join\(' ou '\)\}/, 'quand une boîte se branche : on le propose');
+  assert.match(courrier, /Recevoir vos mails tout seuls n’est pas encore possible ici\./, 'quand aucune ne se branche : on le dit, et on propose le collage');
   assert.match(courrier, /ne quitte jamais votre messagerie/, 'ce qui reste chez la messagerie est dit sur place');
   assert.match(courrier, /libelle: 'Rattacher à un client, une commande…'/, 'rattacher un message : ce qui donne sa valeur au reflet');
   assert.match(courrier, /Ouvrir dans \$\{l\.messagerie\.nom\}/, 'un message venu d’une boîte s’ouvre chez elle, pour le lire et y répondre');
-  assert.match(courrier, /!toutes\.length \? videRubrique\('courrier', \{ action: peut \? boutonAjouter\('bz-bouton--principal'\) : null \}\)/);
+  assert.match(courrier, /!toutes\.length \? videCourrier\(\)/);
+  assert.doesNotMatch(courrier, /Connecter mes données/, 'plus de renvoi à un catalogue pour une boîte qui ne s’y branche pas');
 });
 
 // ---------------------------------------------------------------- satisfaction
