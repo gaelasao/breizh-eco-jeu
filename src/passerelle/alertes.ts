@@ -640,7 +640,8 @@ export class Alertes {
     if (choisis.has('demande_reseau')) {
       const n = await this.#demandesReseau(maintenant);
       if (n && n > 0) {
-        faits.push({ cle: `demande_reseau:${n}`, sujet: 'demande_reseau', urgent: false, vue: 'nexus',
+        // « reseau » : l'adresse publique de l'écran du réseau (le jeu ne montre jamais son nom interne)
+        faits.push({ cle: `demande_reseau:${n}`, sujet: 'demande_reseau', urgent: false, vue: 'reseau',
           texte: uneLigne(`Réseau : ${pluriel(n, 'demande attend', 'demandes attendent')} votre réponse. À répondre.`) });
       }
     }

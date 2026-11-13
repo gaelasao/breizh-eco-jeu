@@ -282,12 +282,21 @@ test('erreur de synchronisation et demande du réseau deviennent des phrases uti
   const x = alertes();
   await brancherTelegram(x);
   x.a.regler(ADMIN, { sujets: ['erreur_synchro', 'demande_reseau'] });
+  x.a.regler(ADMIN, { adresseJeu: 'https://jeu.exemple.fr' });
   x.m.connecteurs = [{ nom: 'Airtable', message: 'Accès refusé : vérifiez le jeton et ses droits.' }];
   x.m.reseau = 2;
   await x.a.passer();
   const envoi = x.S.envois[0] ?? '';
   assert.match(envoi, /Synchronisation : Airtable ne répond plus \(Accès refusé/);
   assert.match(envoi, /Réseau : 2\sdemandes attendent votre réponse/);
+
+  // le lien du réseau porte l'adresse publique de l'écran, jamais son nom interne
+  const seul = alertes();
+  await brancherTelegram(seul);
+  seul.a.regler(ADMIN, { sujets: ['demande_reseau'], adresseJeu: 'https://jeu.exemple.fr' });
+  seul.m.reseau = 1;
+  await seul.a.passer();
+  assert.match(seul.S.envois[0] ?? '', /https:\/\/jeu\.exemple\.fr\/#\/reseau$/);
 });
 
 // ---------------------------------------------------------------- quand
