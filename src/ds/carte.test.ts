@@ -246,6 +246,11 @@ test('carte : la vie ambiante se calme avec l’éloignement, jusqu’à l’ima
   assert.match(scene, /vieAmbiante\(controles\.distance\)/);
   assert.match(scene, /if \(vie > 0\) animer\(dt, vie\)/);
   assert.match(scene, /else if \(ambiance && vie > 0\)/, 'vie éteinte : aucune image de plus n’est demandée');
+  // les ombres ne rampent plus : frustum par paliers, centre accroché au pas des texels, redessin seulement s'il bouge
+  assert.match(scene, /Math\.ceil\(\(controles\.distance \* 0\.62\) \/ 16\) \* 16/, 'taille du frustum d’ombre par paliers');
+  assert.match(scene, /const pas = \(2 \* s\) \/ PROFIL\.ombres;/);
+  assert.match(scene, /pointOmbre\.x = Math\.round\(pointOmbre\.x \/ pas\) \* pas;/);
+  assert.match(scene, /if \(ombrePosee && s === ombrePosee\.s/, 'carte d’ombre gardée tant que rien n’a bougé d’un texel');
 });
 
 test('carte : personnalisation — nom, couleur et place, sur l’appareil, et jamais rien d’obligatoire', async () => {

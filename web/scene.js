@@ -2154,6 +2154,7 @@ export async function creerScene(conteneur, options) {
   let anneauxAlerte = [];
   let trafic = [];
   let flux = [];
+  let filsFlux = []; // traits en pointillé des commandes : masqués de près, où ils ne sont plus qu'une rayure
   let faisceau = null;
   let lanterne = null;
   let fenetres = [];
@@ -2232,6 +2233,7 @@ export async function creerScene(conteneur, options) {
   const proj = new THREE.Vector3();
   let zoneCache = null;
   const LARGE = 150; // au-delà, vue large : noms au sol, entités regroupées par quartier
+  const SEUIL_FIL_FLUX = 70; // en deçà, le trait d'une commande n'est plus qu'une rayure : seul le colis reste
   /** Projette, trie et place les étiquettes : seulement quand la caméra bouge ou que les données changent (≤ 2 ms). */
   function situer() {
     etiquettesASituer = false;
@@ -2534,6 +2536,7 @@ export async function creerScene(conteneur, options) {
     anneauxAlerte = [];
     trafic = [];
     flux = [];
+    filsFlux = [];
     faisceau = null;
     lanterne = null;
     fenetres = [];
@@ -3007,7 +3010,9 @@ export async function creerScene(conteneur, options) {
       const ligne = new THREE.Line(new THREE.BufferGeometry().setFromPoints(courbe.getPoints(56)), new THREE.LineDashedMaterial({ color: couleur, dashSize: 1.8, gapSize: 1.2, transparent: true, opacity: 0.8 }));
       ligne.computeLineDistances();
       ligne.userData.jetable = 'ligne';
+      ligne.userData.filFlux = true; // le trait ne se lit que d'assez loin pour voir l'arc entier (§5.6)
       couches.flux.add(ligne);
+      filsFlux.push(ligne);
       const colis = piece(B(1.2, 1.2, 1.2), mat(c.type === 'devis' ? 0xf4f1e8 : P.carton), 0, 0, 0, false);
       colis.userData = { id: c.id, nom: c.nom, libelle: c.libelleType };
       colis.userData.horsOcclusion = true;
@@ -3289,19 +3294,42 @@ export async function creerScene(conteneur, options) {
       if (t.mesh.material.map !== v.t) { t.mesh.material.map = v.t; t.mesh.material.needsUpdate = true; }
     }
     if (Math.abs(avant - ETAT.nuit) > 0.001) renderer.shadowMap.needsUpdate = true;
-    majOmbre();
+    majOmbre(true);
     demander();
   }
-  /** Le frustum de la caméra d'ombre suit la zone visible (§5.3). */
-  function majOmbre() {
+  /**
+   * Le frustum de la caméra d'ombre suit la zone visible (§5.3), par paliers et accroché au pas de ses texels.
+   * Sans cela, chaque centimètre de déplacement de la caméra décalait la carte d'ombre d'une fraction de texel : les
+   * bords d'ombre se mettaient à ramper sur tout le décor, et au dézoom c'était la carte entière qui frétillait.
+   */
+  const versLumiere = new THREE.Matrix4();
+  const depuisLumiere = new THREE.Matrix4();
+  const pointOmbre = new THREE.Vector3();
+  const posLumiere = new THREE.Vector3();
+  let ombrePosee = null;
+  function majOmbre(forcer = false) {
     if (!PROFIL.ombres) return;
+    if (forcer) ombrePosee = null; // le soleil a tourné (heure, thème) : la carte d'ombre ne vaut plus
     controles.getTarget(cible);
-    const s = Math.max(28, Math.min(120, controles.distance * 0.62));
+    // taille par paliers de 16 m : le frustum ne respire pas à chaque cran de zoom (le pas des texels resterait mouvant)
+    const s = Math.max(32, Math.min(128, Math.ceil((controles.distance * 0.62) / 16) * 16));
+    // centre accroché à la grille des texels, dans le repère de la lumière
+    const pas = (2 * s) / PROFIL.ombres;
+    posLumiere.copy(cible).addScaledVector(dirSoleil, 180);
+    versLumiere.lookAt(posLumiere, cible, haut).setPosition(posLumiere);
+    depuisLumiere.copy(versLumiere).invert();
+    pointOmbre.copy(cible).applyMatrix4(depuisLumiere);
+    pointOmbre.x = Math.round(pointOmbre.x / pas) * pas;
+    pointOmbre.y = Math.round(pointOmbre.y / pas) * pas;
+    // rien n'a bougé d'un texel entier : la carte d'ombre vaut encore, on ne la redessine pas
+    if (ombrePosee && s === ombrePosee.s && pointOmbre.x === ombrePosee.x && pointOmbre.y === ombrePosee.y) return;
+    ombrePosee = { s, x: pointOmbre.x, y: pointOmbre.y };
+    pointOmbre.applyMatrix4(versLumiere);
     const c = soleil.shadow.camera;
     c.left = -s; c.right = s; c.top = s; c.bottom = -s; c.near = 10; c.far = 420;
     c.updateProjectionMatrix();
-    soleil.target.position.copy(cible);
-    soleil.position.copy(cible).addScaledVector(dirSoleil, 180);
+    soleil.target.position.copy(pointOmbre);
+    soleil.position.copy(pointOmbre).addScaledVector(dirSoleil, 180);
     soleil.target.updateMatrixWorld();
     renderer.shadowMap.needsUpdate = true;
   }
@@ -3401,6 +3429,10 @@ export async function creerScene(conteneur, options) {
     scene.fog.near = d + 40;
     scene.fog.far = d + 260;
     couches.alertes.visible = etatCalques.alertes !== false && d > 70; // de près, les anneaux gêneraient la lecture de l'intérieur
+    // trait d'une commande en cours : il relie deux bâtiments, donc il ne veut dire quelque chose que si on voit les
+    // deux bouts. De près, il ne reste qu'une rayure en travers de la vue : seul le colis demeure.
+    const filsVus = d > SEUIL_FIL_FLUX;
+    if (filsFlux.length && filsFlux[0].visible !== filsVus) for (const f of filsFlux) f.visible = filsVus;
     accessoires.visible = PROFIL.accessoires && d < 0.6 * controles.maxDistance; // sous 40 % du zoom : petits accessoires masqués
     if (uLot.uMasque.value[MASQUE.accessoires] !== (accessoires.visible ? 1 : 0)) { uLot.uMasque.value[MASQUE.accessoires] = accessoires.visible ? 1 : 0; renderer.shadowMap.needsUpdate = true; }
     majDetails();
