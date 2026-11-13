@@ -30,6 +30,16 @@ type Qualite = {
   qualiteInitiale: (o: Record<string, unknown>) => string; profil: (q: string, o?: { telephone?: boolean }) => { ombres: number; densiteMax: number; gtao: boolean; materiauPbr: boolean; accessoires: boolean };
   palierInferieur: (q: string) => string; surveillance: (o: { budgetMs: number; debut: number }) => { noter: (ms: number, t: number) => boolean }; reseauFaible: (c: unknown) => boolean;
   BUDGETS: Record<string, { appels: number; triangles: number; ombres: number; densite: number }>; CADENCE: { ambiance: number; ambianceApresMs: number; pauseApresMs: number };
+  VIE: { pleine: number; immobile: number }; vieAmbiante: (d: number, o?: { pleine?: number; immobile?: number }) => number;
+};
+type Perso = Record<string, { nom?: string; couleur?: string; place?: number }>;
+type Personnalisation = {
+  COULEURS_CARTE: readonly { id: string; libelle: string }[]; FAMILLES_PERSONNALISABLES: readonly string[]; LIMITE_NOM: number; CLE_RANGEMENT: string;
+  lirePersonnalisation: (t: string | null | undefined) => Perso; ecrirePersonnalisation: (p: Perso) => string; estPersonnalisee: (p: Perso | null) => boolean;
+  nomCarte: (p: Perso | null, o: { id: string; nom: string }) => string; couleurCarte: (p: Perso | null, id: string) => string | null;
+  regler: (p: Perso | null, id: string, champ: string, v: unknown) => Perso; oublier: (p: Perso | null, id?: string | null) => Perso;
+  ordonner: <T extends { id: string }>(l: readonly T[], p: Perso | null) => T[];
+  deplacer: (p: Perso | null, l: readonly { id: string }[], id: string, sens: number) => Perso;
 };
 type Lots = {
   NOMS_COUCHES: readonly string[]; COUCHES_CUITES: readonly string[]; MASQUE: Record<string, number>; NB_MASQUES: number; masqueCalque: (n: string) => number;
@@ -212,6 +222,109 @@ test('carte : qualité automatique, budgets du §5.10, palier inférieur après 
   assert.equal(reseauFaible({ effectiveType: '4g' }), false);
   assert.equal(reseauFaible(undefined), false, 'iOS n’a pas navigator.connection');
   assert.deepEqual(CADENCE, { ambiance: 20, ambianceApresMs: 30000, pauseApresMs: 120000 });
+});
+
+test('carte : la vie ambiante se calme avec l’éloignement, jusqu’à l’image fixe en vue d’ensemble (§5.8)', async () => {
+  const { VIE, vieAmbiante } = await charger<Qualite>('web/carte/qualite.js');
+  assert.ok(VIE.pleine < VIE.immobile);
+  assert.equal(vieAmbiante(6), 1, 'de près : pleine vie');
+  assert.equal(vieAmbiante(VIE.pleine), 1);
+  assert.equal(vieAmbiante(VIE.immobile), 0, 'vue d’ensemble : carte immobile');
+  assert.equal(vieAmbiante(360), 0, 'dézoom complet : plus rien ne bouge');
+  assert.equal(vieAmbiante(Number.NaN), 1, 'distance inconnue : on n’éteint rien par accident');
+  // décroissance continue et monotone : aucune marche, rien ne s'arrête d'un coup
+  let avant = 1;
+  for (let d = VIE.pleine; d <= VIE.immobile; d += 2) {
+    const v = vieAmbiante(d);
+    assert.ok(v >= 0 && v <= 1 && v <= avant + 1e-12, `vie décroissante à ${d}`);
+    assert.ok(avant - v < 0.09, `pas de marche à ${d}`);
+    avant = v;
+  }
+  assert.ok(vieAmbiante((VIE.pleine + VIE.immobile) / 2) > 0.3, 'à mi-chemin, la vie est encore perceptible');
+  // la scène ralentit tout avec ce facteur et ne redemande plus d'image quand il est nul
+  const scene = lire('web/scene.js');
+  assert.match(scene, /vieAmbiante\(controles\.distance\)/);
+  assert.match(scene, /if \(vie > 0\) animer\(dt, vie\)/);
+  assert.match(scene, /else if \(ambiance && vie > 0\)/, 'vie éteinte : aucune image de plus n’est demandée');
+  // les ombres ne rampent plus : frustum par paliers, centre accroché au pas des texels, redessin seulement s'il bouge
+  assert.match(scene, /Math\.ceil\(\(controles\.distance \* 0\.62\) \/ 16\) \* 16/, 'taille du frustum d’ombre par paliers');
+  assert.match(scene, /const pas = \(2 \* s\) \/ PROFIL\.ombres;/);
+  assert.match(scene, /pointOmbre\.x = Math\.round\(pointOmbre\.x \/ pas\) \* pas;/);
+  assert.match(scene, /if \(ombrePosee && s === ombrePosee\.s/, 'carte d’ombre gardée tant que rien n’a bougé d’un texel');
+});
+
+test('carte : personnalisation — nom, couleur et place, sur l’appareil, et jamais rien d’obligatoire', async () => {
+  const P = await charger<Personnalisation>('web/carte/personnalisation.js');
+  // sans réglage, rien ne change : la carte d'une personne qui n'a rien touché est exactement celle d'avant
+  assert.deepEqual(P.lirePersonnalisation(null), {});
+  assert.equal(P.estPersonnalisee({}), false);
+  const lieux = [{ id: 'a', nom: 'Siège' }, { id: 'b', nom: 'Atelier' }, { id: 'c', nom: 'Dépôt' }];
+  assert.deepEqual(P.ordonner(lieux, null).map((o) => o.id), ['a', 'b', 'c']);
+  assert.equal(P.nomCarte(null, lieux[0]!), 'Siège');
+  // lecture tolérante : un texte abîmé ou un réglage inconnu n'empêche jamais la carte de s'afficher
+  for (const t of ['', 'pas du json', '[]', 'null', '{"a":3}', '{"a":{"nom":"   "}}']) assert.deepEqual(P.lirePersonnalisation(t), {}, t);
+  assert.deepEqual(P.lirePersonnalisation('{"a":{"nom":"Port","couleur":"mauve","place":-2,"autre":1}}'), { a: { nom: 'Port' } }, 'couleur et place invalides ignorées');
+  assert.equal(Object.keys(P.lirePersonnalisation(`{"a":{"nom":"${'x'.repeat(120)}"}}`).a?.nom ?? '').length, P.LIMITE_NOM, 'nom tronqué');
+  // réglages
+  let p = P.regler({}, 'a', 'nom', '  Port de Brest  ');
+  assert.deepEqual(p, { a: { nom: 'Port de Brest' } });
+  p = P.regler(p, 'a', 'couleur', 'orange');
+  assert.equal(P.couleurCarte(p, 'a'), 'orange');
+  assert.equal(P.nomCarte(p, lieux[0]!), 'Port de Brest');
+  assert.equal(P.couleurCarte(p, 'b'), null);
+  assert.deepEqual(P.regler(p, 'a', 'couleur', 'fuchsia').a, { nom: 'Port de Brest' }, 'couleur inconnue : on revient à celle d’origine');
+  assert.deepEqual(P.regler(P.regler(p, 'a', 'nom', ''), 'a', 'couleur', ''), {}, 'une fiche vidée disparaît : rien ne traîne');
+  assert.deepEqual(P.oublier(p, 'a'), {});
+  assert.deepEqual(P.oublier(p), {}, 'tout remettre comme avant');
+  // déplacer : l'ordre garde exactement les mêmes éléments, et les bords ne font rien
+  const q = P.deplacer({}, lieux, 'c', -1);
+  assert.deepEqual(P.ordonner(lieux, q).map((o) => o.id), ['a', 'c', 'b']);
+  assert.deepEqual(P.ordonner(lieux, P.deplacer(q, lieux, 'a', -1)).map((o) => o.id), ['a', 'c', 'b'], 'déjà au début');
+  assert.deepEqual(P.ordonner(lieux, P.deplacer(q, lieux, 'b', 1)).map((o) => o.id), ['a', 'c', 'b'], 'déjà à la fin');
+  assert.deepEqual([...P.ordonner(lieux, P.deplacer(q, lieux, 'c', 1))].map((o) => o.id).sort(), ['a', 'b', 'c']);
+  // un nouvel élément arrivé après coup se range derrière, sans rien casser
+  assert.deepEqual(P.ordonner([...lieux, { id: 'd', nom: 'Neuf' }], q).map((o) => o.id), ['a', 'c', 'b', 'd']);
+  // aller-retour par le rangement de l'appareil
+  assert.deepEqual(P.lirePersonnalisation(P.ecrirePersonnalisation(q)), q);
+  assert.deepEqual([...P.FAMILLES_PERSONNALISABLES], ['lieu', 'departement']);
+  assert.equal(P.COULEURS_CARTE.length, 8);
+  // la scène lit la personnalisation et l'applique une seule fois, sur une copie des objets
+  const scene = lire('web/scene.js');
+  assert.match(scene, /from '\/carte\/personnalisation\.js'/);
+  assert.match(scene, /const perso = estPersonnalisee\(options\.perso\) \? options\.perso : null;/);
+  assert.match(scene, /ordonner\(departements, perso\)/);
+  assert.match(scene, /ordonner\(lieux, perso\)/);
+  const app = lire('web/app.js');
+  assert.match(app, /E\.scene\.maj\(E\.monde, \{ vue: E\.vueCarte, perso: E\.perso \}\)/);
+  assert.match(app, /function sectionPersonnaliser\(\)/, 'un seul endroit : le panneau de la carte');
+});
+
+test('carte : aucune surface posée sur une autre — marquages en décalque, voirie à quatre niveaux, contours écartés', () => {
+  const scene = lire('web/scene.js');
+  // marquages au sol : une peinture (décalque), jamais une plaque posée à quelques centimètres
+  assert.match(scene, /const matMarquage = \(c\) => mat\(c, \{ polygonOffset: true/);
+  assert.match(scene, /polygonOffsetFactor: DECALQUE, polygonOffsetUnits: DECALQUE/);
+  assert.doesNotMatch(scene, /B\(2\.8, 0\.02, 0\.55\)|B\(0\.55, 0\.02, 2\.8\)/, 'passage piéton : plus de bandes en relief');
+  assert.doesNotMatch(scene, /B\(3, 0\.02, 0\.15\)|B\(0\.15, 0\.02, 3\)/, 'axe de chaussée : plus de bandes en relief');
+  // les lots acceptent le décalque et l'écartement du contour (sinon chaque marquage serait un appel de dessin)
+  assert.doesNotMatch(scene, /if \(m\.isShaderMaterial \|\| m\.polygonOffset/, 'un décalque se cuit en lot comme le reste');
+  assert.match(scene, /decalque: m\.polygonOffset \? \(m\.polygonOffsetFactor \?\? -1\) : 0/);
+  // voirie : quatre niveaux distincts à un carrefour (deux trottoirs, deux enrobés)
+  const niveaux = /const Y_TROTTOIR = \{ eo: ([\d.]+), ns: ([\d.]+) \};\s*\n\s*const Y_ENROBE = \{ eo: ([\d.]+), ns: ([\d.]+) \};/.exec(scene);
+  assert.ok(niveaux, 'niveaux de voirie déclarés');
+  const [to, tn, eo, en] = niveaux.slice(1, 5).map(Number) as [number, number, number, number];
+  assert.equal(new Set([to, tn, eo, en]).size, 4, 'aucun niveau partagé');
+  assert.ok(tn < to && to < eo && eo < en, 'trottoir nord-sud < trottoir est-ouest < enrobé est-ouest < enrobé nord-sud');
+  // 2 cm : au-delà de ce que le tampon de profondeur confond au bout du plateau (1,2 cm avec un plan proche à 1 m)
+  for (const [a, b] of [[en, eo], [eo, to], [to, tn]] as [number, number][]) assert.ok(a - b > 0.019, `écart de ${a} à ${b} trop fin`);
+  assert.match(scene, /new THREE\.PerspectiveCamera\(32, 1, 1, 1400\)/, 'plan proche à 1 m');
+  // contour permanent : écarté le long des normales, jamais une mise à l'échelle (les faces minces restaient collées)
+  assert.doesNotMatch(scene, /scale\.setScalar\(1\.015\)/);
+  assert.match(scene, /matContour\.customProgramCacheKey = \(\) => 'contour'/);
+  assert.match(scene, /transformed \+= normalize\(normal\) \* \$\{EPAISSEUR_CONTOUR/);
+  // littoral : la plage repose sur la pelouse, la houle s'éteint au rivage, l'écume reste au-dessus des vagues
+  assert.match(scene, /float bordMer = smoothstep\(-12\.0, -2\.0, position\.z\);/);
+  assert.match(scene, /const Y_ECUME = -0\.2;/);
 });
 
 test('carte : scene.js pilote camera-controls 3.1.2, rend à la demande, sans MapControls ni boucle permanente', () => {

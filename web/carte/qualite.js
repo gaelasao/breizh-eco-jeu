@@ -13,6 +13,20 @@ export const BUDGETS = Object.freeze({
 /** Cadence (§5.8) : pleine vitesse pendant l'interaction, 20 images/s pour l'ambiance après 30 s, pause après 2 min. */
 export const CADENCE = Object.freeze({ ambiance: 20, ambianceApresMs: 30000, pauseApresMs: 120000 });
 
+/**
+ * Vie ambiante selon l'éloignement (§5.8) : pleine de près, éteinte en vue d'ensemble.
+ * De loin, chaque détail animé ne pèse que quelques pixels : vingt petites choses qui s'agitent en même temps ne
+ * renseignent sur rien, elles empêchent seulement de lire la carte. Plus on s'éloigne, plus tout se calme, jusqu'à
+ * l'arrêt complet — et la carte redevient une image fixe, qui ne redemande plus une seule image au navigateur.
+ */
+export const VIE = Object.freeze({ pleine: 110, immobile: 230 });
+export function vieAmbiante(distance, { pleine = VIE.pleine, immobile = VIE.immobile } = {}) {
+  if (!(distance > pleine)) return 1;
+  if (!(distance < immobile)) return 0;
+  const k = (immobile - distance) / (immobile - pleine);
+  return k * k * (3 - 2 * k); // sans marche : la vitesse décroît doucement, rien ne s'arrête d'un coup
+}
+
 /** Profil de rendu d'une qualité. */
 export function profil(qualite, { telephone = false } = {}) {
   const b = qualite === 'economie' ? BUDGETS.economie : telephone ? BUDGETS.telephone : BUDGETS.ordinateur;

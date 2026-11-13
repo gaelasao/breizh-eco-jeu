@@ -17,7 +17,8 @@ import { partagerAtlas, reduireImage } from '/carte/atlas.js';
 import { couleurRole, etatHeure, lirePalette, lumieres } from '/carte/heure.js';
 import { MAX_ETIQUETTES, PRIORITE, ordreClavier, placerEtiquettes, regrouperParQuartier, voisin } from '/carte/etiquettes.js';
 import { categorieDe, peintureDe } from '/carte/categories.js';
-import { CADENCE, palierInferieur, profil, qualiteInitiale, surveillance } from '/carte/qualite.js';
+import { FAMILLES_PERSONNALISABLES, estPersonnalisee, ordonner } from '/carte/personnalisation.js';
+import { CADENCE, palierInferieur, profil, qualiteInitiale, surveillance, vieAmbiante } from '/carte/qualite.js';
 import { ALLEGE, ATLAS_ENSEIGNES, COUCHES_CUITES, MASQUE, NB_MASQUES, NOMS_COUCHES, details, echelleMur, estMobilier, masqueCalque, mursBaisses, orientationMur, placeEnseigne, rvb, uvEnseigne } from '/carte/lots.js';
 
 CameraControls.install({ THREE });
@@ -89,6 +90,13 @@ function mat(c, o = {}) {
   }
   return mats.get(k);
 }
+/**
+ * Marquage au sol (axes de chaussée, passages piétons, allées d'entrepôt) : une peinture, pas une dalle posée sur
+ * l'enrobé. Le décalage de profondeur la place devant la surface qui la porte quelle que soit la distance ; sans lui,
+ * une plaque à 2 cm tient de près mais se met à clignoter en vue éloignée, où le tampon de profondeur ne distingue
+ * plus qu'un centimètre et demi.
+ */
+const matMarquage = (c) => mat(c, { polygonOffset: true, polygonOffsetFactor: DECALQUE, polygonOffsetUnits: DECALQUE });
 // Bâtiments de l'entreprise : MeshToonMaterial à 3 paliers (0,55 ; 0,8 ; 1,0) et contour permanent (§5.4)
 let rampeToon = null;
 function rampe() {
@@ -147,6 +155,10 @@ const basesVariantes = new WeakMap(); // variante → matériau d'origine (les l
    maillages d'origine restent dans la scène, sur un calque que la caméra ne dessine pas, pour le pointage, la sélection
    et les volumes. */
 const CALQUE_ORIGINES = 1;
+/** Épaisseur du contour permanent des bâtiments de l'entreprise (§5.4), en mètres : un trait d'encre régulier. */
+const EPAISSEUR_CONTOUR = 0.03;
+/** Marquages au sol (lignes, passages piétons, allées d'entrepôt) : décalque, jamais une surface posée sur une autre. */
+const DECALQUE = -4;
 const LARGEUR_ETATS = 256;
 const HAUTEUR_ETATS = 16; // 4 096 objets
 const uLot = {
@@ -221,9 +233,11 @@ function adapterNormalesGtao(m) {
 const matsLots = new Map();
 /** Matériau d'un lot : mêmes réglages que l'original, couleur blanche (elle vient des sommets). */
 function matLot(s) {
-  const k = `${s.type}|${s.carte?.uuid ?? '-'}|${s.cote}|${s.plat}|${s.alpha}|${s.kaykit}`;
+  const k = `${s.type}|${s.carte?.uuid ?? '-'}|${s.cote}|${s.plat}|${s.alpha}|${s.kaykit}|${s.contour ? 'c' : ''}|${s.decalque}`;
   if (!matsLots.has(k)) {
     const o = { vertexColors: true, side: s.cote, map: s.carte, alphaTest: s.alpha };
+    // décalque (marquages au sol) : tiré vers la caméra dans le tampon de profondeur, il ne peut pas se battre
+    if (s.decalque) Object.assign(o, { polygonOffset: true, polygonOffsetFactor: s.decalque, polygonOffsetUnits: s.decalque });
     const m = s.type === 'toon' ? new THREE.MeshToonMaterial({ ...o, gradientMap: rampe() })
       : s.type === 'basic' ? new THREE.MeshBasicMaterial(o)
         : s.type === 'standard' ? new THREE.MeshStandardMaterial({ ...o, flatShading: s.plat })
@@ -234,7 +248,9 @@ function matLot(s) {
       avecMursEtMasque(sh, GLSL_LOT_V);
       sh.vertexShader = sh.vertexShader
         .replace('#include <color_vertex>', GLSL_LOT_COULEUR)
-        .replace(GLSL_LOT_MUR, `${GLSL_LOT_MUR}\n  vPosLot = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
+        // contour permanent : coque écartée de la même épaisseur partout, le long des normales (jamais une mise à
+        // l'échelle, qui laisse les faces minces collées à l'objet et les fait scintiller en vue éloignée)
+        .replace(GLSL_LOT_MUR, `${GLSL_LOT_MUR}${s.contour ? `\n  transformed += normalize(normal) * ${EPAISSEUR_CONTOUR.toFixed(3)};` : ''}\n  vPosLot = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
       sh.fragmentShader = `${GLSL_LOT_F}\n${MOTIFS}\n${sh.fragmentShader}`
         .replace('#include <map_fragment>', `#ifdef USE_MAP
   diffuseColor *= mix(vec4(1.0), texture2D(map, vMapUv), vPeint);
@@ -249,7 +265,7 @@ function matLot(s) {
         .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vRugo.y;')
         .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += vEmis + vec3(0.08 * vSurvol) + allumeLot * uCouleurFenetres;');
     };
-    m.customProgramCacheKey = () => `lot|${s.type}|${s.kaykit ? 'k' : ''}`;
+    m.customProgramCacheKey = () => `lot|${s.type}|${s.kaykit ? 'k' : ''}${s.contour ? 'c' : ''}`;
     matsLots.set(k, m);
   }
   return matsLots.get(k);
@@ -279,13 +295,14 @@ function decrireLot(mesh, roles) {
   if (!g?.attributes?.position || !g.attributes.normal) return null;
   const verre = m === matVerre || m === matVerreAllume;
   if (!verre && (m.transparent || m.depthWrite === false)) return null;
-  if (m.isShaderMaterial || m.polygonOffset || m.depthTest === false || m.toneMapped === false || m.fog === false || m.wireframe) return null;
+  if (m.isShaderMaterial || m.depthTest === false || m.toneMapped === false || m.fog === false || m.wireframe) return null;
   const type = verre ? 'verre' : m.isMeshToonMaterial ? 'toon' : m.isMeshBasicMaterial ? 'basic' : m.isMeshStandardMaterial ? 'standard' : m.isMeshLambertMaterial ? 'lambert' : null;
   if (!type) return null;
   const cle = m.customProgramCacheKey?.() ?? '';
   const kaykit = cle === 'kaykit';
+  const contour = cle === 'contour';
   const sol = cle.startsWith('sol-') ? Number.parseInt(cle.slice(4), 10) : 0;
-  if (Object.hasOwn(m, 'onBeforeCompile') && !kaykit && !sol) return null; // shader propre (mer, fanions) : laissé tel quel
+  if (Object.hasOwn(m, 'onBeforeCompile') && !kaykit && !sol && !contour) return null; // shader propre (mer, fanions) : laissé tel quel
   if (m.map && !g.attributes.uv) return null;
   const role = verre ? 'ciel-horizon' : roles.get(m);
   let jour;
@@ -304,7 +321,7 @@ function decrireLot(mesh, roles) {
   }
   const emis = m.emissive ? m.emissive.clone().multiplyScalar(m.emissiveIntensity ?? 1).toArray() : [0, 0, 0];
   return {
-    sorte: { type, carte: m.map ? carteLot(m.map) : null, cote: m.side, plat: Boolean(m.flatShading), alpha: m.alphaTest ?? 0, kaykit },
+    sorte: { type, carte: m.map ? carteLot(m.map) : null, cote: m.side, plat: Boolean(m.flatShading), alpha: m.alphaTest ?? 0, kaykit, contour, decalque: m.polygonOffset ? (m.polygonOffsetFactor ?? -1) : 0 },
     ombre: mesh.castShadow && !verre, jour, nuit, emis, sol, rugo: m.roughness ?? 0.85, metal: m.metalness ?? 0,
     carteSource: m.map ?? null, couleursSommets: m.vertexColors && g.attributes.color ? g.attributes.color : null,
   };
@@ -458,6 +475,8 @@ const geo = (k, f) => (geos.has(k) ? geos.get(k) : (geos.set(k, f()), geos.get(k
 const B = (l, h, p) => geo(`B${l}|${h}|${p}`, () => new THREE.BoxGeometry(l, h, p).translate(0, h / 2, 0));
 const CY = (rh, rb, h, s = 14) => geo(`C${rh}|${rb}|${h}|${s}`, () => new THREE.CylinderGeometry(rh, rb, h, s).translate(0, h / 2, 0));
 const SP = (r, s = 12) => geo(`S${r}|${s}`, () => new THREE.SphereGeometry(r, s, Math.max(6, Math.round(s * 0.7))));
+/** Plaque horizontale (marquage au sol) : un seul plan, sans épaisseur ni tranches à faire scintiller. */
+const PL = (l, p) => geo(`P${l}|${p}`, () => new THREE.PlaneGeometry(l, p).rotateX(-Math.PI / 2));
 function piece(g, m, x = 0, y = 0, z = 0, ombre = true) {
   const me = new THREE.Mesh(g, m);
   me.position.set(x, y, z);
@@ -1117,8 +1136,8 @@ function batimentPropre(lieu, nbPersonnes = 6, accent = P.cadre) {
   if (icone === 'entrepot') {
     res = coque(26, 16, 7.5, { sol: 'beton', murs: 'entrepot', accent });
     for (let i = 0; i < 8; i++) rayons.push(new THREE.Vector3(-9 + (i % 4) * 4.4, 0.18, i < 4 ? -4.8 : -0.6));
-    for (const x of [-11, 11]) res.g.add(piece(B(0.12, 0.01, 15), mat(0xe8c12a), x, 0.19, 0, false));
-    res.g.add(piece(B(24, 0.01, 0.12), mat(0xe8c12a), 0, 0.19, 1.8, false));
+    for (const x of [-11, 11]) res.g.add(piece(PL(0.12, 15), matMarquage(0xe8c12a), x, 0.18, 0, false));
+    res.g.add(piece(PL(24, 0.12), matMarquage(0xe8c12a), 0, 0.18, 1.8, false));
     const table = new THREE.Group();
     table.add(piece(B(3, 0.9, 1), mat(P.bois), 0, 0, 0));
     for (let i = 0; i < 4; i++) table.add(piece(B(0.5, 0.4, 0.5), mat(P.carton), -1.1 + i * 0.7, 0.9, 0));
@@ -1137,7 +1156,7 @@ function batimentPropre(lieu, nbPersonnes = 6, accent = P.cadre) {
     for (const x of [5.5, 8.5]) machines.push(new THREE.Vector3(x, 0.18, -4.5));
     for (let i = 0; i < 4; i++) rayons.push(new THREE.Vector3(-7 + i * 4.4, 0.18, 1.5));
     for (let i = 0; i < Math.max(0, nbPersonnes - 3); i++) postes.push({ pos: new THREE.Vector3(-6 + i * 1.9, 0.18, 4.8), rot: Math.PI, assis: false });
-    res.g.add(piece(B(20, 0.01, 0.12), mat(0xe8c12a), 0, 0.19, -1.8, false));
+    res.g.add(piece(PL(20, 0.12), matMarquage(0xe8c12a), 0, 0.18, -1.8, false));
     res.courrier = new THREE.Vector3(9, 0.18, 5.6);
     parkings.push(new THREE.Vector3(-6, 0, 11.5), new THREE.Vector3(2, 0, 11.5), new THREE.Vector3(9, 0, 11.5));
   } else if (icone === 'magasin') {
@@ -1827,7 +1846,9 @@ export async function creerScene(conteneur, options) {
 
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xffffff, 200, 400);
-  const camera = new THREE.PerspectiveCamera(32, 1, 0.5, 1400);
+  /* Plan proche à 1 m (la caméra ne s'approche jamais à moins de 6 m de sa cible) : le tampon de profondeur distingue
+     alors 1,2 cm à l'autre bout du plateau, au lieu de 2,4 cm. C'est ce qui sépare un marquage de sa chaussée. */
+  const camera = new THREE.PerspectiveCamera(32, 1, 1, 1400);
   const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 1.0);
   scene.add(hemi);
   const soleil = new THREE.DirectionalLight(0xffffff, 1.6);
@@ -1901,7 +1922,9 @@ export async function creerScene(conteneur, options) {
   const matMer = suivre(nouveau({ roughness: 0.3 }), 'mer');
   matMer.onBeforeCompile = (sh) => {
     sh.uniforms.uTemps = uTemps;
-    sh.vertexShader = `uniform float uTemps;\n${sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed.y += sin(position.x * 0.18 + uTemps * 0.9) * 0.1 + cos(position.z * 0.23 + uTemps * 0.7) * 0.08;')}`;
+    // la houle s'éteint en approchant du rivage : au ras du quai l'eau est plate, elle ne monte plus par-dessus
+    // l'écume ni ne découvre le fond, et la ligne de côte reste nette
+    sh.vertexShader = `uniform float uTemps;\n${sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  float bordMer = smoothstep(-12.0, -2.0, position.z);\n  transformed.y += (sin(position.x * 0.18 + uTemps * 0.9) * 0.1 + cos(position.z * 0.23 + uTemps * 0.7) * 0.08) * bordMer;')}`;
   };
   matMer.customProgramCacheKey = () => 'mer';
   const mer = new THREE.Mesh(new THREE.PlaneGeometry(larg, z1 - zCote, 48, 12).rotateX(-Math.PI / 2), matMer);
@@ -1909,10 +1932,13 @@ export async function creerScene(conteneur, options) {
   mer.receiveShadow = PROFIL.ombres > 0;
   mer.userData.garder = true;
   scene.add(mer);
+  // écume : juste au-dessus de la crête des vagues (−0,35 + 0,18), sinon la houle la recouvrait et la faisait clignoter
   const ecume = mat('ecume');
-  statique.add(piece(B(larg, 0.06, 1.1), ecume, 0, -0.32, zCote + 0.4, false));
-  for (const [x, z, l, p] of [[0, zCote + 5.2, 35, 0.8], [-17.4, zCote + 2, 0.8, 6.6], [17.4, zCote + 2, 0.8, 6.6], [0, zCote + 16, 4, 0.8]]) statique.add(piece(B(l, 0.06, p), ecume, x, -0.32, z, false));
-  statique.add(piece(B(larg, 0.3, 4), mat(P.sable), 0, -0.3, zCote - 2, false));
+  const Y_ECUME = -0.2;
+  statique.add(piece(B(larg, 0.05, 1.1), ecume, 0, Y_ECUME, zCote + 0.4, false));
+  for (const [x, z, l, p] of [[0, zCote + 5.2, 35, 0.8], [-17.4, zCote + 2, 0.8, 6.6], [17.4, zCote + 2, 0.8, 6.6], [0, zCote + 16, 4, 0.8]]) statique.add(piece(B(l, 0.05, p), ecume, x, Y_ECUME, z, false));
+  // la plage repose sur la pelouse, elle ne la double pas : à hauteur égale, les deux se disputaient 192 m de rivage
+  statique.add(piece(B(larg, 0.34, 4), mat(P.sable), 0, -0.3, zCote - 2, false));
   statique.add(piece(B(34, 0.8, 6), mat(P.beton), 0, -0.5, zCote + 2));
   statique.add(piece(B(3, 0.3, 11), matTex('parquet', 1, 4), 0, -0.25, zCote + 10));
   // sols des quartiers (§5.5) : équipe en pelouse au centre, quais en planches, clients en pavés, fournisseurs en enrobé
@@ -1925,16 +1951,33 @@ export async function creerScene(conteneur, options) {
   const centreVille = new THREE.Group();
   statique.add(centreVille);
   const auCentre = (x, z) => x > CENTRE.x0 && x < CENTRE.x1 && z > CENTRE.z0 && z < CENTRE.z1;
+  /* Voirie : quatre niveaux distincts, jamais deux surfaces au même, sinon elles se disputent le pixel et grésillent
+     dès qu'on s'éloigne (le tampon de profondeur ne sépare plus qu'un centimètre et demi à 360 m). De bas en haut à
+     un carrefour : trottoir nord-sud, trottoir est-ouest, enrobé est-ouest, enrobé nord-sud. Les marquages, eux, sont
+     des décalques : ils se posent sur la chaussée sans jamais la concurrencer. */
+  const Y_TROTTOIR = { eo: 0.14, ns: 0.10 };
+  const Y_ENROBE = { eo: 0.16, ns: 0.18 };
+  const Y_MARQUAGE = 0.18;
+  const marquage = matMarquage(P.ligne);
+  const largeurRoute = (horiz, v) => ROUTES.find((r) => (horiz ? r.a[1] === v && r.b[1] === v : r.a[0] === v && r.b[0] === v))?.l ?? 7;
+  const dansCarrefour = (x, z) => CARREFOURS.some(([cx, cz]) => Math.abs(x - cx) < 7 && Math.abs(z - cz) < 7);
   const troncon = (cible, ax, az, bx, bz, l) => {
     const horiz = az === bz;
     const long = horiz ? Math.abs(bx - ax) : Math.abs(bz - az);
     if (long < 0.5) return;
     const cx = (ax + bx) / 2;
     const cz = (az + bz) / 2;
-    const y = horiz ? 0.05 : 0.06;
-    cible.add(piece(horiz ? B(long, 0.16, l + 4.4) : B(l + 4.4, 0.16, long), matTex('pave', horiz ? long / 3 : 2, horiz ? 2 : long / 3), cx, 0, cz, false));
-    cible.add(piece(horiz ? B(long, 0.12, l) : B(l, 0.12, long), matTex('asphalte', horiz ? long / 6 : l / 6, horiz ? l / 6 : long / 6, { roughness: 0.95 }), cx, y, cz, false));
-    for (let t = -long / 2 + 3; t < long / 2 - 2; t += 6) cible.add(piece(horiz ? B(3, 0.02, 0.15) : B(0.15, 0.02, 3), mat(P.ligne), horiz ? cx + t : cx, y + 0.12, horiz ? cz : cz + t, false));
+    const trottoir = horiz ? Y_TROTTOIR.eo : Y_TROTTOIR.ns;
+    const enrobe = horiz ? Y_ENROBE.eo : Y_ENROBE.ns;
+    cible.add(piece(horiz ? B(long, trottoir, l + 4.4) : B(l + 4.4, trottoir, long), matTex('pave', horiz ? long / 3 : 2, horiz ? 2 : long / 3), cx, 0, cz, false));
+    cible.add(piece(horiz ? B(long, 0.12, l) : B(l, 0.12, long), matTex('asphalte', horiz ? long / 6 : l / 6, horiz ? l / 6 : long / 6, { roughness: 0.95 }), cx, enrobe - 0.12, cz, false));
+    // axe de la chaussée : jamais au milieu d'un carrefour, où il n'y a pas de ligne médiane
+    for (let t = -long / 2 + 3; t < long / 2 - 2; t += 6) {
+      const x = horiz ? cx + t : cx;
+      const z = horiz ? cz : cz + t;
+      if (dansCarrefour(x, z)) continue;
+      cible.add(piece(horiz ? PL(3, 0.15) : PL(0.15, 3), marquage, x, Y_MARQUAGE, z, false));
+    }
   };
   for (const r of ROUTES) {
     const [ax, az] = r.a;
@@ -1949,10 +1992,23 @@ export async function creerScene(conteneur, options) {
       troncon(statique, ax, CENTRE.z1, ax, bz, r.l);
     } else troncon(statique, ax, az, bx, bz, r.l);
   }
+  /* Passages piétons : une peinture sur la chaussée, en décalque, juste après le coin du trottoir, et dans la largeur
+     de la route qu'ils traversent — pas une bande qui déborde sur le trottoir. */
   for (const [cx, cz] of CARREFOURS) {
-    for (const [dx, dz, vertical] of [[6.5, 0, false], [-6.5, 0, false], [0, 6.5, true], [0, -6.5, true]]) {
-      const cible = auCentre(cx + dx, cz + dz) ? centreVille : statique;
-      for (let k = -3; k <= 3; k++) cible.add(piece(vertical ? B(0.55, 0.02, 2.8) : B(2.8, 0.02, 0.55), mat(P.ligne), cx + dx + (vertical ? k * 1.1 : 0), 0.19, cz + dz + (vertical ? 0 : k * 1.1), false));
+    const lEO = largeurRoute(true, cz);
+    const lNS = largeurRoute(false, cx);
+    for (const nordSud of [false, true]) {
+      const route = nordSud ? lNS : lEO; // route traversée : le passage tient dans sa largeur
+      const recul = (nordSud ? lEO : lNS) / 2 + 2.8; // après le coin du trottoir de la route croisée
+      const nb = Math.max(3, Math.round((route - 1) / 1.1));
+      for (const sens of [1, -1]) {
+        const cible = auCentre(cx + (nordSud ? 0 : sens * recul), cz + (nordSud ? sens * recul : 0)) ? centreVille : statique;
+        for (let k = 0; k < nb; k++) {
+          const ecart = (k - (nb - 1) / 2) * 1.1;
+          cible.add(piece(nordSud ? PL(0.55, 2.8) : PL(2.8, 0.55), marquage,
+            cx + (nordSud ? ecart : sens * recul), Y_MARQUAGE, cz + (nordSud ? sens * recul : ecart), false));
+        }
+      }
     }
   }
   const rnd = alea(42);
@@ -2098,6 +2154,7 @@ export async function creerScene(conteneur, options) {
   let anneauxAlerte = [];
   let trafic = [];
   let flux = [];
+  let filsFlux = []; // traits en pointillé des commandes : masqués de près, où ils ne sont plus qu'une rayure
   let faisceau = null;
   let lanterne = null;
   let fenetres = [];
@@ -2176,6 +2233,7 @@ export async function creerScene(conteneur, options) {
   const proj = new THREE.Vector3();
   let zoneCache = null;
   const LARGE = 150; // au-delà, vue large : noms au sol, entités regroupées par quartier
+  const SEUIL_FIL_FLUX = 70; // en deçà, le trait d'une commande n'est plus qu'une rayure : seul le colis reste
   /** Projette, trie et place les étiquettes : seulement quand la caméra bouge ou que les données changent (≤ 2 ms). */
   function situer() {
     etiquettesASituer = false;
@@ -2284,7 +2342,7 @@ export async function creerScene(conteneur, options) {
   const zoomer = (f) => { controles.dollyTo(Math.max(controles.minDistance, Math.min(controles.maxDistance, controles.distance * f)), dureeVol() > 0); reveiller(); };
   const tourner45 = (sens) => { controles.rotate((sens * Math.PI) / 4, 0, dureeVol() > 0); reveiller(); };
   // toute touche interrompt un vol : la caméra s'arrête où elle est (§5.7)
-  const arreterVol = () => { if (controles.active) controles.stop?.(); };
+  const arreterVol = () => { if (cameraEnMouvement) controles.stop?.(); };
   document.addEventListener('keydown', arreterVol, true);
   let dedans = null;
   function entrer(id) {
@@ -2478,6 +2536,7 @@ export async function creerScene(conteneur, options) {
     anneauxAlerte = [];
     trafic = [];
     flux = [];
+    filsFlux = [];
     faisceau = null;
     lanterne = null;
     fenetres = [];
@@ -2600,7 +2659,16 @@ export async function creerScene(conteneur, options) {
   let peintsAvant = null; // objets peints au rendu précédent : « la maquette se peint » à l'arrivée de vraies données
   function maj(monde, options = {}) {
     vider();
-    const objets = monde.objets;
+    /* Personnalisation (§5) : le nom et la couleur choisis remplacent ceux des données, pour l'affichage seulement.
+       On réécrit une copie des objets ici, une fois : tout le reste de la scène (étiquettes, enseignes, totems,
+       couleurs des départements) lit alors la version personnalisée sans rien savoir du réglage. */
+    const perso = estPersonnalisee(options.perso) ? options.perso : null;
+    const objets = perso ? monde.objets.map((o) => {
+      const p = FAMILLES_PERSONNALISABLES.includes(o.famille) ? perso[o.id] : null;
+      if (!p || (!p.nom && !p.couleur)) return o;
+      const champs = p.couleur ? [...(o.champs ?? []).filter((c) => c.id !== 'couleur'), { id: 'couleur', libelle: 'Couleur', type: 'choix', valeur: p.couleur }] : o.champs;
+      return { ...o, nom: p.nom ?? o.nom, champs };
+    }) : monde.objets;
     const parId = new Map(objets.map((o) => [o.id, o]));
     objetsParId = parId;
     const role = (id) => monde.univers.roles.find((r) => r.id === id);
@@ -2627,7 +2695,7 @@ export async function creerScene(conteneur, options) {
 
     if (modeDep) {
       const FINAUX = ['livrée', 'facturée', 'reçue', 'refusé'];
-      const deps = departements.slice(0, 12);
+      const deps = ordonner(departements, perso).slice(0, 12); // chacun à la place qu'on lui a donnée
       const org = objets.find((o) => o.famille === 'organisation') ?? { id: '__siege', nom: 'Siège', famille: 'organisation', libelleType: 'Mon entreprise', champs: [] };
       const compos = deps.map((d) => {
         const membres = objets.filter((o) => conteneurDe(o) === d.id);
@@ -2666,9 +2734,10 @@ export async function creerScene(conteneur, options) {
     } else {
       const lieux = objets.filter((o) => o.famille === 'lieu');
       lieux.sort((a, b) => Number((b.icone ?? b.type) === 'siege') - Number((a.icone ?? a.type) === 'siege'));
-      lieux.slice(0, EMPLACEMENTS_PROPRES.length).forEach((l, i) => {
+      ordonner(lieux, perso).slice(0, EMPLACEMENTS_PROPRES.length).forEach((l, i) => {
         const [x, z, rot] = EMPLACEMENTS_PROPRES[i];
-        installer(batimentPropre(l, effectifDe(l.id)), l, x, z, rot);
+        // couleur choisie : le bandeau du bâtiment et ses menuiseries la portent (§5.4)
+        installer(batimentPropre(l, effectifDe(l.id), COULEURS_DEP[val(l, 'couleur')] ?? P.cadre), l, x, z, rot);
         puce({ texte: l.nom, sorte: 'principal', monde: new THREE.Vector3(x, 0, z), hauteur: 8, id: l.id });
       });
       if (lieux.length === 0) {
@@ -2941,7 +3010,9 @@ export async function creerScene(conteneur, options) {
       const ligne = new THREE.Line(new THREE.BufferGeometry().setFromPoints(courbe.getPoints(56)), new THREE.LineDashedMaterial({ color: couleur, dashSize: 1.8, gapSize: 1.2, transparent: true, opacity: 0.8 }));
       ligne.computeLineDistances();
       ligne.userData.jetable = 'ligne';
+      ligne.userData.filFlux = true; // le trait ne se lit que d'assez loin pour voir l'arc entier (§5.6)
       couches.flux.add(ligne);
+      filsFlux.push(ligne);
       const colis = piece(B(1.2, 1.2, 1.2), mat(c.type === 'devis' ? 0xf4f1e8 : P.carton), 0, 0, 0, false);
       colis.userData = { id: c.id, nom: c.nom, libelle: c.libelleType };
       colis.userData.horsOcclusion = true;
@@ -3065,7 +3136,12 @@ export async function creerScene(conteneur, options) {
     disqueContact.renderOrder = 1;
     scene.add(disqueContact);
   }
+  /* Contour permanent (§5.4) : coque inversée écartée de 3 cm le long des normales. Une mise à l'échelle laisserait
+     les faces minces (murs, vitrages, casquettes) collées à l'objet : elles se disputaient le pixel avec lui et
+     grésillaient le long de chaque arête dès qu'on s'éloignait. */
   const matContour = suivre(new THREE.MeshBasicMaterial({ side: THREE.BackSide }), 'contour');
+  matContour.onBeforeCompile = (sh) => { sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>\n  transformed += normalize(normal) * ${EPAISSEUR_CONTOUR.toFixed(3)};`); };
+  matContour.customProgramCacheKey = () => 'contour';
   const matSurbrillance = suivre(new THREE.MeshBasicMaterial({ side: THREE.BackSide }), 'surbrillance');
   // contour de sélection : la coque est gonflée le long des normales (8 cm), quelle que soit la taille de la pièce
   matSurbrillance.onBeforeCompile = (sh) => { sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed += normalize(normal) * 0.08;'); };
@@ -3079,7 +3155,6 @@ export async function creerScene(conteneur, options) {
       for (const x of [...m.children]) {
         if (!x.isMesh || x.material.transparent || x.material === matVerre) continue;
         const c = new THREE.Mesh(x.geometry, matContour);
-        c.scale.setScalar(1.015);
         c.userData.coque = true;
         c.castShadow = false;
         x.add(c);
@@ -3219,19 +3294,42 @@ export async function creerScene(conteneur, options) {
       if (t.mesh.material.map !== v.t) { t.mesh.material.map = v.t; t.mesh.material.needsUpdate = true; }
     }
     if (Math.abs(avant - ETAT.nuit) > 0.001) renderer.shadowMap.needsUpdate = true;
-    majOmbre();
+    majOmbre(true);
     demander();
   }
-  /** Le frustum de la caméra d'ombre suit la zone visible (§5.3). */
-  function majOmbre() {
+  /**
+   * Le frustum de la caméra d'ombre suit la zone visible (§5.3), par paliers et accroché au pas de ses texels.
+   * Sans cela, chaque centimètre de déplacement de la caméra décalait la carte d'ombre d'une fraction de texel : les
+   * bords d'ombre se mettaient à ramper sur tout le décor, et au dézoom c'était la carte entière qui frétillait.
+   */
+  const versLumiere = new THREE.Matrix4();
+  const depuisLumiere = new THREE.Matrix4();
+  const pointOmbre = new THREE.Vector3();
+  const posLumiere = new THREE.Vector3();
+  let ombrePosee = null;
+  function majOmbre(forcer = false) {
     if (!PROFIL.ombres) return;
+    if (forcer) ombrePosee = null; // le soleil a tourné (heure, thème) : la carte d'ombre ne vaut plus
     controles.getTarget(cible);
-    const s = Math.max(28, Math.min(120, controles.distance * 0.62));
+    // taille par paliers de 16 m : le frustum ne respire pas à chaque cran de zoom (le pas des texels resterait mouvant)
+    const s = Math.max(32, Math.min(128, Math.ceil((controles.distance * 0.62) / 16) * 16));
+    // centre accroché à la grille des texels, dans le repère de la lumière
+    const pas = (2 * s) / PROFIL.ombres;
+    posLumiere.copy(cible).addScaledVector(dirSoleil, 180);
+    versLumiere.lookAt(posLumiere, cible, haut).setPosition(posLumiere);
+    depuisLumiere.copy(versLumiere).invert();
+    pointOmbre.copy(cible).applyMatrix4(depuisLumiere);
+    pointOmbre.x = Math.round(pointOmbre.x / pas) * pas;
+    pointOmbre.y = Math.round(pointOmbre.y / pas) * pas;
+    // rien n'a bougé d'un texel entier : la carte d'ombre vaut encore, on ne la redessine pas
+    if (ombrePosee && s === ombrePosee.s && pointOmbre.x === ombrePosee.x && pointOmbre.y === ombrePosee.y) return;
+    ombrePosee = { s, x: pointOmbre.x, y: pointOmbre.y };
+    pointOmbre.applyMatrix4(versLumiere);
     const c = soleil.shadow.camera;
     c.left = -s; c.right = s; c.top = s; c.bottom = -s; c.near = 10; c.far = 420;
     c.updateProjectionMatrix();
-    soleil.target.position.copy(cible);
-    soleil.position.copy(cible).addScaledVector(dirSoleil, 180);
+    soleil.target.position.copy(pointOmbre);
+    soleil.position.copy(pointOmbre).addScaledVector(dirSoleil, 180);
     soleil.target.updateMatrixWorld();
     renderer.shadowMap.needsUpdate = true;
   }
@@ -3291,6 +3389,12 @@ export async function creerScene(conteneur, options) {
   function couperBoucle() { cancelAnimationFrame(raf); raf = 0; clearTimeout(rappel); rappel = 0; }
   const ambianceActive = () => animations && !enPause && !mouvementReduit();
   for (const ev of ['control', 'controlstart', 'controlend', 'transitionstart', 'update', 'wake']) controles.addEventListener(ev, reveiller);
+  /* Caméra en mouvement : « wake » au départ, « sleep » ou « rest » à l'arrêt. camera-controls garde `active` à vrai
+     après un déplacement instantané (setLookAt sans transition, comme le cadrage d'ouverture) : s'y fier ferait
+     calculer une image par seconde d'écran pour toujours, alors que rien ne bouge (§5.10). */
+  let cameraEnMouvement = false;
+  controles.addEventListener('wake', () => { cameraEnMouvement = true; });
+  for (const ev of ['sleep', 'rest']) controles.addEventListener(ev, () => { cameraEnMouvement = false; });
 
   function image(t) {
     raf = 0;
@@ -3306,7 +3410,9 @@ export async function creerScene(conteneur, options) {
     const inactif = maintenant - derniereInteraction;
     const ambiance = ambianceActive() && inactif < CADENCE.pauseApresMs;
     if (bouge) { majMurs(); majOmbre(); etiquettesASituer = true; }
-    if (ambiance) animer(dt);
+    // vie ambiante : pleine de près, éteinte en vue d'ensemble (§5.8) — au loin, la carte redevient une image fixe
+    const vie = ambiance ? vieAmbiante(controles.distance) : 0;
+    if (vie > 0) animer(dt, vie);
     if (survolEnAttente) {
       const e = survolEnAttente;
       survolEnAttente = null;
@@ -3323,6 +3429,10 @@ export async function creerScene(conteneur, options) {
     scene.fog.near = d + 40;
     scene.fog.far = d + 260;
     couches.alertes.visible = etatCalques.alertes !== false && d > 70; // de près, les anneaux gêneraient la lecture de l'intérieur
+    // trait d'une commande en cours : il relie deux bâtiments, donc il ne veut dire quelque chose que si on voit les
+    // deux bouts. De près, il ne reste qu'une rayure en travers de la vue : seul le colis demeure.
+    const filsVus = d > SEUIL_FIL_FLUX;
+    if (filsFlux.length && filsFlux[0].visible !== filsVus) for (const f of filsFlux) f.visible = filsVus;
     accessoires.visible = PROFIL.accessoires && d < 0.6 * controles.maxDistance; // sous 40 % du zoom : petits accessoires masqués
     if (uLot.uMasque.value[MASQUE.accessoires] !== (accessoires.visible ? 1 : 0)) { uLot.uMasque.value[MASQUE.accessoires] = accessoires.visible ? 1 : 0; renderer.shadowMap.needsUpdate = true; }
     majDetails();
@@ -3346,27 +3456,30 @@ export async function creerScene(conteneur, options) {
       if (veille.noter(calcul, maintenant) && options.qualite !== qualite && (options.qualite ?? 'auto') === 'auto' && qualite !== 'economie') descendre();
     }
     // la suite : pleine cadence tant que ça bouge ; 20 images/s pour l'ambiance après 30 s ; pause après 2 min
-    if (bouge || controles.active || zoomUneMain || fete) demander();
-    else if (ambiance) {
+    if (bouge || cameraEnMouvement || zoomUneMain || fete) demander();
+    else if (ambiance && vie > 0) {
       if (inactif < CADENCE.ambianceApresMs) demander();
       else planifier(1000 / CADENCE.ambiance);
-    } else if (!rappel && ambianceActive() && inactif >= CADENCE.pauseApresMs) { /* image fixe : reprise au premier mouvement */ }
+    } else { /* image fixe (vue d'ensemble ou longue inaction) : reprise au premier mouvement */ }
   }
-  function animer(dt) {
-    tempsAmbiance += dt;
+  /** `vie` (1 de près, 0 en vue d'ensemble) ralentit tout jusqu'à l'arrêt : rien ne bouge sans qu'on puisse le voir. */
+  function animer(dt, vie = 1) {
+    const pas = dt * vie;
+    tempsAmbiance += pas; // mer, fanions, phare, bateaux : leur temps se fige avec l'éloignement
     const t = tempsAmbiance;
     uTemps.value = t;
-    for (const f of flux) { f.t = (f.t + f.v * dt) % 1; f.colis.position.copy(f.courbe.getPoint(f.t)).setY(f.colis.position.y - 0.6); }
+    for (const f of flux) { f.t = (f.t + f.v * pas) % 1; f.colis.position.copy(f.courbe.getPoint(f.t)).setY(f.colis.position.y - 0.6); }
     // anneau critique : une pulsation de 1,2 s toutes les 4 s
     pulsation = (t % 4) / 1.2;
-    for (const { a } of anneauxAlerte) { const s = pulsation < 1 ? 1 + 0.12 * Math.sin(Math.PI * pulsation) : 1; a.scale.set(s, 1, s); }
+    for (const { a } of anneauxAlerte) { const s = pulsation < 1 ? 1 + 0.12 * vie * Math.sin(Math.PI * pulsation) : 1; a.scale.set(s, 1, s); }
     if (faisceau) faisceau.rotation.y = (t * Math.PI * 2) / 8; // une rotation en 8 s
-    for (const { b, y, phase } of bateaux) { b.position.y = y + Math.sin(t * Math.PI + phase) * 0.05; b.rotation.z = Math.sin(t * Math.PI + phase) * 0.03; } // 0,5 Hz, 0,05 unité
+    for (const { b, y, phase } of bateaux) { b.position.y = y + Math.sin(t * Math.PI + phase) * 0.05 * vie; b.rotation.z = Math.sin(t * Math.PI + phase) * 0.03 * vie; } // 0,5 Hz, 0,05 unité
     if (couches.trafic.visible) for (const c of trafic) {
-      c.t = (c.t + c.vitesse * dt * 4) % 1;
+      c.t = (c.t + c.vitesse * pas * 4) % 1;
       c.v.position.lerpVectors(c.a, c.b, c.t);
       c.v.rotation.y = Math.atan2(c.b.x - c.a.x, c.b.z - c.a.z) - Math.PI / 2;
     }
+    // mouettes : seulement quand la caméra passe tout près, donc toujours en pleine vie
     for (const m of mouettes) {
       const proche = camera.position.distanceTo(m.depart) < 22;
       if (proche && m.vol === 0) m.vol = 0.001;
@@ -3377,7 +3490,8 @@ export async function creerScene(conteneur, options) {
         if (m.vol > 6) { m.vol = proche ? 6 : 0; if (!proche) { m.g.position.copy(m.depart); m.battement.value = 0; } }
       }
     }
-    if (Math.floor(t * 20) % 3 === 0) renderer.shadowMap.needsUpdate = true; // véhicules et bateaux : ombres rafraîchies par moments
+    // ombres rafraîchies par moments pour les véhicules et les bateaux : inutile quand plus rien ne bouge
+    if (vie > 0.05 && Math.floor(t * 20) % 3 === 0) renderer.shadowMap.needsUpdate = true;
   }
   function descendre() {
     const q = palierInferieur(qualite);
