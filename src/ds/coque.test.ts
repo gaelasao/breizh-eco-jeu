@@ -157,8 +157,14 @@ test('coque : repères, en-tête, rail, onglets, zones sûres et clavier virtuel
   assert.match(app, /raccourci\('b', \(\) => basculerRail\(\)/, 'B replie le rail');
   assert.match(app, /ouvrirPalette\(\{ places: placesPlus\(\) \}\)/, '« Plus » ouvre la palette en feuille, avec ses places fixes');
   const places = app.slice(app.indexOf('function placesPlus()'), app.indexOf('const ouvrirPlus'));
-  const ordre = ['plein-soleil', 'activite', 'aide', 'reglages'].map((id) => places.indexOf(`id: '${id}'`));
-  assert.ok(ordre.every((i, k) => i > 0 && (k === 0 || i > (ordre[k - 1] ?? 0))), 'places fixes dans l’ordre : Plein soleil, Activité récente, Aide, Réglages');
+  // d'abord les rubriques sans onglet en bas (Santé, Optimiser, Breizhcosystem, Connecter mes données, Réglages,
+  // Mon compte) : sur téléphone, « Plus » est le seul chemin vers elles
+  assert.match(places, /const avecOnglet = new Set\(ONGLETS_TELEPHONE\.filter\(\(o\) => !o\.plus\)\.map\(\(o\) => o\.id\)\);/);
+  assert.match(places, /const ailleurs = menuMontre\(\)\.filter\(\(g\) => !avecOnglet\.has\(g\.id\)\)\.flatMap\(\(g\) => g\.entrees\);/);
+  const ordre = ['...ailleurs.map(', '...piedMenu().map(', "id: 'compte'", "id: 'activite'", "id: 'aide'", "id: 'apparence'", "id: 'plein-soleil'", "id: 'tout-afficher'"].map((t) => places.indexOf(t));
+  assert.ok(ordre.every((i, k) => i > 0 && (k === 0 || i > (ordre[k - 1] ?? 0))), 'destinations d’abord, puis les outils de l’appareil');
+  // les réglages de thème ne sont plus répétés dans la liste des actions de la feuille
+  for (const t of ["plus ? null : { id: `action:theme-", "plus ? null : { id: 'action:theme-systeme'", "plus ? null : { id: 'action:calme'", "plus ? null : { id: 'action:apparence'"]) assert.ok(app.includes(t), t);
 });
 
 test('rail : le pied (Tout afficher, Connecter mes données, Réglages) reste à l’écran, seuls les groupes défilent', () => {
@@ -195,4 +201,15 @@ test('coque : plus de mot « CE MATIN », de visite lancée d’office, ni de po
   assert.doesNotMatch(horsCouche, /^button, input, select, textarea \{/m, 'button { font: inherit } dans la couche bz.base');
   assert.doesNotMatch(horsCouche, /^h1, h2, h3 \{/m);
   assert.match(style, /@layer bz\.base \{\n\* \{ box-sizing: border-box; \}/);
+});
+
+test('fenêtre étroite (1 024 px) : la date s’efface avant que le titre ne soit coupé', () => {
+  const css = lire('web/bz/composants.css');
+  // la date ne prend plus la place du titre : elle ne grandit pas, et n'apparaît qu'à partir de 75 em
+  assert.match(css, /\.bz-entete__date \{ display: none; flex: 0 1 auto;/);
+  assert.match(css, /@media \(min-width: 75em\) \{ \.bz-entete__date \{ display: block; \} \}/);
+  assert.match(css, /@media \(min-width: 48em\) and \(max-width: 74\.99em\) \{ \.bz-coque\[data-rail="replie"\] \.bz-entete__date \{ display: block; \} \}/, 'le menu replié rend la place : la date revient');
+  // et la recherche se resserre avant le titre
+  assert.match(css, /@media \(min-width: 48em\) and \(max-width: 74\.99em\) \{ \.bz-entete__recherche \{ flex: 0 1 14rem; \} \}/);
+  assert.match(css, /\.bz-entete__titre \{ flex: 1 1 auto;/, 'le titre prend la place restante');
 });

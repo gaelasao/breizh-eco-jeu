@@ -305,3 +305,19 @@ test('depuis l’exemple : « Remplacer l’exemple par mon entreprise » d’ab
   assert.match(app, /await api\('POST', '\/monde\/vider-demo', \{ nom: A\.nomEntreprise\.trim\(\) \}\);\s+ecrireLocal\(NOM_SOUHAITE, ''\);/);
   assert.match(app, /if \(A\.parcours === 'zero'\) return Boolean\(A\.nomEntreprise\.trim\(\)\) && A\.nomEntreprise !== \(lireLocal\(NOM_SOUHAITE\) \?\? ''\);/, 'un nom seulement prérempli ne demande pas « Abandonner ? »');
 });
+
+test('« Que contient ce fichier ? » : « Clients » déjà coché, six réponses courantes, le reste replié', () => {
+  const app = lire('web/app.js');
+  // on vient de répondre à « Où sont vos clients ? » : la cible est proposée, la question reste posée
+  assert.match(app, /const cibleParDefaut = \(\) => ciblesCourantes\(ciblesImport\(\)\)\[0\] \?\? null;/);
+  assert.match(app, /if \(!dejaChoisi\) A\.cible = cibleParDefaut\(\);\s+allerEtape\(dejaChoisi \? 'fichier' : 'contenu'\);/);
+  const courantes = app.slice(app.indexOf('function ciblesCourantes('), app.indexOf('function corpsContenu('));
+  assert.match(courantes, /toutes\.find\(\(c\) => c\.cle === 'role:client'\),/, '« Clients » en premier : c’est la cible par défaut');
+  assert.deepEqual((courantes.match(/'role:client'|'role:fournisseur'|'employe'|'article'|'facture'|'devis'/g) ?? []).map((x) => x.replaceAll("'", '')), ['role:client', 'role:fournisseur', 'employe', 'article', 'facture', 'devis'], 'six réponses courantes, dans cet ordre');
+  // les quatorze autres types ne disparaissent pas : ils sont repliés sous « Autre chose », ouvert si l'un est choisi
+  const contenu = app.slice(app.indexOf('function corpsContenu(A)'), app.indexOf('const estClasseur ='));
+  assert.match(contenu, /const autres = toutes\.filter\(\(c\) => !courantes\.includes\(c\)\);/);
+  assert.match(contenu, /texte: 'Autre chose'/);
+  assert.match(contenu, /open: autres\.some\(\(c\) => c\.cle === A\.cible\?\.cle\)/);
+  assert.ok(contenu.indexOf('courantes.map(choix)') < contenu.indexOf('autres.map(choix)'), 'les courantes d’abord');
+});

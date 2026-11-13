@@ -8,6 +8,9 @@ import type { ObjetMetier } from './model.ts';
 import type { Situation } from './situation.ts';
 import { pluriel } from './texte.ts';
 
+/** Seuil d'anonymat du baromètre d'équipe (src/passerelle/enquetes.ts) : rien n'est publié en dessous. */
+export const ANONYMAT_MIN = 5;
+
 export type Categorie = 'Relances et paiements' | 'Stock et achats' | 'Courrier' | 'Équipes' | 'Clients' | 'Données' | 'Administratif' | 'Ventes';
 
 export interface Opportunite {
@@ -191,22 +194,25 @@ export function detecterOptimisations(e: EntreeOptimisations): { opportunites: O
   // 11. Baromètre collaborateurs jamais envoyé
   const barometre = e.objets.filter((o) => o.type === 'barometre' && t - Date.parse(String(o.champs.recu_le ?? o.majLe)) < 120 * JOUR);
   const employes = e.objets.filter((o) => o.famille === 'personne');
-  if (employes.length >= 3 && barometre.length < 3) {
+  // sous le seuil d'anonymat, les résultats ne seraient jamais publiés : on ne propose rien qui ne servirait à rien
+  if (employes.length >= ANONYMAT_MIN && barometre.length < 3) {
     ajouter({
       id: 'barometre', titre: 'Baromètre d’équipe trimestriel automatique', categorie: 'Équipes',
       constat: `Aucun retour récent de l’équipe (${employes.length} personnes).`,
-      proposition: 'Chaque trimestre, un formulaire anonyme de 3 questions à chacun ; résultats regroupés, par service à partir de 5 réponses.',
+      proposition: `Chaque trimestre, un formulaire anonyme de 3 questions à chacun ; résultats regroupés, publiés à partir de ${ANONYMAT_MIN} réponses.`,
       hypothese: '2 heures par trimestre pour organiser un sondage à la main.',
       heuresMois: 2 / 3, difficulte: 'facile', objets: [], recette: 'barometre',
     });
   }
 
   // 12. Saisie manuelle et imports → connecter l'outil source
-  const manuels = e.objets.filter((o) => o.mode === 'reel' && (o.source.id === 'saisie' || o.source.id.startsWith('import:')));
-  if (manuels.length >= 5 || (e.connecteurs === 0 && e.objets.some((o) => o.mode === 'reel'))) {
+  // l'entreprise elle-même n'est pas une fiche qu'on ressaisit : elle ne compte pas
+  const manuels = e.objets.filter((o) => o.mode === 'reel' && o.famille !== 'organisation' && (o.source.id === 'saisie' || o.source.id.startsWith('import:')));
+  // au moins une fiche tenue à la main : sans cela, la piste s'affichait avec « 0 fiche saisie… qui vieillissent »
+  if (manuels.length >= 5 || (manuels.length > 0 && e.connecteurs === 0)) {
     ajouter({
       id: 'connecter', titre: 'Brancher vos outils au lieu de ressaisir', categorie: 'Données',
-      constat: e.connecteurs === 0 ? `Aucun outil branché : ${pluriel(manuels.length, 'fiche saisie ou importée', 'fiches saisies ou importées')} à la main, qui vieillissent.` : `${pluriel(manuels.length, 'fiche saisie ou importée', 'fiches saisies ou importées')} à la main.`,
+      constat: e.connecteurs === 0 ? `Aucun outil branché : ${pluriel(manuels.length, 'fiche saisie ou importée', 'fiches saisies ou importées')} à la main, ${manuels.length > 1 ? 'qui vieillissent' : 'qui vieillit'}.` : `${pluriel(manuels.length, 'fiche saisie ou importée', 'fiches saisies ou importées')} à la main.`,
       proposition: 'Reliez votre CRM, votre tableur ou votre base (Airtable, Notion, HubSpot, Google Sheets, Make…) : les changements passent dans les deux sens, en temps réel.',
       hypothese: '2 minutes par fiche à tenir à jour chaque mois en double saisie.',
       heuresMois: Math.max(1, (manuels.length * 2) / 60), difficulte: 'moyenne', objets: manuels.slice(0, 20).map((o) => o.id), recette: null,

@@ -24,9 +24,13 @@ export const STATUTS = Object.freeze([
   { id: 'faible', titre: 'À corriger', ton: 'critique', icone: 'octagon-alert' },
   { id: 'moyen', titre: 'À surveiller', ton: 'attention', icone: 'triangle-alert' },
   { id: 'bon', titre: 'Bon', ton: 'ok', icone: 'circle-check' },
+  // une pratique pas encore lancée sur une entreprise toute neuve : ni note, ni reproche
+  { id: 'a_lancer', titre: 'À lancer', ton: null, icone: 'flag' },
   { id: 'inconnu', titre: 'Pas encore renseigné', ton: null, icone: 'circle-dashed' },
 ]);
-export const statutDe = (id) => STATUTS.find((s) => s.id === id) ?? STATUTS[3];
+export const statutDe = (id) => STATUTS.find((s) => s.id === id) ?? STATUTS.at(-1);
+/** Groupe d'un critère : « À lancer » pour une pratique que l'entreprise n'a pas encore commencée. */
+export const groupeDeCritere = (c) => (c?.aLancer ? 'a_lancer' : c?.statut ?? 'inconnu');
 
 const FINANCES_COMPTA = new Set(['tresorerie', 'marge_brute', 'rentabilite', 'delai_clients', 'endettement']);
 
@@ -97,7 +101,8 @@ export function prioritesSante(S, ctx = {}) {
   const manquants = tous.filter((c) => (c.score === null || c.score === undefined) && !c.reserve).sort((a, b) => (b.poids ?? 1) - (a.poids ?? 1));
   for (const c of manquants) {
     const action = actionCritere(c, ctx);
-    if (action) ajouter({ cle: `critere:${c.id}`, titre: `${c.libelle} : pas encore renseigné`, raison: `À connecter : ${c.source}.`, mesure: null, ton: null, critere: c.id, action });
+    // une pratique pas encore lancée n'est pas une donnée manquante : on dit quoi commencer, pas quoi connecter
+    if (action) ajouter({ cle: `critere:${c.id}`, titre: `${c.libelle} : ${c.aLancer ? 'à lancer' : 'pas encore renseigné'}`, raison: c.aLancer ? c.conseil : `À connecter : ${c.source}.`, mesure: null, ton: null, critere: c.id, action });
   }
   return sortie;
 }
@@ -107,7 +112,7 @@ export function groupesCriteres(domaine) {
   const l = domaine?.criteres ?? [];
   return STATUTS.map((s) => ({
     ...s,
-    criteres: l.filter((c) => (c.statut ?? 'inconnu') === s.id).sort((a, b) => (a.score ?? 101) - (b.score ?? 101) || (b.poids ?? 1) - (a.poids ?? 1)),
+    criteres: l.filter((c) => groupeDeCritere(c) === s.id).sort((a, b) => (a.score ?? 101) - (b.score ?? 101) || (b.poids ?? 1) - (a.poids ?? 1)),
   })).filter((g) => g.criteres.length);
 }
 

@@ -23,8 +23,8 @@ type Simple = {
   RUBRIQUES: Record<string, Rubrique>;
   faits: (m: unknown) => Record<string, number | boolean>;
   deblocages: (m: unknown) => Deblocages;
-  menuAffiche: (g: Groupe[], d: Deblocages, o?: { tout?: boolean; vue?: string | null }) => Groupe[];
-  entreesAffichees: (e: Entree[], d: Deblocages, o?: { tout?: boolean; vue?: string | null }) => Entree[];
+  menuAffiche: (g: Groupe[], d: Deblocages, o?: { tout?: boolean; vue?: string | null; vues?: string[] | null }) => Groupe[];
+  entreesAffichees: (e: Entree[], d: Deblocages, o?: { tout?: boolean; vue?: string | null; vues?: string[] | null }) => Entree[];
   entreesEnAttente: (g: Groupe[], p: Entree[], d: Deblocages) => Entree[];
   vientDeSOuvrir: (avant: Deblocages | null, apres: Deblocages) => string[];
   cleSimplicite: (profilId: unknown) => string;
@@ -86,19 +86,19 @@ test('premier jour : une entreprise vide ne montre qu’Aujourd’hui, Connecter
 
 test('règles de déblocage, une par une : chaque donnée ouvre ses rubriques, et seulement celles-là', () => {
   const cas: Array<[string, unknown, string[]]> = [
-    ['un client', monde({ satisfaction: { clients: { c1: { statut: 'inconnue' } } } }, [tiers('c1', 'client')]), ['clients', 'satisfaction', 'nexus']],
+    ['un client', monde({ satisfaction: { clients: { c1: { statut: 'inconnue' } } } }, [tiers('c1', 'client')]), ['clients', 'satisfaction', 'nexus', 'sante']],
     ['un fournisseur', monde({}, [tiers('f1', 'fournisseur')]), ['fournisseurs', 'nexus']],
     ['un prospect', monde({}, [tiers('p1', 'prospect')]), ['pipeline']],
     ['un partenaire', monde({}, [tiers('x1', 'partenaire')]), []],
-    ['une personne de l’équipe', monde({}, [objet('e1', 'personne', 'employe')]), ['planning', 'equipe', 'optimiser', 'satisfaction']],
+    ['une personne de l’équipe', monde({}, [objet('e1', 'personne', 'employe')]), ['planning', 'equipe', 'optimiser', 'satisfaction', 'sante']],
     ['un lieu', monde({}, [objet('l1', 'lieu', 'atelier')]), ['lieux']],
-    ['une facture', monde({}, [objet('fa1', 'commande', 'facture')]), ['commandes', 'optimiser', 'pipeline', 'nexus']],
-    ['une commande à un fournisseur', monde({}, [objet('cf1', 'commande', 'commande_fournisseur')]), ['commandes', 'optimiser', 'nexus']],
-    ['un article en stock', monde({}, [objet('a1', 'ressource', 'article')]), ['stock', 'optimiser', 'nexus']],
-    ['un véhicule', monde({}, [vehicule('v1')]), ['stock', 'vehicules', 'optimiser', 'nexus']],
-    ['un document', monde({}, [objet('d1', 'evenement', 'document')]), ['documents', 'optimiser']],
-    ['un courrier', monde({}, [objet('m1', 'evenement', 'courrier')]), ['courrier', 'optimiser']],
-    ['une tâche', monde({}, [objet('t1', 'tache', 'tache')]), ['optimiser', 'taches']],
+    ['une facture', monde({}, [objet('fa1', 'commande', 'facture')]), ['commandes', 'optimiser', 'pipeline', 'nexus', 'sante']],
+    ['une commande à un fournisseur', monde({}, [objet('cf1', 'commande', 'commande_fournisseur')]), ['commandes', 'optimiser', 'nexus', 'sante']],
+    ['un article en stock', monde({}, [objet('a1', 'ressource', 'article')]), ['stock', 'optimiser', 'nexus', 'sante']],
+    ['un véhicule', monde({}, [vehicule('v1')]), ['stock', 'vehicules', 'optimiser', 'nexus', 'sante']],
+    ['un document', monde({}, [objet('d1', 'evenement', 'document')]), ['documents', 'optimiser', 'sante']],
+    ['un courrier', monde({}, [objet('m1', 'evenement', 'courrier')]), ['courrier', 'optimiser', 'sante']],
+    ['une tâche', monde({}, [objet('t1', 'tache', 'tache')]), ['optimiser', 'taches', 'sante']],
     ['un département', monde({ organisation: { nom: 'K', demo: false, departements: 1 } }, [objet('dep1', 'departement', 'departement')]), ['departements']],
     ['un score de santé calculable', monde({ sante: { score: 47, couverture: 0.22 } }), ['sante']],
     ['un logiciel connecté qui n’a encore rien apporté', monde({ synchro: { actifs: 1 } }), []],
@@ -115,6 +115,10 @@ test('règles de déblocage, une par une : chaque donnée ouvre ses rubriques, e
   assert.equal(S.deblocages(monde({ sante: { score: 0, couverture: 0.3 } })).sante, true);
   assert.equal(S.deblocages(monde({ sante: { score: null, couverture: 0.19 } })).sante, false);
   assert.equal(S.deblocages(monde({ sante: null })).sante, false);
+  // mais dès qu'il y a de quoi la mesurer, Santé reste au menu : on y est envoyé, on doit pouvoir y revenir
+  assert.equal(S.deblocages(monde({ sante: null }, [tiers('c1', 'client')])).sante, true);
+  assert.equal(S.deblocages(monde({ sante: null }, [objet('fa1', 'commande', 'facture')])).sante, true);
+  assert.equal(S.deblocages(monde({ sante: null }, [objet('l1', 'lieu', 'atelier')])).sante, false, 'des murs ne sont pas de l’activité');
   // monde abîmé ou absent : le menu du premier jour, jamais une erreur
   assert.deepEqual(ouvertes(S.deblocages(null)), [...TOUJOURS].sort());
   assert.deepEqual(ouvertes(S.deblocages({})), [...TOUJOURS].sort());
@@ -208,13 +212,13 @@ test('notes : ce qui est déjà là au départ est connu ; une rubrique qui appa
   let prefs: Preferences = { tout: false, vues: repere };
   assert.deepEqual(S.nouvelles(jour1, prefs), [], 'jamais de note au démarrage');
   const avecClient = S.deblocages(monde({ satisfaction: { clients: { c1: {} } } }, [tiers('c1', 'client')]));
-  assert.deepEqual(S.vientDeSOuvrir(jour1, avecClient), ['clients', 'satisfaction', 'nexus']);
+  assert.deepEqual(S.vientDeSOuvrir(jour1, avecClient), ['sante', 'clients', 'satisfaction', 'nexus']);
   assert.deepEqual(S.vientDeSOuvrir(null, avecClient), [], 'première lecture : rien n’est annoncé');
   assert.deepEqual(S.vientDeSOuvrir(avecClient, avecClient), []);
   assert.deepEqual(S.vientDeSOuvrir(avecClient, jour1), [], 'une rubrique qui se referme ne s’annonce pas');
-  assert.deepEqual(S.nouvelles(avecClient, prefs), ['clients', 'satisfaction', 'nexus']);
+  assert.deepEqual(S.nouvelles(avecClient, prefs), ['sante', 'clients', 'satisfaction', 'nexus']);
   prefs = { ...prefs, vues: [...(prefs.vues ?? []), 'clients'] };
-  assert.deepEqual(S.nouvelles(avecClient, prefs), ['satisfaction', 'nexus'], 'une note rangée ne revient pas');
+  assert.deepEqual(S.nouvelles(avecClient, prefs), ['sante', 'satisfaction', 'nexus'], 'une note rangée ne revient pas');
   assert.deepEqual(S.nouvelles(avecClient, { tout: false, vues: null }), [], 'sans repère de départ : aucune note');
   assert.deepEqual(S.nouvelles(avecClient, null), []);
   // une entreprise déjà en place : tout ce qu'elle a est connu d'emblée, aucune note sur ce qu'elle utilise
@@ -324,8 +328,10 @@ test('écrans vides : deux lignes (ce qui manque, ce que l’écran montrera) et
     const corps = appel.slice(0, appel.indexOf('\n    return;') > 0 ? appel.indexOf('\n    return;') : 600);
     assert.ok((corps.match(/bz-bouton--principal|boutonConnecter\(/g) ?? []).length <= 1, corps.slice(0, 90));
   }
-  // Optimiser : « Tout automatiser » ou la première piste, jamais deux boutons principaux
-  assert.match(app, /const premiere = toutPret \? null : pistes\.find\(\(o\) => !o\.active\);/);
+  // Optimiser : « Tout automatiser » est la seule action principale ; chaque ligne porte un bouton secondaire
+  const optimiser = app.slice(app.indexOf('async function rendreOptimiser()'), app.indexOf('// ---------------------------------------------------------------- horloge'));
+  assert.equal((optimiser.match(/bz-bouton--principal/g) ?? []).length, 1, 'un seul bouton principal dans l’écran : celui de l’écran vide');
+  assert.match(app, /class: 'bz-bouton bz-bouton--principal', cle: 'tout-automatiser'/);
   // textes des écrans vides : un titre qui dit ce qui manque, une phrase qui dit ce qu'on verra
   for (const id of ['clients', 'fournisseurs', 'equipe', 'commandes', 'stock', 'documents', 'lieux', 'planning', 'courrier', 'satisfaction', 'pipeline']) {
     const t = S.texteVide(id);
@@ -368,13 +374,13 @@ test('passerelle réelle : entreprise créée vide → menu du premier jour ; un
 
     await appel('POST', '/objets', { type: 'entreprise', nom: 'Scierie du Faou', roles: ['client'], champs: {} });
     const d1 = S.deblocages(await appel('GET', '/monde'));
-    assert.deepEqual(S.vientDeSOuvrir(d0, d1), ['clients', 'satisfaction', 'nexus']);
+    assert.deepEqual(S.vientDeSOuvrir(d0, d1), ['sante', 'clients', 'satisfaction', 'nexus'], 'un client suffit pour mesurer la santé');
 
     await appel('POST', '/objets', { type: 'employe', nom: 'Erwan Kermarrec', champs: {} });
     const avecEquipe = await appel('GET', '/monde');
     const d2 = S.deblocages(avecEquipe);
     assert.deepEqual(S.vientDeSOuvrir(d1, d2), ['planning', 'equipe', 'optimiser']);
-    assert.deepEqual(ids(S.menuAffiche(N.groupesNavigation(avecEquipe), d2)), ['aujourdhui', 'planning', 'equipe', 'optimiser', 'clients', 'satisfaction', 'nexus']);
+    assert.deepEqual(ids(S.menuAffiche(N.groupesNavigation(avecEquipe), d2)), ['aujourdhui', 'planning', 'equipe', 'sante', 'optimiser', 'clients', 'satisfaction', 'nexus']);
   });
 });
 
@@ -404,4 +410,21 @@ test('démonstration (npm run demo) et entreprise déjà en place : tout ce que 
       }
     });
   }
+});
+
+test('une rubrique déjà ouverte reste au menu : on y a été envoyé, on doit pouvoir y revenir', () => {
+  const m = monde({ sante: { score: 52, couverture: 0.6 } });
+  const d = S.deblocages(m);
+  const groupes = N.groupesNavigation(m);
+  // la santé se referme (plus assez de données pour un score, et aucune activité) : sans mémoire, elle disparaîtrait
+  const sansScore = { ...d, sante: false };
+  assert.ok(!ids(S.menuAffiche(groupes, sansScore)).includes('sante'));
+  assert.ok(ids(S.menuAffiche(groupes, sansScore, { vues: ['sante'] })).includes('sante'), 'déjà ouverte une fois : elle reste');
+  assert.ok(ids(S.menuAffiche(groupes, sansScore, { vues: [] })).length < ids(S.menuAffiche(groupes, sansScore, { vues: ['sante'] })).length);
+  // le pied du rail suit la même règle
+  assert.deepEqual(S.entreesAffichees(N.piedNavigation(m), { connecter: false, reglages: false }, { vues: ['reglages'] }).map((e) => e.id), ['reglages']);
+  // l'écran lit les rubriques déjà ouvertes depuis les préférences de la personne
+  const app = lire('web/app.js');
+  assert.match(app, /const rubriquesVues = \(\) => \(Array\.isArray\(E\.simplicite\?\.vues\) \? E\.simplicite\.vues : null\);/);
+  assert.match(app, /SIMPLE\.menuAffiche\(navigation\(\), E\.deblocages, \{ tout: toutAffiche\(\), vue: E\.vue, vues: rubriquesVues\(\) \}\)/);
 });

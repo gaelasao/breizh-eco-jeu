@@ -13,9 +13,11 @@ import { construirePartage } from './lien-nexus.ts';
 const SEUIL_PARTAGE_SOCIAL = 11;
 
 const maintenant = new Date('2026-11-09T09:00:00Z');
+/** Entreprise en place depuis des mois : les pratiques ont eu le temps d'être lancées, un zéro est une vraie note. */
+const DEPUIS = new Date('2026-05-01T09:00:00Z').toISOString();
 const o = (id: string, famille: string, type: string, nom: string, champs: Record<string, unknown>) => ({
   id, orgId: 'o', famille, type, roles: [], nom, champs, provenance: 'declare', source: { id: 's', libelle: 's', derniereSynchro: null },
-  majLe: maintenant.toISOString(), disponibilite: 'disponible', mode: 'reel',
+  majLe: DEPUIS, disponibilite: 'disponible', mode: 'reel',
 }) as unknown as ObjetMetier;
 
 /** Entreprise de `n` salariés ; le premier a 4 jours d'arrêt maladie sur 20. */

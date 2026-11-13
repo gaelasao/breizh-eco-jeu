@@ -15,7 +15,7 @@ import { cadreOnglets } from '/bz/onglets.js';
 import { cacher, estOuvert, montrer, popoverOuvert, POPOVER_NATIF } from '/bz/popover.js';
 import { masquerInfobulle } from '/bz/infobulle.js';
 import { ouvrirActivite } from '/bz/activite.js';
-import { courriersUrgents, destinations, estCourante, groupesNavigation, ongletsTelephone, piedNavigation, placeDeVue, prenomDe, tachesOuvertes, texteCompteur, titreDeVue } from '/navigation.js';
+import { courriersUrgents, destinations, estCourante, groupesNavigation, ONGLETS_TELEPHONE, ongletsTelephone, piedNavigation, placeDeVue, prenomDe, tachesOuvertes, texteCompteur, titreDeVue } from '/navigation.js';
 import { GESTES, TITRES_GESTES } from '/carte/gestes.js';
 import { QUALITES, reseauFaible } from '/carte/qualite.js';
 import { REGLAGES_HEURE } from '/carte/heure.js';
@@ -271,7 +271,7 @@ async function demarrer() {
     // première arrivée (§2.6) : « Degemer mat » (bienvenue), une seule fois
     E.premiereArrivee = false;
     const prenom = prenomDe(E.session?.nom ?? '');
-    informer(`Degemer mat${prenom ? `, ${prenom}` : ''}. Votre port est prêt. Commençons par vos clients.`, 'ok');
+    informer(`Degemer mat${prenom ? `, ${prenom}` : ''}. Votre carte est prête. Commençons par vos clients.`, 'ok');
   }
 }
 
@@ -1091,7 +1091,7 @@ const vueAvecTitre = (v) => VUES_AVEC_TITRE.has(v) || estVueListe(v) || String(v
 const LIBELLE_TON = { critique: 'Critique', attention: 'À traiter', info: 'Information', ok: 'En ordre' };
 
 function planCourant() {
-  return planAujourdhui(E.monde, { reports: E.reports, filtre: dansFiltre });
+  return planAujourdhui(E.monde, { reports: E.reports, filtre: dansFiltre, vus: vusMiseEnRoute() });
 }
 function navigation() {
   return groupesNavigation(E.monde, { aFaire: planCourant().aFaire, vueAujourdhui: vueAujourdhui() });
@@ -1127,13 +1127,15 @@ function objetsDeVue(vue) {
 const STOCKAGE_LOCAL = { getItem: lireLocal, setItem: ecrireLocal };
 const toutAffiche = () => Boolean(E.simplicite.tout);
 /** Une rubrique est-elle à montrer ? Débloquée par les données, ou « Tout afficher ». */
-const rubriqueMontree = (id) => toutAffiche() || E.deblocages[id] !== false;
-/** Le menu tel qu'on le montre : rubriques débloquées, celle où l'on est, celles où quelque chose est dû. */
+/** Rubriques déjà ouvertes une fois sur cet appareil : elles restent dans le menu (on doit pouvoir y revenir). */
+const rubriquesVues = () => (Array.isArray(E.simplicite?.vues) ? E.simplicite.vues : null);
+const rubriqueMontree = (id) => toutAffiche() || E.deblocages[id] !== false || Boolean(rubriquesVues()?.includes(id));
+/** Le menu tel qu'on le montre : rubriques débloquées ou déjà ouvertes, celle où l'on est, celles où quelque chose est dû. */
 function menuMontre() {
-  return SIMPLE.menuAffiche(navigation(), E.deblocages, { tout: toutAffiche(), vue: E.vue });
+  return SIMPLE.menuAffiche(navigation(), E.deblocages, { tout: toutAffiche(), vue: E.vue, vues: rubriquesVues() });
 }
 function piedMenu() {
-  return SIMPLE.entreesAffichees(piedNavigation(E.monde), E.deblocages, { tout: toutAffiche(), vue: E.vue });
+  return SIMPLE.entreesAffichees(piedNavigation(E.monde), E.deblocages, { tout: toutAffiche(), vue: E.vue, vues: rubriquesVues() });
 }
 /** Entrées du menu qui attendent encore leurs données (sans elles, « Tout afficher » n'aurait rien à montrer de plus). */
 const rubriquesEnAttente = () => SIMPLE.entreesEnAttente(navigation(), piedNavigation(E.monde), E.deblocages);
@@ -1455,15 +1457,24 @@ function rendreSousNav() {
   remplir(n, g ? g.entrees.map((e) => h('a', { class: 'bz-puce', href: `#/${e.vue}`, cle: `sous-${e.id}`, 'aria-current': estCourante(e, E.vue) ? 'page' : false, onclick: (ev) => allerA(e.vue, ev) },
     icone(e.icone, { taille: 'sm' }), e.libelle, e.compte ? h('span', { class: 'bz-compteur', 'aria-label': e.compteLibelle, texte: texteCompteur(e.compte) }) : null)) : []);
 }
-/** « Plus » : la palette en feuille basse, avec ses places fixes, dans cet ordre (§4.2). */
+/**
+ * « Plus » : la palette en feuille basse (§4.2). D'ABORD les rubriques qui n'ont pas d'onglet en bas (Santé,
+ * Optimiser, Breizhcosystem, Connecter mes données, Réglages, Mon compte) : sur téléphone, c'est le seul chemin vers
+ * elles, et elles passaient derrière les suggestions et les actions. Ensuite seulement les outils de l'appareil.
+ */
 function placesPlus() {
   const T = window.bzTheme;
+  const avecOnglet = new Set(ONGLETS_TELEPHONE.filter((o) => !o.plus).map((o) => o.id));
+  const ailleurs = menuMontre().filter((g) => !avecOnglet.has(g.id)).flatMap((g) => g.entrees);
   return [
-    T ? { id: 'plein-soleil', titre: 'Plein soleil', icone: 'sun', presse: T.lire().pleinSoleil, basculer: () => { const oui = T.pleinSoleil(); annoncer(oui ? 'Plein soleil activé.' : 'Plein soleil désactivé.'); return oui; } } : null,
+    ...ailleurs.map((e) => ({ id: `vue-${e.id}`, titre: e.libelle, icone: e.icone, faire: () => changerVue(e.vue) })),
+    ...piedMenu().map((e) => ({ id: `pied-${e.id}`, titre: e.libelle, icone: e.icone, faire: () => (e.action === 'connecter' ? ouvrirAssistant() : changerVue(e.vue)) })),
+    E.connexion?.connexion === 'comptes' ? { id: 'compte', titre: 'Mon compte', icone: 'user', faire: () => changerVue('compte') } : null,
     { id: 'activite', titre: 'Activité récente', icone: 'bell', faire: () => ouvrirActivite() },
     { id: 'aide', titre: 'Aide', icone: 'circle-help', faire: ouvrirAide },
-    E.monde.profil.peutAdministrer ? { id: 'reglages', titre: 'Réglages', icone: 'settings', faire: () => changerVue('reglages') } : { id: 'apparence', titre: 'Apparence', icone: 'sliders-horizontal', faire: ouvrirApparence },
-    // après les quatre places fixes : la bascule du menu complet, s'il reste des rubriques qui attendent leurs données
+    { id: 'apparence', titre: 'Apparence', icone: 'sliders-horizontal', faire: ouvrirApparence },
+    T ? { id: 'plein-soleil', titre: 'Plein soleil', icone: 'sun', presse: T.lire().pleinSoleil, basculer: () => { const oui = T.pleinSoleil(); annoncer(oui ? 'Plein soleil activé.' : 'Plein soleil désactivé.'); return oui; } } : null,
+    // puis la bascule du menu complet, s'il reste des rubriques qui attendent leurs données
     rubriquesEnAttente().length ? { id: 'tout-afficher', titre: 'Tout afficher', icone: 'menu', presse: toutAffiche(), basculer: () => { reglerToutAfficher(!toutAffiche()); document.querySelector('.bz-palette__champ')?.dispatchEvent(new Event('input')); return toutAffiche(); } } : null,
   ].filter(Boolean);
 }
@@ -1542,8 +1553,9 @@ function rendreBanniere() {
       // sur téléphone, une seule ligne (« Entreprise exemple. ») : l'en-tête et le bandeau ne mangent pas l'écran
       h('p', { class: 'bz-bandeau__texte' }, h('span', { class: 'bz-bandeau__long', texte: 'Vous explorez une entreprise ' }), h('span', { class: 'bz-bandeau__court', texte: 'Entreprise ' }), 'exemple.'),
       h('div', { class: 'bz-bandeau__actions' },
-        // sur téléphone, ces deux-là sont ailleurs (première action d'« Aujourd'hui », palette) : le bandeau reste fin
-        admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm bz-bandeau__secondaire', onclick: () => ouvrirAssistant(), texte: 'Utiliser mes données' }) : null,
+        // le passage à ses propres données reste à portée partout, en deux mots sur téléphone
+        admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => ouvrirAssistant() },
+          h('span', { class: 'bz-bandeau__long', texte: 'Utiliser mes données' }), h('span', { class: 'bz-bandeau__court', texte: 'Mes données' })) : null,
         admin && m.organisation.exemples ? h('label', { class: 'bz-select bz-bandeau__secondaire' },
           h('span', { class: 'bz-visuellement-cache', texte: 'Changer d’exemple' }),
           h('select', { class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', onchange: (e) => changerExemple(e.target.value) },
@@ -2288,8 +2300,57 @@ function premiersPasCourant() {
   return premiersPas(E.monde, { carte: lireLocal('lb-carte-vue') === '1', sante: lireLocal('lb-sante-vue') === '1' });
 }
 
+// ---------------------------------------------------------------- mise en route : la prochaine étape (§4.20)
+/* Ce que les données ne prouvent pas (une carte regardée, un planning rempli, une invitation envoyée, une sauvegarde
+   sortie) est gardé sur cet appareil, comme les « Premiers pas ». « Pas maintenant » met une étape de côté : la
+   suivante prend sa place, et le fil ne s'arrête que quand il n'y a vraiment plus rien à proposer. */
+const CLE_ETAPES_PASSEES = 'lb-etapes-passees';
+const lireEtapesPassees = () => { try { const x = JSON.parse(lireLocal(CLE_ETAPES_PASSEES) ?? '[]'); return Array.isArray(x) ? x.filter((i) => typeof i === 'string') : []; } catch { return []; } };
+function vusMiseEnRoute() {
+  return {
+    carte: lireLocal('lb-carte-vue') === '1', sante: lireLocal('lb-sante-vue') === '1',
+    planning: lireLocal('lb-planning-fait') === '1', invitee: lireLocal('lb-invitation-faite') === '1',
+    sauvegarde: lireLocal('lb-sauvegarde-faite') === '1', passees: lireEtapesPassees(),
+  };
+}
+/** Une étape est tenue pour faite sur cet appareil (planning rempli, invitation envoyée, sauvegarde sortie). */
+function noterEtapeFaite(cle) {
+  if (lireLocal(cle) === '1') return;
+  ecrireLocal(cle, '1');
+  if (E.monde && $('#coque')) rafraichirAujourdhui();
+}
+/** « Pas maintenant » : l'étape est mise de côté et la suivante prend sa place. Annulable. */
+function passerEtape(e) {
+  const passees = [...new Set([...lireEtapesPassees(), e.id])].slice(-24);
+  ecrireLocal(CLE_ETAPES_PASSEES, JSON.stringify(passees));
+  rafraichirAujourdhui();
+  document.querySelector('.bz-carte--heros .bz-bouton')?.focus();
+  actionAnnulable({ texte: `Mis de côté : ${e.titre.toLocaleLowerCase('fr-FR')}.`, libelle: `« ${e.titre} » mis de côté`,
+    annuler: () => { ecrireLocal(CLE_ETAPES_PASSEES, JSON.stringify(lireEtapesPassees().filter((x) => x !== e.id))); rafraichirAujourdhui(); },
+    refaire: () => passerEtape(e) });
+}
+/** Où mène chaque étape de la mise en route (web/aujourdhui.js décide laquelle, l'écran sait où aller). */
+function faireEtape(e) {
+  const vers = {
+    nom: () => allerEtapePremiersPas('nom'),
+    carte: () => allerEtapePremiersPas('carte'),
+    donnees: () => ouvrirAssistant(),
+    equipe: () => allerEtapePremiersPas('equipe'),
+    sante: () => changerVue('sante'),
+    lieu: () => ouvrirSaisie({ type: E.monde.univers.types.find((t) => t.famille === 'lieu')?.id }),
+    planning: () => changerVue('planning'),
+    avis: () => changerVue('satisfaction'),
+    automatiser: () => changerVue('optimiser'),
+    invitee: () => changerVue('reglages:acces'),
+    sauvegarde: () => changerVue('reglages:sauvegardes'),
+    reseau: () => changerVue('nexus'),
+  };
+  vers[e.id]?.();
+}
+
 function faireAction(a) {
   if (a.type === 'connecter') return ouvrirAssistant();
+  if (a.type === 'etape') return faireEtape(a.etape);
   if (a.type === 'rien') return changerVue('sante');
   if (a.type === 'attente') return approuver(a.attente);
   // déjà prise en charge : on ouvre la tâche en cours, là où l'on est (ni nouvelle tâche, ni changement d'écran)
@@ -2328,21 +2389,43 @@ function remettre(a) {
 function carteHeros(a, { mode, niv }) {
   const id = `heros-${mode}`;
   const probleme = a.ton === 'critique' || a.ton === 'attention';
-  const surtitre = a.type === 'connecter' ? 'Pour commencer' : a.type === 'rien' ? 'Aujourd’hui' : 'À faire maintenant';
+  const surtitre = a.type === 'connecter' ? 'Pour commencer' : a.type === 'etape' ? 'Et maintenant' : a.type === 'rien' ? 'Aujourd’hui' : 'À faire maintenant';
   const reportable = a.type === 'situation' || a.type === 'attente';
   return h('article', {
     class: 'bz-carte bz-carte--heros', 'aria-labelledby': id, 'data-objet': a.objetId ?? null,
     onpointerenter: a.objetId ? () => surligner(a.objetId) : null, onpointerleave: a.objetId ? () => surligner(null) : null,
   },
-  h('p', { class: 'bz-carte__surtitre' }, probleme ? iconeEtat(a.ton, { taille: 'lg', decoratif: true }) : null, h('span', { texte: probleme ? `${surtitre} · ${LIBELLE_TON[a.ton]}` : surtitre })),
+  h('p', { class: 'bz-carte__surtitre' }, probleme ? iconeEtat(a.ton, { taille: 'lg', decoratif: true }) : null,
+    h('span', { texte: probleme ? `${surtitre} · ${LIBELLE_TON[a.ton]}` : a.type === 'etape' ? `${surtitre} · ${a.contexte}` : surtitre })),
   h(niv, { class: 'bz-carte__titre', id, texte: a.titre }),
   a.texte ? h('p', { class: 'bz-carte__texte', texte: a.texte }) : null,
+  a.sous ? h('p', { class: 'bz-carte__preuve', texte: a.sous }) : null,
   a.preuve ? h('p', { class: 'bz-carte__preuve', texte: texteProvenance(a.preuve) }) : null,
   a.bouton || reportable || a.type === 'connecter' ? h('div', { class: 'bz-groupe-boutons' },
     a.bouton ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: `${id}-principal`, 'aria-describedby': id, onclick: () => faireAction(a) },
       a.type === 'connecter' ? icone('plug') : null, a.bouton) : null,
     reportable ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', cle: `${id}-tard`, 'aria-describedby': id, onclick: () => reporter(a, mode, true) }, icone('clock'), 'Plus tard') : null,
+    // une étape n'est jamais imposée : « Pas maintenant » la met de côté et la suivante prend sa place
+    a.type === 'etape' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', cle: `${id}-passer`, 'aria-describedby': id, onclick: () => passerEtape(a.etape) }, 'Pas maintenant') : null,
     a.type === 'connecter' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', cle: `${id}-pas-a-pas`, onclick: () => changerVue('accueil') }, E.monde.organisation.demo ? 'Créer mon entreprise' : 'Compléter mon entreprise pas à pas') : null) : null);
+}
+
+/** « Pour aller plus loin » : la même prochaine étape, en une ligne, quand le héros porte déjà une urgence. */
+function ligneEtape(e, mode) {
+  const id = `etape-${mode}`;
+  return h('section', { class: 'bz-aujourdhui__section bz-aujourdhui__etape', 'aria-labelledby': id },
+    h('div', { class: 'bz-aujourdhui__tete' },
+      h('h2', { class: 'bz-t-titre-4', id, texte: 'Pour aller plus loin' }),
+      h('span', { class: 'bz-t-petit bz-texte-2', texte: `Étape ${e.faites + 1} sur ${e.total}` })),
+    h('ul', { class: 'bz-actions', role: 'list' },
+      h('li', { class: 'bz-action', 'data-ton': 'info' },
+        icone('flag', { classe: 'bz-action__icone', libelle: 'Prochaine étape' }),
+        h('div', { class: 'bz-action__texte' },
+          h('p', { class: 'bz-action__titre', id: `${id}-titre`, texte: e.titre }),
+          h('p', { class: 'bz-action__detail', texte: `${e.sert} Environ ${pluriel(e.minutes, 'minute', 'minutes')}.` })),
+        h('div', { class: 'bz-action__boutons' },
+          h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', cle: `etape-${mode}-${e.id}`, 'aria-describedby': `${id}-titre`, onclick: () => faireEtape(e) }, e.bouton),
+          h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', cle: `passer-${mode}-${e.id}`, 'aria-describedby': `${id}-titre`, onclick: () => passerEtape(e) }, 'Pas maintenant')))));
 }
 
 function ligneAction(a, mode) {
@@ -2557,6 +2640,8 @@ function contenuAujourdhui(mode) {
         barreProgression({ compacte: true }),
         h('a', { href: '#/matin', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', onclick: (e) => allerA('matin', e) }, 'Tout voir', icone('arrow-right', { taille: 'sm' })))
       : [
+        // le fil ne s'arrête pas aux cinq premières minutes : une étape, une seule, même quand il y a des urgences
+        plan.etape ? ligneEtape(plan.etape, mode) : null,
         tuiles || santeMontree ? h('section', { class: 'bz-aujourdhui__section', 'aria-labelledby': `bilan-${mode}` },
           h('h2', { class: 'bz-t-titre-4', id: `bilan-${mode}`, texte: 'En un coup d’œil' }),
           h('div', { class: 'bz-aujourdhui__bilan' }, tuiles, santeMontree ? anneau(m.sante, { taille: 120 }) : null)) : null,
@@ -2826,7 +2911,7 @@ async function rendreListe(vue) {
     remplir($('#page'), h('div', { class: 'bz-ecran bz-liste' }, videRubrique(rubriqueDeVue(vue), {
       titre: o ? null : `Aucune fiche dans ${libelleListe.toLowerCase()} pour le moment.`,
       action: boutonConnecter(cible),
-      secondaire: cible.type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirSaisie(cible) }, 'Ajouter à la main (enregistré sur cet appareil)') : null,
+      secondaire: cible.type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirSaisie(cible) }, 'Ajouter à la main') : null,
     })));
     return;
   }
@@ -3649,16 +3734,17 @@ function ciblesImport() {
   const u = E.monde.univers;
   const typeTiers = u.types.find((t) => t.famille === 'tiers')?.id;
   const tiers = ['client', 'fournisseur', 'partenaire', 'prospect'].map((r) => u.roles.find((x) => x.id === r)).filter(Boolean)
-    .map((r) => ({ cle: `role:${r.id}`, libelle: r.pluriel, sous: 'entreprises, particuliers, collectivités', type: typeTiers, roles: [r.id] }));
+    .map((r) => ({ cle: `role:${r.id}`, libelle: r.pluriel, singulier: r.libelle ?? r.pluriel, sous: 'entreprises, particuliers, collectivités', type: typeTiers, roles: [r.id] }));
   const autres = u.types.filter((t) => !['tiers', 'organisation', 'evenement', 'indicateur'].includes(t.famille))
-    .map((t) => ({ cle: `type:${t.id}`, libelle: t.pluriel, sous: { personne: 'équipe', lieu: 'vos sites', ressource: 'stock et matériel', commande: 'ventes et achats', projet: 'affaires en cours', tache: 'à faire' }[t.famille] ?? '', type: t.id, roles: [] }));
+    .map((t) => ({ cle: `type:${t.id}`, libelle: t.pluriel, singulier: t.libelle ?? t.pluriel, sous: { personne: 'équipe', lieu: 'vos sites', ressource: 'stock et matériel', commande: 'ventes et achats', projet: 'affaires en cours', tache: 'à faire' }[t.famille] ?? '', type: t.id, roles: [] }));
   return [...tiers, ...autres];
 }
 /** Cible complète (libellé, clé) depuis { type, roles } passé par une liste ou par « Compléter mon entreprise ». */
 function cibleDe(cible) {
   if (!cible) return null;
   const c = ciblesImport().find((x) => x.type === cible.type && (x.roles?.[0] ?? null) === (cible.roles?.[0] ?? null));
-  return c ?? { cle: `type:${cible.type}`, libelle: E.monde.univers.types.find((t) => t.id === cible.type)?.pluriel ?? 'Données', sous: '', type: cible.type, roles: cible.roles ?? [] };
+  const t = E.monde.univers.types.find((x) => x.id === cible.type);
+  return c ?? { cle: `type:${cible.type}`, libelle: t?.pluriel ?? 'Données', singulier: t?.libelle ?? t?.pluriel ?? 'Donnée', sous: '', type: cible.type, roles: cible.roles ?? [] };
 }
 
 function nouvelAssistant(etape = 'choisir', cible = null) {
@@ -4062,17 +4148,45 @@ function choisirEntree(x) {
   if (x.genre === 'outil') { const s = (E.sources ?? []).find((y) => y.id === x.id); if (s) demarrerOutil(A, s); return; }
   if (x.id === 'fec') { A.parcours = 'fec'; A.fec ??= { envoi: false, resultat: null, nom: '' }; allerEtape('fec'); return; }
   if (x.id === 'manuel') { A.parcours = 'manuel'; A.source = 'manuel'; allerEtape('contenu'); return; }
+  const dejaChoisi = Boolean(A.cible);
   A.parcours = 'fichier';
   A.source = x.id === 'coller' ? 'coller' : x.id === 'sheets' ? 'sheets' : 'csv';
-  allerEtape(A.cible ? 'fichier' : 'contenu');
+  // sans cible connue, « Clients » est déjà coché : la question reste posée, mais « Continuer » suffit
+  if (!dejaChoisi) A.cible = cibleParDefaut();
+  allerEtape(dejaChoisi ? 'fichier' : 'contenu');
 }
 
 // ---- import d'un fichier : contenu, fichier, colonnes, résultat
-function corpsContenu(A) {
+/* « Que contient ce fichier ? » : six réponses courantes, le reste replié. On vient de répondre à « Où sont vos
+   clients ? » : « Clients » est déjà coché, « Continuer » suffit. */
+function ciblesCourantes(toutes) {
+  const famille = (id) => E.monde.univers.types.find((t) => t.id === id)?.famille;
+  const parType = (id) => toutes.find((c) => c.type === id && !c.roles.length);
+  const parFamille = (f) => toutes.find((c) => famille(c.type) === f && !c.roles.length);
   return [
-    h('fieldset', { class: 'bz-grille-choix', 'aria-labelledby': 'assistant-etape' }, ciblesImport().map((c) => h('label', { class: 'bz-choix' },
-      h('input', { type: 'radio', name: 'assistant-cible', value: c.cle, checked: A.cible?.cle === c.cle, onchange: () => { A.cible = c; if (A.erreur) { A.erreur = null; rendreAssistant(); } } }),
-      h('span', { class: 'bz-choix__texte' }, h('span', { class: 'bz-choix__titre', texte: c.libelle }), c.sous ? h('span', { class: 'bz-choix__detail', texte: c.sous }) : null)))),
+    toutes.find((c) => c.cle === 'role:client'),
+    toutes.find((c) => c.cle === 'role:fournisseur'),
+    parType('employe') ?? parFamille('personne'),
+    parType('article') ?? parFamille('ressource'),
+    parType('facture'),
+    parType('devis'),
+  ].filter((c, i, l) => c && l.indexOf(c) === i);
+}
+/** Ce qu'on importe quand on arrive par la question d'entrée : ses clients, neuf fois sur dix. */
+const cibleParDefaut = () => ciblesCourantes(ciblesImport())[0] ?? null;
+
+function corpsContenu(A) {
+  const toutes = ciblesImport();
+  const courantes = ciblesCourantes(toutes);
+  const autres = toutes.filter((c) => !courantes.includes(c));
+  const choix = (c) => h('label', { class: 'bz-choix' },
+    h('input', { type: 'radio', name: 'assistant-cible', value: c.cle, checked: A.cible?.cle === c.cle, onchange: () => { A.cible = c; if (A.erreur) { A.erreur = null; rendreAssistant(); } } }),
+    h('span', { class: 'bz-choix__texte' }, h('span', { class: 'bz-choix__titre', texte: c.libelle }), c.sous ? h('span', { class: 'bz-choix__detail', texte: c.sous }) : null));
+  return [
+    h('fieldset', { class: 'bz-grille-choix', 'aria-labelledby': 'assistant-etape' }, courantes.map(choix)),
+    autres.length ? h('details', { class: 'bz-repli', open: autres.some((c) => c.cle === A.cible?.cle) },
+      h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Autre chose' }), h('span', { class: 'bz-repli__note', texte: pluriel(autres.length, 'type', 'types') }), icone('chevron-down', { taille: 'sm' })),
+      h('fieldset', { class: 'bz-grille-choix bz-repli__corps', 'aria-label': 'Autres types d’informations' }, autres.map(choix))) : null,
     A.parcours !== 'manuel' ? h('p', { class: 'bz-t-petit' }, 'Une feuille de votre fichier = un type d’informations. Pas encore de fichier ? ',
       h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => { if (A.cible) modeleCsv(A.cible.type); else { A.erreur = 'Choisissez d’abord ce que contiendra le fichier.'; rendreAssistant(); } } }, 'Télécharger un modèle')) : null,
   ];
@@ -4133,8 +4247,11 @@ function corpsColonnes(A) {
 }
 function corpsPret(A) {
   const r = A.resultat;
+  // on dit ce qui a été ajouté, pas « des éléments » : « 5 clients ajoutés à votre carte. »
+  const bas = (t) => String(t ?? '').toLocaleLowerCase('fr-FR');
+  const quoi = A.cible ? accord(r.crees, bas(A.cible.singulier ?? A.cible.libelle), bas(A.cible.libelle)) : '';
   return [
-    resultatAssistant(r.crees ? 'ok' : 'attention', `${pluriel(r.crees, 'élément ajouté', 'éléments ajoutés')} à votre carte.`, {
+    resultatAssistant(r.crees ? 'ok' : 'attention', quoi ? `${nombre(r.crees)} ${quoi} ${accord(r.crees, 'ajouté', 'ajoutés')} à votre carte.` : `${pluriel(r.crees, 'élément ajouté', 'éléments ajoutés')} à votre carte.`, {
       detail: r.totalRejets ? `${pluriel(r.totalRejets, 'ligne écartée', 'lignes écartées')} : voici pourquoi.` : 'Toutes les lignes ont été reprises.' }),
     r.rejets.length ? h('ul', { class: 'bz-liste-simple' }, r.rejets.map((x) => h('li', { class: 'bz-t-petit' }, h('strong', { texte: `Ligne ${x.ligne} : ` }), x.erreurs.join(' ; ')))) : null,
   ];
@@ -4267,7 +4384,7 @@ async function partirDeZero() {
 }
 
 // ---------------------------------------------------------------- saisie manuelle
-function ouvrirSaisie(cible) {
+function ouvrirSaisie(cible, { apres = null } = {}) {
   const u = E.monde.univers;
   let t = u.types.find((x) => x.id === cible.type);
   if (!t) return;
@@ -4295,7 +4412,8 @@ function ouvrirSaisie(cible) {
         D.fermer();
         await charger();
         informer(`${t.libelle} ajouté : ${o.nom}.`, 'ok');
-        await selectionner(o.id);
+        // `apres` : on revient là d'où l'on vient (une case du planning) au lieu d'ouvrir la fiche
+        if (apres) await apres(o); else await selectionner(o.id);
       } catch (err) { S.erreur = err.message; S.envoi = false; D.rendre(); }
     },
     contenu: () => {
@@ -4423,7 +4541,15 @@ function dessinerPlanning() {
     ? h('details', { class: 'bz-repli bz-planning__trous', open: E.planningTrousOuverts ?? !tel, ontoggle: (e) => { E.planningTrousOuverts = e.target.open; } },
       h('summary', {}, iconeEtat('attention', { taille: 'sm', decoratif: true }), h('span', { class: 'bz-repli__titre', texte: `${pluriel(P.alertes.length, 'trou', 'trous')} dans le planning des 6 prochains jours ouvrés, aujourd’hui compris` }), icone('chevron-down', { taille: 'sm' })),
       h('ul', { class: 'bz-repli__corps bz-liste-simple' }, [...alertesParJour].map(([j, l]) => h('li', {}, h('strong', { texte: `${j === P.aujourdhui ? 'Aujourd’hui' : M.jourLong(j)} : ` }), l.map((a) => sansDemo(a.texte)).join(' · ')))))
-    : h('p', { class: 'bz-t-petit bz-texte-2 bz-ligne-icone' }, iconeEtat('ok', { taille: 'sm', decoratif: true }), h('span', { texte: 'Aucun trou dans le planning des 6 prochains jours ouvrés, aujourd’hui compris.' }));
+    // sans lieu, la question des trous n'a pas de sens : toutes les cases sont « Non affecté ». On dit quoi faire.
+    : PLAN.sansLieu(P)
+      ? h('div', { class: 'bz-resultat', 'data-ton': 'info' }, iconeEtat('info', { decoratif: true }),
+        h('div', { class: 'bz-pile bz-pile--serre' },
+          h('strong', { texte: 'Ajoutez un lieu pour dire où chacun travaille.' }),
+          h('p', { class: 'bz-t-petit', texte: 'Un siège, un atelier, un chantier : il apparaîtra dans chaque case, et les jours sans personne se verront.' }),
+          P.modifiable ? h('div', { class: 'bz-groupe-boutons' },
+            h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--sm', cle: 'planning-ajouter-lieu', onclick: () => creerLieuPuisRevenir([{ employe: P.lignes[0].id, date: P.jours.includes(P.aujourdhui) ? P.aujourdhui : P.jours[0] }]) }, icone('map-pin', { taille: 'sm' }), 'Ajouter un lieu de travail')) : null))
+      : h('p', { class: 'bz-t-petit bz-texte-2 bz-ligne-icone' }, iconeEtat('ok', { taille: 'sm', decoratif: true }), h('span', { texte: 'Aucun trou dans le planning des 6 prochains jours ouvrés, aujourd’hui compris.' }));
 
   remplir(page, h('div', { class: 'bz-ecran bz-planning', 'data-vue': vue },
     P.simulation ? h('p', { class: 'bz-badge' }, icone('flask-conical', { taille: 'sm' }), 'Simulation : rien n’est enregistré') : null,
@@ -4575,6 +4701,9 @@ function ouvrirChoixCase(ancre, cases) {
   const choisir = (v) => { cacher(pop); affecterLot(PLAN.lotPour(P, cases, v)); };
   const items = [];
   const option = (o) => { const b = h('button', { type: 'button', role: 'menuitemradio', class: 'bz-menu__option', 'aria-checked': o.valeur === actuelle, onclick: () => choisir(o.valeur) }, icone(ICONE_CASE[PLAN.typeCase(o.valeur)] ?? 'circle', { taille: 'sm' }), h('span', { texte: sansDemo(o.libelle) }), o.valeur === actuelle ? icone('check', { taille: 'sm' }) : null); items.push(b); return b; };
+  // sans lieu ni projet, le menu ne proposait que des absences : on ne pouvait pas dire où quelqu'un travaille
+  const sansOu = PLAN.sansLieu(P);
+  const ajouterLieu = () => { const b = h('button', { type: 'button', role: 'menuitem', class: 'bz-menu__option', onclick: () => { cacher(pop); creerLieuPuisRevenir(cases); } }, icone('map-pin', { taille: 'sm' }), h('span', { texte: 'Ajouter un lieu de travail…' })); items.push(b); return b; };
   remplir(pop,
     h('p', { class: 'bz-t-label bz-planning__choix-titre', id: 'planning-choix-titre', texte: titre }),
     h('div', { class: 'bz-planning__choix-liste', role: 'menu', 'aria-labelledby': 'planning-choix-titre',
@@ -4585,6 +4714,8 @@ function ouvrirChoixCase(ancre, cases) {
         if (e.key === 'Home') { e.preventDefault(); items[0]?.focus(); }
         if (e.key === 'End') { e.preventDefault(); items.at(-1)?.focus(); }
       } },
+    sansOu ? h('div', { role: 'group', 'aria-label': 'Lieux', class: 'bz-planning__choix-groupe' },
+      h('p', { class: 'bz-t-surtitre bz-texte-2', 'aria-hidden': 'true', texte: 'Lieux' }), ajouterLieu()) : null,
     PLAN.optionsGroupees(P).map((g) => h('div', { role: 'group', 'aria-label': g.groupe, class: 'bz-planning__choix-groupe' },
       h('p', { class: 'bz-t-surtitre bz-texte-2', 'aria-hidden': 'true', texte: g.groupe }), g.options.map(option))),
     un ? h('div', { role: 'group', 'aria-label': 'Recopier', class: 'bz-planning__choix-groupe' }, (() => {
@@ -4603,6 +4734,17 @@ function ouvrirChoixCase(ancre, cases) {
   setTimeout(() => (items.find((b) => b.getAttribute('aria-checked') === 'true') ?? items[0])?.focus(), 0);
 }
 
+/** Premier lieu depuis une case du planning : on le saisit, puis on revient sur la case pour y affecter quelqu'un. */
+function creerLieuPuisRevenir(cases) {
+  const type = E.monde.univers.types.find((t) => t.famille === 'lieu')?.id;
+  if (!type) return;
+  ouvrirSaisie({ type }, { apres: async () => {
+    await rendrePlanning();
+    const b = $(`[data-cle="case-${CSS.escape(PLAN.cleCase(cases[0]))}"]`);
+    if (b) { b.focus(); ouvrirChoixCase(b, cases); }
+  } });
+}
+
 /** Envoi optimiste d'un lot de cases, annulable ; hors ligne : en file d'attente ; refus du serveur : retour en arrière. */
 async function affecterLot(lot, { annulable = true } = {}) {
   if (!lot.length || !E.planning) return;
@@ -4616,6 +4758,8 @@ async function affecterLot(lot, { annulable = true } = {}) {
   try {
     await api('POST', '/planning', { affectations: lot });
     for (const c of lot) attentePlanning.delete(PLAN.cleCase(c));
+    // « dire où chacun travaille » est fait : la mise en route passe à l'étape suivante
+    if (lot.some((c) => String(c.valeur).startsWith('lieu:') || String(c.valeur).startsWith('projet:'))) noterEtapeFaite('lb-planning-fait');
     if (annulable) actionAnnulable({ texte: `${texte.charAt(0).toUpperCase()}${texte.slice(1)}.`, libelle: `planning : ${texte}`, annuler: () => affecterLot(inverse, { annulable: false }) });
     else annoncer(`Annulé : ${texte}.`);
     clearTimeout(rafraichirPlanningTempo);
@@ -6053,7 +6197,7 @@ function inviterPersonne(p) {
       if (S.resultat) { D.fermer(); return; }
       if (!S.identifiant.trim()) { S.erreur = 'Indiquez son identifiant de connexion.'; D.rendre(); $('#invitation-identifiant')?.focus(); return; }
       S.envoi = true; D.rendre();
-      try { S.resultat = await api('POST', `/acces/${encodeURIComponent(p.id)}/invitation`, { identifiant: S.identifiant }); S.erreur = null; if (E.vue === 'reglages') rendreReglages('acces'); } catch (err) { S.erreur = err.message; }
+      try { S.resultat = await api('POST', `/acces/${encodeURIComponent(p.id)}/invitation`, { identifiant: S.identifiant }); S.erreur = null; noterEtapeFaite('lb-invitation-faite'); if (E.vue === 'reglages') rendreReglages('acces'); } catch (err) { S.erreur = err.message; }
       S.envoi = false; D.rendre();
     },
     contenu: () => ({
@@ -6363,6 +6507,7 @@ function formulaireExport(X, nomFichier, rendre, { principal = true } = {}) {
         const f = await api('POST', '/sauvegardes/export', { phrase: X.phrase, avecAcces: Boolean(X.avecAcces), ...(comptes ? { motDePasse: X.motDePasse, code: X.code || undefined } : {}) });
         telecharger(nomFichier, JSON.stringify(f), 'application/json');
         Object.assign(X, { phrase: '', confirmation: '', motDePasse: '', code: '', fait: true });
+        noterEtapeFaite('lb-sauvegarde-faite'); // une copie est sortie : la mise en route passe à l'étape suivante
       } catch (err) {
         if (err.session) return undefined;
         X.erreur = err.message;
@@ -7625,17 +7770,18 @@ async function rendreSante() {
     S.forces?.length ? h('p', { class: 'bz-t-petit bz-texte-2' }, h('strong', { texte: 'Vos points forts : ' }), S.forces.map((c) => c.libelle).join(', '), '.') : null);
 
   const ligneCritere = (c) => {
-    const st = M.statutDe(c.statut);
+    const groupe = M.groupeDeCritere(c);
+    const st = M.statutDe(groupe);
     // critère réservé (motifs d'absence, droit RH) : ni mesure, ni action, la raison est dite
     const action = c.statut !== 'bon' && !c.reserve ? M.actionCritere(c, ctx) : null;
-    return h('li', { class: 'bz-critere', 'data-statut': c.statut },
+    return h('li', { class: 'bz-critere', 'data-statut': groupe },
       h('div', { class: 'bz-critere__tete' },
         h('span', { class: 'bz-critere__nom', texte: c.libelle }),
         h('span', { class: 'bz-critere__note bz-t-chiffre', 'data-certitude': c.score === null ? 'absent' : null, texte: c.score === null ? '—' : nombre(c.score) },
-          c.score === null ? h('span', { class: 'bz-visuellement-cache', texte: ' Pas encore renseigné' }) : h('span', { class: 'bz-visuellement-cache', texte: ' sur 100' }))),
+          c.score === null ? h('span', { class: 'bz-visuellement-cache', texte: ` ${st.titre}` }) : h('span', { class: 'bz-visuellement-cache', texte: ' sur 100' }))),
       c.score === null ? null : barreScore(c.score, st.ton),
       h('p', { class: 'bz-t-petit bz-texte-2', texte: c.mesure ?? (c.reserve ? `${c.source}.` : `À connecter : ${c.source}`) }),
-      c.statut === 'faible' || c.statut === 'moyen' ? h('p', { class: 'bz-t-petit', texte: c.conseil }) : null,
+      c.statut === 'faible' || c.statut === 'moyen' || c.aLancer ? h('p', { class: 'bz-t-petit', texte: c.conseil }) : null,
       action && actionPermise(action) ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien bz-critere__action', onclick: () => faireActionSante(action) }, action.libelle, icone('arrow-right', { taille: 'sm' })) : null);
   };
 
@@ -8632,10 +8778,88 @@ async function rendreSatisfaction() {
 }
 
 // ---------------------------------------------------------------- optimiser : ce qui peut être automatisé (§6.1 P8)
-/* Gain total en tuile, puis les pistes en liste priorisée (la plus rentable d'abord), chacune sous la forme d'une
-   « proposition à valider » (§4.28 : pointillés tant qu'elle n'est pas activée) avec son action ; puis les tâches
-   répétitives décrites par une personne (« est-ce que ça vaut le coup ? ») ; puis les automatisations en tableau,
-   avec leur interrupteur. */
+/* UN seul mot — « automatisation » — et UNE seule liste, où chaque automatisation porte son état : en marche, prête
+   (on la met en marche d'un clic) ou en attente des données qui lui manquent. En tête, un seul chiffre (le temps à
+   récupérer) et une seule action (« J'automatise »). Le « pourquoi » de chaque ligne est replié, le réglage du calcul
+   aussi ; les tâches qu'une personne décrit elle-même ont leur onglet. Ce qui ne s'automatise pas d'ici (brancher un
+   outil, fusionner des doublons) est dit à part, sans se faire passer pour une automatisation. */
+const ETAT_AUTOMATISATION = Object.freeze({
+  active: { libelle: 'En marche', ton: 'ok', icone: 'circle-check', rang: 2 },
+  prete: { libelle: 'Prête', ton: 'attention', icone: 'zap', rang: 0 },
+  a_brancher: { libelle: 'Il manque des données', ton: 'info', icone: 'plug', rang: 1 },
+});
+
+/**
+ * La liste, assemblée une fois pour toutes : l'état vient de /automatisations/preparation, le « pourquoi » chiffré de
+ * la piste correspondante, les déclenchements de /automatisations. Ordre : à mettre en marche, puis en attente de
+ * données, puis déjà en marche ; à état égal, le plus gros gain d'abord.
+ */
+function automatisationsUnifiees(O, A, Pr) {
+  const pistes = new Map(O.opportunites.filter((o) => o.recette).map((o) => [o.recette, o]));
+  const compteurs = new Map(A.recettes.map((r) => [r.id, r]));
+  return Pr.recettes.map((r) => {
+    const piste = pistes.get(r.id) ?? null;
+    const c = compteurs.get(r.id) ?? null;
+    return {
+      ...r, piste, etat: ETAT_AUTOMATISATION[r.etat] ? r.etat : 'a_brancher',
+      heuresMois: r.etat === 'active' ? 0 : r.heuresMois || piste?.heuresMois || 0,
+      euroMois: piste?.euroMois ?? null,
+      declenchements: c?.declenchements ?? 0, dernier: c?.dernier ?? null,
+      objets: piste?.objets ?? [],
+    };
+  }).sort((a, b) => ETAT_AUTOMATISATION[a.etat].rang - ETAT_AUTOMATISATION[b.etat].rang || b.heuresMois - a.heuresMois || a.nom.localeCompare(b.nom, 'fr'));
+}
+
+/** Une ligne de la liste : état, nom, gain, un seul geste, et le « pourquoi » replié. */
+function ligneAutomatisation(x, i, admin, basculer) {
+  const e = ETAT_AUTOMATISATION[x.etat];
+  const id = `automatisation-${i}`;
+  const gain = x.heuresMois ? `${nf.format(x.heuresMois)} h par mois${x.euroMois ? ` · ${nfEuro.format(x.euroMois)}` : ''}, estimé` : null;
+  const etat = x.etat === 'a_brancher' && x.manque ? `Il manque : ${x.manque}` : e.libelle;
+  return h('li', { class: 'bz-action', 'data-ton': e.ton },
+    // l'état se lit en toutes lettres sous le nom : l'icône ne porte ni alarme ni couleur seule
+    icone(e.icone, { classe: 'bz-action__icone', libelle: e.libelle }),
+    h('div', { class: 'bz-action__texte' },
+      h('p', { class: 'bz-action__titre', id, texte: x.nom }),
+      h('p', { class: 'bz-action__detail' }, h('strong', { texte: etat }), gain ? h('span', { class: 'bz-t-chiffre bz-texte-2', 'data-certitude': 'estime', texte: ` · ${gain}` }) : null),
+      x.etat === 'active' ? h('p', { class: 'bz-action__preuve', texte: x.declenchements ? `Déclenchée ${pluriel(x.declenchements, 'fois', 'fois')} · ${dateRelative(x.dernier)}` : 'Pas encore déclenchée : elle agira dès qu’un cas se présentera.' }) : null,
+      h('details', { class: 'bz-repli bz-repli--sobre' },
+        h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Pourquoi' }), icone('chevron-down', { taille: 'sm' })),
+        h('div', { class: 'bz-repli__corps bz-pile bz-pile--serre' },
+          h('p', { class: 'bz-t-petit', texte: `Quand : ${enMinuscule(x.quand)}. Alors : ${enMinuscule(x.alors)}.` }),
+          x.piste ? h('ul', { class: 'bz-proposition__raisons' },
+            h('li', { texte: x.piste.constat }),
+            h('li', { class: 'bz-texte-2', texte: `Hypothèse : ${enMinuscule(x.piste.hypothese)}` })) : null,
+          x.versOutil ? h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Les envois vers l’extérieur passent par votre outil d’automatisation ; sans lui, elle prépare la tâche et vous envoyez.' }) : null))),
+    h('div', { class: 'bz-action__boutons' },
+      admin && x.etat === 'prete' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', cle: `recette-${x.id}`, 'aria-describedby': id, onclick: () => basculer(x.id, true) }, icone('zap', { taille: 'sm' }), 'Mettre en marche') : null,
+      admin && x.etat === 'active' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', cle: `recette-${x.id}`, 'aria-describedby': id, onclick: () => basculer(x.id, false) }, icone('pause', { taille: 'sm' }), 'Arrêter') : null,
+      admin && x.etat === 'a_brancher' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', 'aria-describedby': id, onclick: () => ouvrirAssistant() }, icone('plug', { taille: 'sm' }), 'Connecter mes données') : null,
+      !admin ? h('span', { class: 'bz-t-petit bz-texte-2', texte: x.etat === 'prete' ? 'À mettre en marche par la direction.' : '' }) : null,
+      x.objets.length ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', 'aria-describedby': id, onclick: () => ouvrirSurCarte(x.objets[0]) }, icone('eye', { taille: 'sm' }), `Voir ${pluriel(x.objets.length, 'élément concerné', 'éléments concernés')}`) : null));
+}
+
+/** Ce qu'aucune automatisation ne fait (brancher un outil, fusionner des doublons) : dit à part, et replié. */
+function autresGains(O, admin) {
+  const restes = O.opportunites.filter((o) => !o.recette);
+  if (!restes.length) return null;
+  const heures = Math.round(restes.reduce((n, o) => n + o.heuresMois, 0) * 2) / 2;
+  return h('details', { class: 'bz-repli' },
+    h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'À faire vous-même, une fois' }),
+      h('span', { class: 'bz-repli__note', texte: `${nombre(restes.length)} · ${nf.format(heures)} h par mois` }), icone('chevron-down', { taille: 'sm' })),
+    h('div', { class: 'bz-repli__corps' },
+      h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Aucune automatisation ne fait ces gestes : ils demandent une décision, une fois.' }),
+      h('ul', { class: 'bz-actions', role: 'list' }, restes.map((o, i) => h('li', { class: 'bz-action', 'data-ton': 'info' },
+        icone('sparkles', { classe: 'bz-action__icone' }),
+        h('div', { class: 'bz-action__texte' },
+          h('p', { class: 'bz-action__titre', id: `gain-${i}`, texte: o.titre }),
+          h('p', { class: 'bz-action__detail', texte: o.constat }),
+          h('p', { class: 'bz-action__preuve', texte: `${nf.format(o.heuresMois)} h par mois · ${nfEuro.format(o.euroMois)}, estimé. ${o.proposition}` })),
+        h('div', { class: 'bz-action__boutons' },
+          o.id === 'connecter' && admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', 'aria-describedby': `gain-${i}`, onclick: () => ouvrirAssistant() }, icone('plug', { taille: 'sm' }), 'Connecter mes données') : null,
+          o.objets.length ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', 'aria-describedby': `gain-${i}`, onclick: () => ouvrirSurCarte(o.objets[0]) }, icone('eye', { taille: 'sm' }), `Voir ${pluriel(o.objets.length, 'élément concerné', 'éléments concernés')}`) : null))))));
+}
+
 /**
  * « J'automatise » : d'un geste, tout ce qui est prêt se met en marche. Ce qui ne peut pas l'être est dit, avec ce
  * qu'il faut relier. Pédagogie d'abord : ce qu'est une automatisation, ce qu'elle fera, ce qui reste à une personne.
@@ -8650,9 +8874,9 @@ function blocAutomatiser(Pr, admin, apres) {
   return h('section', { class: 'bz-carte bz-pile bz-optimiser__tout', 'aria-labelledby': 'tout-titre' },
     h('h2', { class: 'bz-t-titre-4', id: 'tout-titre', texte: 'J’automatise' }),
     h('p', { class: 'bz-t-corps', texte: phrase }),
-    manquantes.length ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `${pluriel(manquantes.length, 'autre attend', 'autres attendent')} des données que le jeu ne voit pas encore.` }) : null,
+    manquantes.length ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `${pluriel(manquantes.length, 'autre attend', 'autres attendent')} des données que Living Business ne voit pas encore.` }) : null,
     h('div', { class: 'bz-groupe-boutons' },
-      pretes.length && admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirToutAutomatiser(Pr, admin, apres) }, icone('zap'), 'Tout automatiser') : null,
+      pretes.length && admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'tout-automatiser', onclick: () => ouvrirToutAutomatiser(Pr, admin, apres) }, icone('zap'), 'Tout automatiser') : null,
       !pretes.length || !admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirToutAutomatiser(Pr, admin, apres) }, icone('list-checks'), pretes.length ? 'Voir le détail' : 'Voir ce qui manque') : null,
       pretes.length && !admin ? h('span', { class: 'bz-t-petit bz-texte-2', texte: 'À mettre en marche par la direction.' }) : null));
 }
@@ -8677,18 +8901,27 @@ function ouvrirToutAutomatiser(Pr, admin, apres) {
     try {
       const nbTaches = () => tachesOuvertes(E.monde ?? {}).length;
       const avant = nbTaches();
-      const r = await api('POST', '/automatisations/tout', {});
+      // Mettre en marche une automatisation en rend parfois une autre possible (la première a créé la tâche que la
+      // seconde regarde) : on enchaîne dans le même geste, au lieu de reproposer « Tout automatiser » juste après.
+      const activees = [];
+      for (let tour = 0; tour < 5; tour++) {
+        const r = await api('POST', '/automatisations/tout', {});
+        activees.push(...r.activees);
+        if (!r.activees.length) break;
+        await new Promise((ok) => setTimeout(ok, DELAI_AUTOMATISATIONS));
+        if (!(await api('GET', '/automatisations/preparation')).recettes.some((x) => x.etat === 'prete')) break;
+      }
       D.fermer();
       // Ce que les automatisations préparent doit se voir tout de suite. Elles s'exécutent un instant après l'activation
       // (côté serveur) : on attend, on relit, on compte les tâches préparées et le message y mène. Un seul message : celui
       // de la nouvelle rubrique « Tâches » ne s'ajoute pas au nôtre.
       rubriquesDejaDites.add('taches');
       try {
-        if (r.activees.length) await new Promise((ok) => setTimeout(ok, DELAI_AUTOMATISATIONS));
+        if (activees.length) await new Promise((ok) => setTimeout(ok, DELAI_AUTOMATISATIONS));
         await charger();
       } catch { /* hors ligne : le menu se mettra à jour à la prochaine lecture */ }
       const creees = Math.max(0, nbTaches() - avant);
-      const marche = r.activees.length ? `${pluriel(r.activees.length, 'automatisation mise', 'automatisations mises')} en marche : ${r.activees.length > 1 ? 'elles agissent' : 'elle agit'} dès maintenant sur vos données réelles.` : 'Rien de plus à mettre en marche.';
+      const marche = activees.length ? `${pluriel(activees.length, 'automatisation mise', 'automatisations mises')} en marche : ${activees.length > 1 ? 'elles agissent' : 'elle agit'} dès maintenant sur vos données réelles.` : 'Rien de plus à mettre en marche.';
       informer(creees ? `${marche} ${pluriel(creees, 'tâche préparée', 'tâches préparées')}.` : marche, 'ok',
         creees ? { libelle: creees > 1 ? 'Voir les tâches' : 'Voir la tâche', faire: () => changerVue('famille:tache') } : null);
       rubriquesDejaDites.delete('taches');
@@ -9028,63 +9261,49 @@ async function rendreOptimiser() {
     try { await api('POST', `/automatisations/${id}`, { actif }); informer(actif ? 'Automatisation activée : elle agit dès maintenant sur vos données réelles.' : 'Automatisation désactivée.', 'ok'); } catch (e) { E.optimiserErreur = e.message; }
     rendreOptimiser();
   };
-  const pistes = [...O.opportunites].sort((a, b) => Number(a.active) - Number(b.active) || b.heuresMois - a.heuresMois);
-  // une seule action principale par écran : « Tout automatiser » quand des automatisations sont prêtes, sinon la piste la plus rentable
-  const toutPret = admin && Pr.recettes.some((r) => r.etat === 'prete');
-  const premiere = toutPret ? null : pistes.find((o) => !o.active);
-  const ICONE_CATEGORIE = (c) => (/factur|paiement|relance/i.test(c) ? 'receipt' : /stock|achat/i.test(c) ? 'boxes' : /courrier|mail/i.test(c) ? 'mail' : /planning|équipe/i.test(c) ? 'calendar-days' : /connect|outil|saisie/i.test(c) ? 'plug' : 'sparkles');
+  const liste = automatisationsUnifiees(O, A, Pr);
+  const compte = (etat) => liste.filter((x) => x.etat === etat).length;
+  E.optimiserOnglet ??= lireLocal('lb-optimiser-onglet');
+  const onglet = E.optimiserOnglet === 'taches' ? 'taches' : 'automatisations';
+  const choisirOnglet = (id) => { E.optimiserOnglet = id; ecrireLocal('lb-optimiser-onglet', id); rendreOptimiser(); };
+  const ongletsOptimiser = [
+    { id: 'automatisations', libelle: 'Automatisations', icone: 'zap', note: nombre(liste.length) },
+    { id: 'taches', libelle: 'Mes tâches à moi', icone: 'rotate-cw', note: T.taches.length ? nombre(T.taches.length) : '—' },
+  ];
+  const ids = ongletsOptimiser.map((o) => o.id);
   remplir(P, h('div', { class: 'bz-ecran bz-optimiser' },
+    // un seul chiffre en tête, et une seule action
     h('div', { class: 'bz-tuiles' },
       h('dl', { class: 'bz-tuile bz-tuile--grande' },
         h('dt', {}, h('span', { texte: 'Temps à récupérer chaque mois' })),
         h('dd', { class: 'bz-tuile__valeur bz-t-chiffre', 'data-certitude': 'estime', texte: `${nf.format(O.heuresMois)} h` }),
-        h('dd', { class: 'bz-tuile__note', texte: `Soit environ ${nfEuro.format(O.euroMois)} par mois, estimé` })),
-      h('dl', { class: 'bz-tuile bz-tuile--grande' },
-        h('dt', {}, h('span', { texte: 'Pistes déjà automatisées' })),
-        h('dd', { class: 'bz-tuile__valeur bz-t-chiffre', texte: `${O.indice} %` }),
-        h('dd', { class: 'bz-tuile__note', texte: `${nombre(O.opportunites.filter((o) => o.recette && o.active).length)} sur ${pluriel(O.opportunites.filter((o) => o.recette).length, 'piste automatisable', 'pistes automatisables')}` }))),
+        h('dd', { class: 'bz-tuile__note', texte: `Soit environ ${nfEuro.format(O.euroMois)} par mois, estimé` }))),
     blocAutomatiser(Pr, admin, () => rendreOptimiser()),
-    admin ? h('div', { class: 'bz-champ bz-optimiser__taux' },
-      h('label', { class: 'bz-champ__libelle', for: 'taux-horaire', texte: 'Coût horaire chargé' }),
-      h('div', { class: 'bz-champ__suffixe' },
-        h('input', { id: 'taux-horaire', class: 'bz-champ__saisie', type: 'number', min: '1', max: '999', inputmode: 'decimal', value: String(A.tauxHoraire), 'aria-describedby': 'taux-aide',
-          onchange: async (e) => { try { await api('PUT', '/automatisations/reglages', { tauxHoraire: Number(e.target.value) }); E.optimiserErreur = null; } catch (err) { E.optimiserErreur = err.message; } rendreOptimiser(); } }),
-        h('span', { class: 'bz-champ__unite', 'aria-hidden': 'true', texte: '€ / h' })),
-      h('p', { class: 'bz-champ__aide', id: 'taux-aide', texte: 'Il sert à chiffrer chaque piste en euros. Ajustez-le à votre réalité.' })) : null,
     messageEnLigne('critique', erreur),
-    h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Calculé sur vos données réelles (retards, stock, courrier, planning, gestes répétés). Chaque estimation affiche son hypothèse.' }),
-    h('section', { class: 'bz-pile', 'aria-labelledby': 'pistes-titre' },
-      h('h2', { class: 'bz-t-titre-4', id: 'pistes-titre', texte: pistes.length ? 'Pistes, de la plus rentable à la moins rentable' : 'Pistes' }),
-      pistes.length ? h('ol', { class: 'bz-liste-simple bz-optimiser__pistes', role: 'list' }, pistes.map((o, i) => h('li', {},
-        h('article', { class: `bz-proposition${o.active ? ' bz-proposition--validee' : ''}`, 'aria-labelledby': `piste-${i}` },
-          h('p', { class: 'bz-proposition__tete bz-t-petit' }, icone(o.active ? 'circle-check' : 'bot', { taille: 'sm' }), o.active ? 'Automatisé' : `Proposé par Living Business · ${o.categorie}`),
-          h('div', { class: 'bz-proposition__corps' },
-            h('span', { class: 'bz-cat bz-cat--carre', 'aria-hidden': 'true' }, icone(ICONE_CATEGORIE(o.categorie), { taille: 'sm' })),
-            h('div', { class: 'bz-pile bz-pile--serre' },
-              h('h3', { class: 'bz-t-titre-4', id: `piste-${i}`, texte: o.titre }),
-              h('p', { class: 'bz-t-chiffre bz-proposition__gain', 'data-certitude': 'estime' }, `${nf.format(o.heuresMois)} h par mois`, h('span', { class: 'bz-t-petit bz-texte-2', texte: ` · ${nfEuro.format(o.euroMois)}, estimé` })))),
-          h('div', { class: 'bz-proposition__pourquoi' },
-            h('p', { class: 'bz-t-label', texte: 'Pourquoi ?' }),
-            h('ul', { class: 'bz-proposition__raisons' }, h('li', { texte: o.constat }), h('li', { texte: o.proposition }), h('li', { class: 'bz-texte-2', texte: `Hypothèse : ${/^\p{Lu}\p{Ll}/u.test(o.hypothese) ? `${o.hypothese.charAt(0).toLocaleLowerCase('fr-FR')}${o.hypothese.slice(1)}` : o.hypothese}` }))),
-          h('div', { class: 'bz-groupe-boutons' },
-            o.recette && admin ? h('button', { type: 'button', class: `bz-bouton ${o === premiere ? 'bz-bouton--principal' : 'bz-bouton--secondaire'}`, onclick: () => basculer(o.recette, !o.active) }, icone(o.active ? 'pause' : 'zap'), o.active ? 'Désactiver' : 'Automatiser') : null,
-            o.id === 'connecter' && admin ? h('button', { type: 'button', class: `bz-bouton ${o === premiere ? 'bz-bouton--principal' : 'bz-bouton--secondaire'}`, onclick: () => ouvrirAssistant() }, icone('plug'), 'Connecter mes données') : null,
-            o.objets.length ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => ouvrirSurCarte(o.objets[0]) }, icone('eye'), `Voir ${pluriel(o.objets.length, 'élément concerné', 'éléments concernés')}`) : null,
-            o.recette && !admin ? h('span', { class: 'bz-t-petit bz-texte-2', texte: o.active ? 'Automatisé' : 'À activer par la direction' }) : null))))) : blocVide({ titre: 'Rien à optimiser pour l’instant.', texte: 'Connectez vos données pour une analyse complète.', actions: admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirAssistant() }, icone('plug'), 'Connecter mes données') : null })),
-    blocTachesRepetitives(T, Pr, admin, { basculer, apres: () => rendreOptimiser() }),
-    h('section', { class: 'bz-pile', 'aria-labelledby': 'recettes-titre' },
-      h('div', {}, h('h2', { class: 'bz-t-titre-4', id: 'recettes-titre', texte: 'Automatisations' }),
-        h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Quand… alors… Elles agissent sur le réel, jamais en simulation, sans jamais faire deux fois la même chose.' })),
-      h('div', { class: 'bz-tableau-cadre' }, h('table', { class: 'bz-tableau bz-tableau--empile' },
-        h('thead', {}, h('tr', {}, ['Automatisation', 'Quand', 'Alors', 'Déclenchée', 'Active'].map((t) => h('th', { scope: 'col', texte: t })))),
-        h('tbody', {}, A.recettes.map((r) => h('tr', {},
-          h('th', { scope: 'row', texte: r.nom }), h('td', { 'data-colonne': 'Quand', texte: r.quand }), h('td', { 'data-colonne': 'Alors', texte: r.alors }),
-          h('td', { 'data-colonne': 'Déclenchée', texte: r.declenchements ? `${pluriel(r.declenchements, 'fois', 'fois')} · ${dateRelative(r.dernier)}` : 'Jamais' }),
-          h('td', { 'data-colonne': 'Active' }, admin ? h('label', { class: 'bz-interrupteur' },
-            h('input', { type: 'checkbox', role: 'switch', checked: r.active, cle: `recette-${r.id}`, onchange: (e) => basculer(r.id, e.target.checked) }),
-            h('span', { class: 'bz-visuellement-cache', texte: r.nom }), h('span', { class: 'bz-interrupteur__etat', 'aria-hidden': 'true', texte: r.active ? 'Activée' : 'Désactivée' }))
-            : h('span', { texte: r.active ? 'Active' : 'Inactive' }))))))),
-      A.recettes.some((r) => r.id === 'relance-factures') ? h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Pour envoyer réellement des e-mails ou écrire dans vos logiciels, branchez Make, Zapier ou n8n (Réglages › Connecteurs) : chaque automatisation leur envoie un événement signé.' }) : null),
+    cadreOnglets(h('div', { class: 'bz-onglets', role: 'tablist', 'aria-label': 'Optimiser' }, ongletsOptimiser.map((o) => h('button', {
+      type: 'button', role: 'tab', id: `onglet-${o.id}`, cle: `onglet-${o.id}`, 'aria-selected': o.id === onglet, 'aria-controls': 'panneau-optimiser', tabindex: o.id === onglet ? '0' : '-1',
+      onclick: () => choisirOnglet(o.id), onkeydown: (e) => clavierOnglets(e, ids, onglet, choisirOnglet),
+    }, icone(o.icone, { taille: 'sm' }), h('span', { texte: o.libelle }), h('span', { class: 'bz-onglets__note bz-t-chiffre', 'aria-hidden': 'true', texte: o.note }))))),
+    h('div', { class: 'bz-pile', role: 'tabpanel', id: 'panneau-optimiser', 'aria-labelledby': `onglet-${onglet}`, tabindex: '0' },
+      onglet === 'automatisations' ? [
+        // une seule liste, un seul mot : chaque automatisation porte son état
+        h('p', { class: 'bz-t-petit bz-texte-2', texte: `${pluriel(compte('prete'), 'prête à mettre en marche', 'prêtes à mettre en marche')} · ${pluriel(compte('active'), 'en marche', 'en marche')} · ${pluriel(compte('a_brancher'), 'en attente de données', 'en attente de données')}. Calculé sur vos données réelles ; chaque estimation dit son hypothèse.` }),
+        liste.length ? h('ul', { class: 'bz-actions', role: 'list' }, liste.map((x, i) => ligneAutomatisation(x, i, admin, basculer)))
+          : blocVide({ titre: 'Rien à automatiser pour l’instant.', texte: 'Connectez vos données : les automatisations se proposent toutes seules.',
+            actions: admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirAssistant() }, icone('plug'), 'Connecter mes données') : null }),
+        autresGains(O, admin),
+        // le réglage du calcul ne tient pas le haut de la page : il se déplie quand on en a besoin
+        admin ? h('details', { class: 'bz-repli' },
+          h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Régler le calcul' }), h('span', { class: 'bz-repli__note', texte: `${nfEuro.format(A.tauxHoraire)} de l’heure` }), icone('chevron-down', { taille: 'sm' })),
+          h('div', { class: 'bz-repli__corps' }, h('div', { class: 'bz-champ bz-optimiser__taux' },
+            h('label', { class: 'bz-champ__libelle', for: 'taux-horaire', texte: 'Coût horaire chargé' }),
+            h('div', { class: 'bz-champ__suffixe' },
+              h('input', { id: 'taux-horaire', class: 'bz-champ__saisie', type: 'number', min: '1', max: '999', inputmode: 'decimal', value: String(A.tauxHoraire), 'aria-describedby': 'taux-aide',
+                onchange: async (e) => { try { await api('PUT', '/automatisations/reglages', { tauxHoraire: Number(e.target.value) }); E.optimiserErreur = null; } catch (err) { E.optimiserErreur = err.message; } rendreOptimiser(); } }),
+              h('span', { class: 'bz-champ__unite', 'aria-hidden': 'true', texte: '€ / h' })),
+            h('p', { class: 'bz-champ__aide', id: 'taux-aide', texte: 'Il sert à chiffrer chaque automatisation en euros. Ajustez-le à votre réalité.' })))) : null,
+        A.recettes.some((r) => r.id === 'relance-factures') ? h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Pour envoyer réellement des e-mails ou écrire dans vos logiciels, branchez Make, Zapier ou n8n (Réglages › Connecteurs) : chaque automatisation leur envoie un événement signé.' }) : null,
+      ] : blocTachesRepetitives(T, Pr, admin, { basculer, apres: () => rendreOptimiser() })),
     encartEditeur()));
 }
 
@@ -9624,12 +9843,13 @@ function contenuPalette(_requete = '', { plus = false } = {}) {
     m.profil.peutAdministrer ? { id: 'action:connecter', titre: 'Connecter mes données', icone: 'plug', mots: 'importer fichier excel google', faire: () => ouvrirAssistant() } : null,
     { id: 'action:simulation', titre: m.mode === 'simulation' ? 'Quitter la simulation' : 'Passer en mode simulation', icone: 'flask-conical', raccourci: '$mod+shift+s', faire: () => basculerSimulation(m.mode !== 'simulation') },
     plus ? null : { id: 'action:plein-soleil', titre: window.bzTheme?.lire().pleinSoleil ? 'Quitter le mode Plein soleil' : 'Plein soleil', contexte: 'Contraste élevé, panneaux opaques', icone: 'sun', mots: 'contraste lumiere exterieur', faire: () => { const oui = window.bzTheme?.pleinSoleil(); informer(oui ? 'Plein soleil activé.' : 'Plein soleil désactivé.', 'ok'); } },
-    { id: `action:theme-${ts.valeur}`, titre: ts.titre, icone: ts.icone, mots: 'theme apparence nuit jour', faire: () => window.bzTheme?.regler('theme', ts.valeur) },
-    { id: 'action:theme-systeme', titre: 'Suivre le thème du système', icone: 'monitor', mots: 'theme apparence automatique', faire: () => window.bzTheme?.regler('theme', 'systeme') },
+    // en feuille « Plus », les réglages de thème restent dans « Apparence » : ils encombraient la liste des actions
+    plus ? null : { id: `action:theme-${ts.valeur}`, titre: ts.titre, icone: ts.icone, mots: 'theme apparence nuit jour', faire: () => window.bzTheme?.regler('theme', ts.valeur) },
+    plus ? null : { id: 'action:theme-systeme', titre: 'Suivre le thème du système', icone: 'monitor', mots: 'theme apparence automatique', faire: () => window.bzTheme?.regler('theme', 'systeme') },
     { id: 'action:annuler', titre: 'Annuler la dernière action', icone: 'undo-2', raccourci: '$mod+z', faire: () => annulerDerniere() },
-    { id: 'action:apparence', titre: 'Apparence et accessibilité', contexte: 'Thème, taille du texte, contraste, mode Calme', icone: 'sliders-horizontal', mots: 'reglages preferences theme police animations clavier calme', faire: ouvrirApparence },
+    plus ? null : { id: 'action:apparence', titre: 'Apparence et accessibilité', contexte: 'Thème, taille du texte, contraste, mode Calme', icone: 'sliders-horizontal', mots: 'reglages preferences theme police animations clavier calme', faire: ouvrirApparence },
     m.progression && !modeCalme() ? { id: 'action:progression', titre: 'Ma progression', contexte: JEU.texteNiveau(m.progression), icone: 'anchor', mots: 'xp niveau port quetes trophees jeu', faire: () => changerVue('progression') } : null,
-    { id: 'action:calme', titre: modeCalme() ? 'Quitter le mode Calme' : 'Mode Calme', contexte: 'Masquer XP, quêtes et célébrations', icone: 'moon', mots: 'calme sobre jeu xp quetes', faire: () => reglerCalme(!modeCalme()) },
+    plus ? null : { id: 'action:calme', titre: modeCalme() ? 'Quitter le mode Calme' : 'Mode Calme', contexte: 'Masquer XP, quêtes et célébrations', icone: 'moon', mots: 'calme sobre jeu xp quetes', faire: () => reglerCalme(!modeCalme()) },
     plus ? null : { id: 'action:activite', titre: 'Activité récente', contexte: 'Ce qui s’est passé, ce qu’on peut encore annuler', icone: 'bell', mots: 'historique notifications annuler', faire: () => ouvrirActivite() },
     plus ? null : { id: 'action:aide', titre: 'Aide', icone: 'circle-help', mots: 'assistance visite raccourcis', faire: ouvrirAide },
     plus || !rubriquesEnAttente().length ? null : { id: 'action:tout-afficher', titre: toutAffiche() ? 'Revenir au menu simple' : 'Tout afficher dans le menu', contexte: 'Aussi les rubriques qui attendent vos données', icone: 'menu', mots: 'menu complet rubriques cachees masquees toutes simple', faire: () => reglerToutAfficher(!toutAffiche()) },
