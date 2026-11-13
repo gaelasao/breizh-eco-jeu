@@ -6,6 +6,8 @@
  * - Anti-boucle : l'empreinte est mémorisée après chaque échange ; un objet n'est poussé que s'il a changé depuis.
  * - Sécurité : réservé aux administrateurs ; jetons chiffrés au repos et jamais renvoyés au navigateur ;
  *   l'entrée webhook exige un secret (Bearer) ou une signature HMAC ; anti-SSRF dans `sortant.ts`.
+ * - Temps réel (`temps-reel.ts`) : un branchement abonné chez son outil est relu dès que l'outil prévient (avis regroupés
+ *   sur 2 s), et seulement toutes les 30 minutes sinon, en filet de sécurité ; sans temps réel, à son intervalle.
  * - « Se connecter avec… » (relais de Breizhcosystem, `oauth-relais.ts`) : le secret d'attente reste ici, en mémoire ; le
  *   navigateur ne reçoit qu'une référence `oauth:<id>` à usage unique. Le secret enregistré est alors
  *   `{"oauth":{fournisseur, acces, rafraichissement, expire, extra}}`, chiffré comme les autres ; avant chaque appel à
@@ -17,11 +19,12 @@ import type { Profil } from '../demo/donnees.ts';
 import { defType } from '../core/univers.ts';
 import { NOM, normaliser, proposerMapping, ROLES } from './csv.ts';
 import { ErreurApi, type LigneExterne, type Monde } from './monde.ts';
-import { bientotExpire, BOUTIQUE_SHOPIFY, compteConnecte, configAvecConnexion, enveloppe, FOURNISSEUR_DE, lireEnveloppe, NOM_FOURNISSEUR, PARAMETRE_OAUTH, RelaisOAuth, ressembleEnveloppe, type ConnexionOAuth, type DroitsOAuth, type FournisseurOAuth } from './oauth-relais.ts';
+import { bientotExpire, BOUTIQUE_SHOPIFY, compteConnecte, configAvecConnexion, enveloppe, FOURNISSEUR_DE, lireEnveloppe, NOM_FOURNISSEUR, PARAMETRE_OAUTH, parRelais, RelaisOAuth, ressembleEnveloppe, type ConnexionOAuth, type DroitsOAuth, type FournisseurOAuth } from './oauth-relais.ts';
 import { ADAPTATEURS, aplatir, aplatirObjet, appelMcp, cleEnvois, lireSignature, SCRIPT_SHEETS, signerEnvoi, TOLERANCE_SIGNATURE_S, type ContexteAdaptateur, type TypeSource, type ValeurSortante } from './sources.ts';
 import { ORGANISATION_DYNAMICS } from './sources-dynamics.ts';
 import { VERSION_SHOPIFY } from './sources-metier.ts';
-import { demarrerConnexionMicrosoft, suivreConnexionMicrosoft } from './sources-microsoft.ts';
+import { demarrerConnexionMicrosoft, jetonAccesMicrosoft, suivreConnexionMicrosoft } from './sources-microsoft.ts';
+import { concerne, FILET_TEMPS_REEL_S, OUTILS_TEMPS_REEL, REGROUPEMENT_MS, suiviDe, TEMPS_REEL_DE, type AbonnementOutil, type AdresseAvis, type AvisRecu, type FournisseurTempsReel } from './temps-reel.ts';
 import { appeler, CorpsBrut, ErreurReglage, ErreurSortante, recuperateurProtege, verifierUrl, type Recuperateur } from './sortant.ts';
 import type { Chiffreur } from './stockage.ts';
 import { pluriel } from '../core/texte.ts';
@@ -88,7 +91,52 @@ export interface ConnecteurEnregistre {
   message: string | null;
   historique: { le: string; sens: 'entrant' | 'sortant'; crees: number; maj: number; erreurs: number; detail: string }[];
   creeLe: string;
+  /** Temps réel (temps-reel.ts) : abonnement chez l'outil et chez Breizhcosystem ; absent : relu à son intervalle. */
+  tempsReel?: EtatTempsReel;
 }
+
+/**
+ * Temps réel d'un branchement. `prive` : adresse des avis, secret de l'abonnement et ressource suivie chez l'outil,
+ * chiffrés comme les secrets ; le reste n'est qu'identifiants et dates.
+ */
+export interface EtatTempsReel {
+  fournisseur: FournisseurTempsReel;
+  /** Abonnement chez Breizhcosystem ; null : pas (ou plus) abonné. */
+  abonnement: string | null;
+  prive: string | null;
+  /** Identifiant chez l'outil (webhook, canal, abonnement), et fin de validité chez lui. */
+  externe: string | null;
+  expire: string | null;
+  etat: 'actif' | 'indisponible' | 'erreur';
+  message: string | null;
+  /** Prochain essai après un refus ou une panne. */
+  essai: string | null;
+  /** Ce que suit l'abonnement (base, feuille, classeur…) : s'il change, l'abonnement est refait. */
+  suivi: string;
+  curseur?: number;
+  repere?: string;
+  /** Dernière vérification que l'abonnement existe chez l'outil (Pipedrive). */
+  verifie?: string;
+}
+interface PriveTempsReel { adresse: string; secret: string | null; utilisateur: string | null; ressource: string | null }
+
+/** Ce que la synchro demande à Breizhcosystem pour le temps réel (LienNexus et le canal, application.ts). */
+export interface ReseauTempsReel {
+  /** Relié à Breizhcosystem (clé de liaison) ? */
+  relie(): boolean;
+  /** Origine de Breizhcosystem réglée : les adresses d'avis remises doivent y être. */
+  origine(): string | null;
+  /** Abonnements du relais temps réel (`/v0/relais/abonnements…`). */
+  appel(methode: 'GET' | 'POST' | 'PUT' | 'DELETE', chemin: string, corps?: unknown): Promise<unknown>;
+  /** Canal ouvert et entendu récemment ? */
+  enLigne(): boolean;
+  /** Un abonnement vient d'être créé : le canal s'ouvre s'il ne l'était pas. */
+  relancer?(): void;
+}
+const ETATS_TEMPS_REEL = ['actif', 'indisponible', 'erreur'];
+const estEtatTempsReel = (x: unknown): x is EtatTempsReel => typeof x === 'object' && x !== null && FOURNISSEURS_DU_TEMPS_REEL.includes((x as EtatTempsReel).fournisseur)
+  && ETATS_TEMPS_REEL.includes((x as EtatTempsReel).etat) && typeof (x as EtatTempsReel).suivi === 'string';
+const FOURNISSEURS_DU_TEMPS_REEL: readonly unknown[] = Object.values(TEMPS_REEL_DE);
 
 export interface EtatSynchro {
   connecteurs: ConnecteurEnregistre[];
@@ -143,6 +191,15 @@ export const LIBELLES_CHOIX: Readonly<Record<string, string>> = {
   products: 'Produits', orders: 'Commandes', organizations: 'Entreprises', persons: 'Contacts',
 };
 
+/** « Toutes les 5 minutes », « Toutes les minutes », « Toutes les 30 secondes ». */
+export function frequence(intervalleS: number): string {
+  if (intervalleS < 60) return `Toutes les ${intervalleS} secondes`;
+  const h = intervalleS / 3600;
+  if (Number.isInteger(h) && h >= 1) return h === 1 ? 'Toutes les heures' : `Toutes les ${h} heures`;
+  const m = Math.round(intervalleS / 60);
+  return m === 1 ? 'Toutes les minutes' : `Toutes les ${m} minutes`;
+}
+
 export class Synchro {
   #connecteurs = new Map<string, ConnecteurEnregistre>();
   /** Signatures d'entrée déjà acceptées (empreinte → fin de validité, ms) : une requête signée rejouée est refusée. */
@@ -160,6 +217,10 @@ export class Synchro {
   /** Renouvellements en cours ou récents, par empreinte du jeton de rafraîchissement (une rotation à la fois). */
   #renouvellements = new Map<string, Promise<ConnexionOAuth>>();
   #attentePousse: NodeJS.Timeout | null = null;
+  /** Temps réel : Breizhcosystem (branché par l'application), relectures regroupées, entretien en cours. */
+  #reseau: ReseauTempsReel | null = null;
+  #regroupes = new Map<string, NodeJS.Timeout>();
+  #entretien: Promise<void> | null = null;
 
   constructor(monde: Monde, chiffreur: Chiffreur, o: { fetch?: Recuperateur; etat?: EtatSynchro | null; changement?: () => void; relais?: RelaisOAuth } = {}) {
     this.#monde = monde;
@@ -180,6 +241,7 @@ export class Synchro {
           c.message = 'Adresse du webhook sortant illisible (clé des secrets différente) : supprimez ce branchement et recréez-le.';
         }
       }
+      if (c.tempsReel && !estEtatTempsReel(c.tempsReel)) delete c.tempsReel;
       this.#connecteurs.set(c.id, c);
     }
   }
@@ -239,6 +301,9 @@ export class Synchro {
       aConfirmer: (c.liensFaibles ?? []).filter((x) => c.liens[x]).length,
       derniereSynchro: c.derniereSynchro, statut: c.statut, message: c.message, historique: c.historique.slice(-10).reverse(),
       entree: ADAPTATEURS[c.source].lecture === 'reception' ? `/api/v1/entrant/${c.id}` : null,
+      // « En temps réel » quand l'abonnement vit, sinon « Toutes les N minutes » (relecture à son intervalle)
+      tempsReel: c.tempsReel ? { vivant: this.#tempsReelVivant(c), etat: c.tempsReel.etat, message: c.tempsReel.message } : null,
+      frequence: ADAPTATEURS[c.source].lecture !== 'appel' ? null : this.#tempsReelVivant(c) ? 'En temps réel' : frequence(c.intervalleS),
     };
   }
 
@@ -651,6 +716,8 @@ export class Synchro {
     if (appareil) this.#appareils.delete(appareil);
     if (oauth) this.#oauth.delete(oauth);
     this.#changement();
+    // temps réel : l'abonnement se crée tout de suite chez l'outil (sinon au prochain entretien)
+    if (this.#eligible(c) && this.#reseau?.relie()) void this.entretenirTempsReel();
     return { ...this.#vue(c), secretEntrant: entrant, ...(entrant ? { cleEnvois: cleEnvois(entrant) } : {}) };
   }
 
@@ -687,6 +754,10 @@ export class Synchro {
     try { secret = c.secret ? this.#chiffreur.dechiffrer(c.secret) : null; } catch { secret = null; }
     this.#connecteurs.delete(c.id);
     this.#changement();
+    // temps réel : l'abonnement est supprimé chez l'outil tant que le jeton vaut encore, puis chez Breizhcosystem
+    const regroupe = this.#regroupes.get(c.id);
+    if (regroupe) { clearTimeout(regroupe); this.#regroupes.delete(c.id); }
+    await this.#arreterTempsReel(c, secret);
     const a = ADAPTATEURS[c.source];
     const connexion = lireEnveloppe(secret);
     const outil = connexion ? NOM_FOURNISSEUR[connexion.fournisseur] : a.nom;
@@ -920,14 +991,235 @@ export class Synchro {
     this.#attentePousse.unref?.();
   }
 
-  /** Lecture périodique des outils dont l'intervalle est écoulé. */
+  /**
+   * Lecture périodique des outils dont l'intervalle est écoulé. En temps réel, ce n'est plus qu'un filet de sécurité :
+   * toutes les 30 minutes (jamais plus souvent que l'intervalle choisi).
+   */
   async tick() {
     const maintenant = this.#monde.maintenant().getTime();
     for (const c of this.#connecteurs.values()) {
       if (!c.actif || c.sens === 'ecriture' || ADAPTATEURS[c.source].lecture !== 'appel') continue;
       const derniere = c.derniereSynchro ? Date.parse(c.derniereSynchro) : 0;
-      if (maintenant - derniere >= c.intervalleS * 1000) await this.synchroniser(c.id);
+      const intervalle = this.#tempsReelVivant(c) ? Math.max(c.intervalleS, FILET_TEMPS_REEL_S) : c.intervalleS;
+      if (maintenant - derniere >= intervalle * 1000) await this.synchroniser(c.id);
     }
+  }
+
+  // ---------------------------------------------------------------- temps réel (temps-reel.ts)
+
+  /** Branche Breizhcosystem (application.ts) : abonnements des outils et canal des avis. */
+  brancherTempsReel(r: ReseauTempsReel) {
+    this.#reseau = r;
+  }
+
+  /** Au moins un branchement abonné : le canal vers Breizhcosystem a lieu d'être ouvert. */
+  aDesAbonnements(): boolean {
+    return [...this.#connecteurs.values()].some((c) => c.actif && c.tempsReel?.etat === 'actif' && c.tempsReel.abonnement !== null);
+  }
+
+  /** L'abonnement vit : actif chez l'outil et chez Breizhcosystem, pas expiré, et le canal entend Breizhcosystem. */
+  #tempsReelVivant(c: ConnecteurEnregistre): boolean {
+    const t = c.tempsReel;
+    if (!c.actif || !t || t.etat !== 'actif' || !t.abonnement || !this.#reseau?.enLigne()) return false;
+    return !t.expire || Date.parse(t.expire) > this.#monde.maintenant().getTime();
+  }
+
+  /** Le branchement peut-il passer en temps réel (outil qui prévient, lecture par appel, actif, pas « vers l'outil » seul) ? */
+  #eligible(c: ConnecteurEnregistre): FournisseurTempsReel | null {
+    const f = TEMPS_REEL_DE[c.source];
+    return f && c.actif && c.sens !== 'ecriture' && ADAPTATEURS[c.source].lecture === 'appel' ? f : null;
+  }
+
+  /**
+   * Entretien des abonnements (application.ts, toutes les 5 minutes, et après un branchement) : création, renouvellement
+   * avant expiration, vérification, arrêt d'un branchement en pause ou supprimé du temps réel. Un seul à la fois.
+   */
+  entretenirTempsReel(): Promise<void> {
+    if (this.#entretien) return this.#entretien;
+    this.#entretien = (async () => {
+      try {
+        for (const c of [...this.#connecteurs.values()]) {
+          try { await this.#entretenir(c); } catch { /* noté dans l'état du branchement ; nouvel essai plus tard */ }
+        }
+      } finally { this.#entretien = null; }
+    })();
+    return this.#entretien;
+  }
+
+  async #entretenir(c: ConnecteurEnregistre) {
+    const f = this.#eligible(c);
+    const reseau = this.#reseau;
+    if (!f || !reseau?.relie()) {
+      // plus éligible (pause, sens changé) ou délié : l'abonnement est retiré (délié : chez l'outil seulement)
+      if (c.tempsReel?.abonnement) await this.#arreterTempsReel(c, this.#secretDechiffre(c));
+      return;
+    }
+    const maintenant = this.#monde.maintenant().getTime();
+    const t = c.tempsReel;
+    if (t && t.etat !== 'actif' && t.essai && Date.parse(t.essai) > maintenant && t.suivi === suiviDe(c.source, c.config)) return;
+    if (!t || !t.abonnement || t.etat !== 'actif' || t.suivi !== suiviDe(c.source, c.config) || t.fournisseur !== f) { await this.#creerTempsReel(c, f); return; }
+    const outil = OUTILS_TEMPS_REEL[f];
+    if (outil.dureeMs !== null && (!t.expire || Date.parse(t.expire) - maintenant < outil.margeMs)) { await this.#renouvelerTempsReel(c, f); return; }
+    if (outil.verifier && outil.verificationMs && (!t.verifie || maintenant - Date.parse(t.verifie) >= outil.verificationMs)) {
+      const present = await this.#avecJetonOutil(c, (cfg, jeton) => outil.verifier!(cfg, jeton, this.#f, this.#abonnementOutil(t))).catch(() => true);
+      t.verifie = new Date(maintenant).toISOString();
+      if (!present) await this.#creerTempsReel(c, f);
+      else this.#changement();
+    }
+  }
+
+  /** Jeton d'accès à l'outil du branchement (renouvelé par le relais au besoin), pour les appels du temps réel. */
+  async #avecJetonOutil<T>(c: ConnecteurEnregistre, appel: (cfg: Config, jeton: string) => Promise<T>, secret: string | null = this.#secret(c)): Promise<T> {
+    return this.#avecSecret(c.config, secret, this.#contexte(c), async (cfg, s, ctx) => {
+      // Excel par code d'appareil (application de l'entreprise) : le secret est le jeton de renouvellement Microsoft
+      const jeton = c.source === 'excel365' && !parRelais(cfg, 'microsoft') ? await jetonAccesMicrosoft(cfg, s, this.#f, ctx) : s;
+      if (!jeton) throw new ErreurSortante('Connexion à l’outil manquante.');
+      return appel(cfg, jeton);
+    });
+  }
+
+  #abonnementOutil(t: EtatTempsReel): AbonnementOutil {
+    const p = this.#prive(t);
+    return { externe: t.externe, expire: t.expire, ressource: p?.ressource ?? null, ...(t.curseur !== undefined ? { curseur: t.curseur } : {}), ...(t.repere !== undefined ? { repere: t.repere } : {}) };
+  }
+
+  #prive(t: EtatTempsReel): PriveTempsReel | null {
+    if (!t.prive) return null;
+    try {
+      const x = JSON.parse(this.#chiffreur.dechiffrer(t.prive)) as Partial<PriveTempsReel>;
+      return typeof x.adresse === 'string' ? { adresse: x.adresse, secret: typeof x.secret === 'string' ? x.secret : null, utilisateur: typeof x.utilisateur === 'string' ? x.utilisateur : null, ressource: typeof x.ressource === 'string' ? x.ressource : null } : null;
+    } catch { return null; }
+  }
+
+  /** Refus ou panne : le branchement reste relu à son intervalle ; nouvel essai plus tard (6 h pour un refus, 15 min sinon). */
+  #indisponible(c: ConnecteurEnregistre, f: FournisseurTempsReel, e: unknown, suivi: string) {
+    const refus = (e instanceof ErreurApi && [403, 404, 409].includes(e.statut)) || (e instanceof ErreurSortante && [400, 401, 403, 404, 409, 422].includes(e.statut ?? 0));
+    const message = (e instanceof ErreurApi || e instanceof ErreurSortante ? e.message : 'Temps réel indisponible pour le moment.').slice(0, 300);
+    const delai = refus ? 6 * 3600_000 : 15 * 60_000;
+    c.tempsReel = { fournisseur: f, abonnement: null, prive: null, externe: null, expire: null, etat: refus ? 'indisponible' : 'erreur', message, essai: new Date(this.#monde.maintenant().getTime() + delai).toISOString(), suivi };
+    this.#changement();
+  }
+
+  /** Nouvel abonnement : demandé à Breizhcosystem, créé chez l'outil avec le jeton de l'entreprise, puis activé. */
+  async #creerTempsReel(c: ConnecteurEnregistre, f: FournisseurTempsReel) {
+    const reseau = this.#reseau as ReseauTempsReel;
+    const suivi = suiviDe(c.source, c.config);
+    if (c.tempsReel?.abonnement) await this.#arreterTempsReel(c, this.#secretDechiffre(c));
+    const outil = OUTILS_TEMPS_REEL[f];
+    const secret = this.#secretDechiffre(c);
+    let empreinte: string | null = null;
+    if (outil.parApplication) {
+      // Notion, HubSpot : Breizhcosystem reconnaît le compte noté à la connexion en un clic ; le jeu prouve qu'il tient
+      // cette connexion par l'empreinte de son jeton de renouvellement (le jeton lui-même ne part pas)
+      const connexion = lireEnveloppe(secret);
+      if (!connexion?.rafraichissement) {
+        this.#indisponible(c, f, new ErreurApi(409, 'temps_reel_cle', `Temps réel avec « Se connecter avec ${NOM_FOURNISSEUR[connexion?.fournisseur ?? (f as FournisseurOAuth)] ?? f} » seulement.`), suivi);
+        return;
+      }
+      empreinte = createHash('sha256').update(connexion.rafraichissement).digest('base64url');
+    }
+    let id: string | null = null;
+    try {
+      const r = await reseau.appel('POST', '/abonnements', { fournisseur: f, connecteur: c.id, ...(empreinte ? { empreinte } : {}) });
+      const x = estObj(r) ? r : {};
+      id = typeof x.id === 'string' && /^[0-9a-f-]{36}$/.test(x.id) ? x.id : null;
+      const p: AdresseAvis = {
+        adresse: this.#adresseAvis(x.adresse, f),
+        secret: typeof x.secret === 'string' && /^[A-Za-z0-9_-]{20,128}$/.test(x.secret) ? x.secret : null,
+        utilisateur: typeof x.utilisateur === 'string' && /^[a-z0-9-]{1,40}$/.test(x.utilisateur) ? x.utilisateur : null,
+      };
+      if (!id) throw new ErreurSortante('Réponse de Breizhcosystem inattendue.');
+      const a = await this.#avecJetonOutil(c, (cfg, jeton) => outil.creer(cfg, jeton, this.#f, p), secret);
+      if (!outil.parApplication) await reseau.appel('PUT', `/abonnements/${id}`, { externe: a.externe, expire: a.expire, ...(a.secretOutil ? { secret: a.secretOutil } : {}) });
+      c.tempsReel = {
+        fournisseur: f, abonnement: id, prive: this.#chiffreur.chiffrer(JSON.stringify({ ...p, ressource: a.ressource } satisfies PriveTempsReel)), externe: a.externe, expire: a.expire,
+        etat: 'actif', message: null, essai: null, suivi, ...(a.curseur !== undefined ? { curseur: a.curseur } : {}), ...(a.repere !== undefined ? { repere: a.repere } : {}),
+        ...(outil.verificationMs ? { verifie: this.#monde.maintenant().toISOString() } : {}),
+      };
+      this.#changement();
+      reseau.relancer?.();
+    } catch (e) {
+      if (id) await reseau.appel('DELETE', `/abonnements/${id}`).catch(() => undefined);
+      this.#indisponible(c, f, e, suivi);
+    }
+  }
+
+  /** Adresse d'avis remise par Breizhcosystem : sur son origine, et pour cet outil (sinon refusée : un avis d'outil peut porter des données). */
+  #adresseAvis(x: unknown, f: FournisseurTempsReel): string {
+    const origine = this.#reseau?.origine();
+    if (typeof x !== 'string' || !origine || x.length > 300) throw new ErreurSortante('Adresse des avis inattendue : temps réel refusé par sécurité.');
+    let u: URL;
+    try { u = new URL(x); } catch { throw new ErreurSortante('Adresse des avis inattendue : temps réel refusé par sécurité.'); }
+    const chemin = new RegExp(`^/v0/relais/evenements/${f}(/[A-Za-z0-9_-]{43})?$`);
+    if (u.origin !== origine || !chemin.test(u.pathname) || u.search || u.hash || u.username || u.password) throw new ErreurSortante('Adresse des avis inattendue : temps réel refusé par sécurité.');
+    return u.toString();
+  }
+
+  /** Renouvellement chez l'outil avant l'expiration, puis la nouvelle fin donnée à Breizhcosystem. */
+  async #renouvelerTempsReel(c: ConnecteurEnregistre, f: FournisseurTempsReel) {
+    const t = c.tempsReel as EtatTempsReel;
+    const outil = OUTILS_TEMPS_REEL[f];
+    const p = this.#prive(t);
+    if (!outil.renouveler || !p) { await this.#creerTempsReel(c, f); return; }
+    try {
+      const a = await this.#avecJetonOutil(c, (cfg, jeton) => outil.renouveler!(cfg, jeton, this.#f, this.#abonnementOutil(t), p));
+      await (this.#reseau as ReseauTempsReel).appel('PUT', `/abonnements/${t.abonnement}`, { externe: a.externe, expire: a.expire });
+      c.tempsReel = { ...t, externe: a.externe, expire: a.expire, prive: this.#chiffreur.chiffrer(JSON.stringify({ ...p, ressource: a.ressource } satisfies PriveTempsReel)), message: null };
+      this.#changement();
+    } catch {
+      // abonnement disparu chez l'outil ou chez Breizhcosystem : refait de zéro
+      await this.#creerTempsReel(c, f);
+    }
+  }
+
+  /** Arrêt : supprimé chez l'outil (avec le jeton, avant toute révocation) puis chez Breizhcosystem ; au mieux. */
+  async #arreterTempsReel(c: ConnecteurEnregistre, secret: string | null) {
+    const t = c.tempsReel;
+    if (!t) return;
+    delete c.tempsReel;
+    this.#changement();
+    if (!t.abonnement) return;
+    const outil = OUTILS_TEMPS_REEL[t.fournisseur];
+    if (!outil.parApplication && secret) await this.#avecJetonOutil(c, (cfg, jeton) => outil.supprimer(cfg, jeton, this.#f, this.#abonnementOutil(t)), secret).catch(() => undefined);
+    if (this.#reseau?.relie()) await this.#reseau.appel('DELETE', `/abonnements/${t.abonnement}`).catch(() => undefined);
+  }
+
+  /**
+   * Avis reçu sur le canal : le branchement est relu, une fois pour tous les avis des 2 secondes qui suivent. Un avis
+   * pour un autre genre de fiches (HubSpot, Pipedrive) ou un autre tableau (Notion) ne relit rien.
+   */
+  signaler(a: AvisRecu) {
+    const c = this.#connecteurs.get(a.connecteur);
+    if (!c || !c.actif || !c.tempsReel || c.tempsReel.fournisseur !== a.fournisseur || TEMPS_REEL_DE[c.source] !== a.fournisseur) return;
+    if (!a.enAttente && !concerne(c.source, c.config, a.objets)) return;
+    if (this.#regroupes.has(c.id)) return;
+    const relire = () => {
+      if (this.#enCours.has(c.id)) { this.#regroupes.set(c.id, setTimeout(relire, REGROUPEMENT_MS)); return; }
+      this.#regroupes.delete(c.id);
+      void this.#relireApresAvis(c.id).catch(() => undefined);
+    };
+    const t = setTimeout(relire, REGROUPEMENT_MS);
+    t.unref?.();
+    this.#regroupes.set(c.id, t);
+  }
+
+  /** Avant de relire : Airtable lit ses charges (curseur, expiration repoussée), Microsoft compare l'étiquette du classeur. */
+  async #relireApresAvis(id: string) {
+    const c = this.#connecteurs.get(id);
+    const t = c?.tempsReel;
+    if (!c || !t) return;
+    const outil = OUTILS_TEMPS_REEL[t.fournisseur];
+    if (outil.avantRelecture) {
+      try {
+        const r = await this.#avecJetonOutil(c, (cfg, jeton) => outil.avantRelecture!(cfg, jeton, this.#f, this.#abonnementOutil(t)));
+        if (c.tempsReel === t) {
+          c.tempsReel = { ...t, expire: r.abonnement.expire, ...(r.abonnement.curseur !== undefined ? { curseur: r.abonnement.curseur } : {}), ...(r.abonnement.repere !== undefined ? { repere: r.abonnement.repere } : {}) };
+          this.#changement();
+        }
+        if (!r.relire) return;
+      } catch { /* relu quand même */ }
+    }
+    await this.synchroniser(id);
   }
 
   /**

@@ -611,6 +611,43 @@ export class LienNexus {
     }
   }
 
+  // ---------------------------------------------------------------- temps réel des outils (temps-reel.ts)
+  // Les outils ne peuvent pas joindre Living Business : ils préviennent Breizhcosystem, qui prévient le jeu par un canal
+  // que celui-ci garde ouvert, authentifié par la même clé de liaison. Seul le fait qu'un outil a changé passe par là ;
+  // le jeu relit ensuite l'outil lui-même.
+
+  /** Abonnements du temps réel (`/v0/relais/abonnements…`), avec la clé de liaison. */
+  relais(methode: 'GET' | 'POST' | 'PUT' | 'DELETE', chemin: string, corps?: unknown): Promise<unknown> {
+    return this.#appel(methode, `/relais${chemin}`, corps);
+  }
+
+  /** Origine de Breizhcosystem réglée (protocole et hôte), sans appel réseau ; null si elle n'est pas réglée. */
+  origine(): string | null {
+    try { return this.#e.url ? new URL(this.#e.url).origin : null; } catch { return null; }
+  }
+
+  /**
+   * Ouvre le canal du temps réel (`GET /v0/relais/flux`, flux d'événements), lu ensuite morceau par morceau par
+   * temps-reel.ts. Mêmes sorties protégées que le reste ; une clé révoquée efface la liaison, comme ailleurs.
+   */
+  async fluxRelais(signal: AbortSignal): Promise<Response> {
+    if (!this.#e.url) throw new ErreurApi(409, 'nexus_non_configure', 'Adresse de Breizhcosystem non renseignée.');
+    const base = await verifierUrl(this.#e.url).catch((e: Error) => { throw new ErreurApi(400, 'nexus_adresse', e.message); });
+    const cle = this.#cle();
+    if (!cle) throw new ErreurApi(409, 'nexus_non_relie', 'Reliez d’abord votre entreprise à Breizhcosystem.');
+    const r = await this.#f(new URL('/v0/relais/flux', base), {
+      method: 'GET', redirect: 'error', signal,
+      headers: { accept: 'text/event-stream', authorization: `Bearer ${cle}`, 'user-agent': 'LivingBusiness/0.1 (+auto-heberge)' },
+    });
+    if (r.status === 401) {
+      const t = await lireTexteBorne(r, 10_000).catch(() => '');
+      let code: unknown = null;
+      try { code = (JSON.parse(t) as { erreur?: unknown }).erreur; } catch { /* réponse non JSON */ }
+      if (code === 'cle_invalide') { this.#e.cle = null; this.#suspendue = null; this.#changement(); }
+    }
+    return r;
+  }
+
   opportunites() { return this.#appel('GET', '/opportunites'); }
   comparaison() { return this.#appel('GET', '/comparaison'); }
   proposer(d: unknown) { return this.#appel('POST', '/proposer', d); }
