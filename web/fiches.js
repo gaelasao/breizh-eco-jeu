@@ -96,9 +96,9 @@ export const ariaSort = (tri, colonne) => (tri?.colonne === colonne ? (tri.sens 
 /** Groupes de champs d'une fiche (repliables, §6.1 P7), dans l'ordre de lecture ; groupes vides omis. */
 const GROUPES = [
   { id: 'coordonnees', titre: 'Coordonnées', champs: ['contact', 'email', 'adresse', 'ville', 'num_departement', 'siret', 'activite', 'secteur', 'immatriculation', 'expediteur', 'organisme', 'emplacement'] },
-  { id: 'suivi', titre: 'Suivi', champs: ['statut', 'payee', 'disponible', 'disponibilite', 'urgence', 'bac', 'categorie', 'avancement', 'retard_jours', 'etat_pneus', 'action', 'note', 'recommande', 'charge'] },
-  { id: 'dates', titre: 'Dates', champs: ['echeance', 'livraison_prevue', 'valide_jusqu_au', 'prochaine_revision', 'controle_technique', 'recu_le', 'comptabilite_au'] },
-  { id: 'chiffres', titre: 'Chiffres', champs: ['montant', 'encours', 'limite_encours', 'quantite', 'seuil_alerte', 'unite', 'besoin_effectif', 'effectif', 'valeur', 'objectif', 'tresorerie', 'charges_mensuelles', 'chiffre_affaires_annuel', 'marge_brute', 'resultat_net', 'creances_clients', 'dettes_fournisseurs', 'dettes_financieres', 'capitaux_propres'] },
+  { id: 'suivi', titre: 'Suivi', champs: ['statut', 'payee', 'disponible', 'disponibilite', 'urgence', 'bac', 'categorie', 'avancement', 'retard_jours', 'genre', 'etat_pneus', 'pneus_saison', 'action', 'note', 'recommande', 'charge'] },
+  { id: 'dates', titre: 'Dates', champs: ['echeance', 'livraison_prevue', 'valide_jusqu_au', 'prochaine_revision', 'controle_technique', 'pneus_le', 'assurance_le', 'carte_grise_le', 'autre_libelle', 'autre_le', 'kilometrage_le', 'fait_le', 'recu_le', 'comptabilite_au'] },
+  { id: 'chiffres', titre: 'Chiffres', champs: ['montant', 'cout', 'encours', 'limite_encours', 'quantite', 'seuil_alerte', 'unite', 'besoin_effectif', 'effectif', 'valeur', 'objectif', 'kilometrage', 'revision_km', 'pneus_km', 'autre_km', 'ct_tous_les_mois', 'revision_tous_les_mois', 'revision_tous_les_km', 'pneus_tous_les_mois', 'pneus_tous_les_km', 'assurance_tous_les_mois', 'carte_grise_tous_les_mois', 'autre_tous_les_mois', 'autre_tous_les_km', 'prevenir_jours', 'tresorerie', 'charges_mensuelles', 'chiffre_affaires_annuel', 'marge_brute', 'resultat_net', 'creances_clients', 'dettes_fournisseurs', 'dettes_financieres', 'capitaux_propres'] },
   { id: 'liens', titre: 'Liens', champs: [] }, // références vers d'autres fiches
   { id: 'autres', titre: 'Autres informations', champs: [] },
 ];
