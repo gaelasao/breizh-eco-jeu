@@ -1,0 +1,9 @@
+/* Page « Pas de connexion » (servie par le service worker quand le réseau manque) — jetons Breizhcosystem (/bz/bz.css). */
+body { display: grid; place-items: center; min-block-size: 100dvh; padding: var(--bz-goutiere); }
+main { inline-size: min(28.75rem, 100%); background: var(--bz-surface); border: var(--bz-bord-1) solid var(--bz-carte-bord); border-radius: var(--bz-r-3); padding: var(--bz-e-8) var(--bz-e-6); box-shadow: var(--bz-elev-dialogue); text-align: center; display: flex; flex-direction: column; align-items: center; gap: var(--bz-e-3); }
+img { border-radius: var(--bz-r-3); }
+h1 { font: var(--bz-g-display) var(--bz-t-titre-2)/var(--bz-i-titre) var(--bz-police-titre); letter-spacing: var(--bz-l-titre); }
+.surtitre { font: var(--bz-g-moyen) var(--bz-t-micro)/var(--bz-i-label) var(--bz-police); color: var(--bz-texte-3); }
+.petit { font-size: var(--bz-t-petit); color: var(--bz-texte-2); }
+.bouton { display: inline-flex; align-items: center; justify-content: center; min-block-size: var(--bz-h-controle-lg); margin-top: var(--bz-e-2); padding: 0 var(--bz-e-5); background: var(--bz-marque); color: var(--bz-sur-marque); text-decoration: none; font-weight: var(--bz-g-fort); border: var(--bz-bord-1) solid transparent; border-radius: var(--bz-r-2); }
+.bouton:hover { background: var(--bz-marque-survol); }

@@ -1,0 +1,18 @@
+# Clé(s) publique(s) de signature des publications de Living Business (format allowed_signers d'OpenSSH).
+#
+# Une ligne par clé, identité « editeur-living-business », par exemple :
+#   editeur-living-business namespaces="living-business-installateur,living-business-paquet" sk-ssh-ed25519@openssh.com AAAA… signature-living-business
+#
+# La clé PRIVÉE correspondante reste sur le poste de l'éditeur, de préférence sur une clé matérielle FIDO2
+# (ssh-keygen -t ed25519-sk -O resident -O verify-required -f ~/.ssh/living-business-signature), jamais sur Breizhcosystem,
+# jamais dans la CI. Elle signe chaque publication : node scripts/signer-publication.ts (voir README « Publier »).
+#
+# Ce fichier est repris dans installer-jeu.sh (publication signée et paquets téléchargés) et affiché par le jeu
+# (Réglages → Mettre en ligne) pour vérifier un script avant de le lancer. Il est aussi publié sur un second canal :
+# ce dépôt public.
+#
+# Changer de clé : ajouter la nouvelle ligne, signer UNE publication avec l'ANCIENNE clé (les serveurs déjà installés
+# l'acceptent et enregistrent la nouvelle), puis retirer l'ancienne ligne.
+#
+# Clé de l'éditeur depuis le 13 novembre 2026.
+editeur-living-business namespaces="living-business-installateur,living-business-paquet" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO3SXZUYm1T4Zrx/FYZSGWHZP3N8y5GJVXKE9Hfrr10S signature-living-business

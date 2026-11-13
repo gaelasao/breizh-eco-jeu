@@ -1,0 +1,74 @@
+# Paquets téléchargeables « rien à installer » (Node.js officiel inclus) pour Mac (Apple et Intel), Windows et Linux.
+# - à la main (Actions → paquets → Run workflow) : paquets disponibles en artefacts pendant 30 jours ;
+# - sur un tag vX.Y.Z (= version de package.json) : publiés en plus dans une version (release) GitHub.
+# Sur un tag, scripts/paquets.ts fabrique depuis le commit étiqueté (arbre propre, sources exportées du commit,
+# dépendances réinstallées depuis le verrou) et écrit PROVENANCE.txt ; à la main, ce sont des paquets d'essai
+# (--essai, dist/essai/), que scripts/signer-publication.ts refuse de signer.
+# Chaîne : actions épinglées par empreinte de commit (Dependabot les tient à jour), dépendances installées sans
+# scripts, et la FABRICATION n'a qu'un droit de lecture : seul le job de publication, qui ne lance aucun code du
+# dépôt ni de npm, peut écrire (créer la version).
+name: paquets
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fabriquer:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Le tag correspond à la version de package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - name: Fabriquer les paquets (Node.js vérifié par SHA-256 et signature de ses publieurs)
+        env:
+          LB_NEXUS_URL: ${{ vars.LB_NEXUS_URL }} # adresse de Breizhcosystem préréglée (variable du dépôt, facultative)
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then node scripts/paquets.ts; else node scripts/paquets.ts --essai; fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: living-business-paquets
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
+            dist/PROVENANCE.txt
+            dist/essai/*.zip
+            dist/essai/SHA256SUMS.txt
+            dist/essai/PROVENANCE.txt
+          retention-days: 30
+  publier:
+    needs: fabriquer
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # publication de la version (release) sur un tag ; aucun code du dépôt n'est lancé ici
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: living-business-paquets
+          path: dist
+      - name: Empreintes et provenance des paquets (fabriqués depuis ce tag, pas des paquets d'essai)
+        working-directory: dist
+        run: |
+          sha256sum -c SHA256SUMS.txt
+          grep -qx "etiquette $GITHUB_REF_NAME" PROVENANCE.txt
+          grep -qx 'fabrication publication' PROVENANCE.txt
+      - name: Publier la version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" dist/*.zip dist/SHA256SUMS.txt dist/PROVENANCE.txt
+          --repo "$GITHUB_REPOSITORY" --title "Living Business $GITHUB_REF_NAME"
+          --notes "Téléchargez le paquet de votre système, décompressez, double-cliquez sur « Living Business ». Rien à installer. Empreintes : SHA256SUMS.txt (la référence reste la publication signée par l'éditeur sur Breizhcosystem)."

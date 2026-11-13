@@ -1,0 +1,43 @@
+/* Breizhcosystem — polices (direction de design §3.8, §7.1). Fichiers servis par l'application, jamais par un CDN.
+   Inter 4.1 et Fraunces : sous-ensembles français faits par scripts/polices.py (fontTools) ; OFL-1.1, voir /licences/. */
+@font-face {
+  font-family: "Inter";
+  src: url("/polices/inter-fr-4.1.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+/* Repli calé sur les métriques d'Inter : pas de saut de mise en page au chargement */
+@font-face {
+  font-family: "Inter repli";
+  src: local("Arial"), local("Helvetica Neue"), local("Roboto");
+  size-adjust: 107.12%;
+  ascent-override: 90.44%;
+  descent-override: 22.52%;
+  line-gap-override: 0%;
+}
+/* Voix de titre : instance figée de Fraunces (SOFT 50, WONK 0, opsz 36, graisses 500 à 650) */
+@font-face {
+  font-family: "Fraunces";
+  src: url("/polices/fraunces-fr-titre.woff2") format("woff2");
+  font-weight: 500 650;
+  font-style: normal;
+  font-display: swap;
+}
+/* Repli calé sur Georgia */
+@font-face {
+  font-family: "Fraunces repli";
+  src: local("Georgia");
+  size-adjust: 104%;
+  ascent-override: 94%;
+  descent-override: 24.5%;
+  line-gap-override: 0%;
+}
+/* Chargée seulement si data-police="lisible" (le navigateur ne télécharge pas une police inutilisée) */
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  src: url("/polices/atkinson-next-2.001.woff2") format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}

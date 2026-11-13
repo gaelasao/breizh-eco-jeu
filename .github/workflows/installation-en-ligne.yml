@@ -1,0 +1,118 @@
+# Essai réel du script « Mettre en ligne » sur Ubuntu 24.04 (la machine de GitHub Actions) :
+# paquet Linux construit, publication signée avec une clé jetable, téléchargements servis localement, installation
+# complète (Caddy, systemd, pare-feu), jeu joignable en HTTPS, lien d'installation à usage unique, mise à jour vérifiée
+# sans perte, script modifié refusé.
+name: installation-en-ligne
+on:
+  workflow_dispatch:
+  push:
+    paths: ['deploiement/**', 'scripts/paquets.ts', 'scripts/signer-publication.ts', 'src/passerelle/**', '.github/workflows/installation-en-ligne.yml']
+permissions:
+  contents: read
+jobs:
+  ubuntu:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts
+      - name: Script vérifié (shellcheck)
+        run: shellcheck deploiement/*.sh
+      - name: "Paquet Linux (essai : commit non étiqueté, jamais publié)"
+        run: node scripts/paquets.ts linux-x64 --essai
+      - name: Publication signée avec une clé jetable (comme sur le poste de l'éditeur)
+        run: |
+          ssh-keygen -q -t ed25519 -N '' -C essai -f "$RUNNER_TEMP/cle-essai"
+          echo "editeur-living-business namespaces=\"living-business-installateur,living-business-paquet\" $(cut -d' ' -f1,2 "$RUNNER_TEMP/cle-essai.pub")" > "$RUNNER_TEMP/signataires"
+          node scripts/signer-publication.ts --nexus https://nexus.essai.invalid --cle "$RUNNER_TEMP/cle-essai" --signataires "$RUNNER_TEMP/signataires" --paquets dist/essai --sortie "$RUNNER_TEMP/publication" --essai
+          rm -f "$RUNNER_TEMP/cle-essai"
+          PUB=$(ls -d "$RUNNER_TEMP"/publication/*)
+          echo "PUB=$PUB" >> "$GITHUB_ENV"
+      - name: Téléchargements servis comme Breizhcosystem (local)
+        run: |
+          mkdir -p essai/telechargements
+          cp "$PUB"/dist/living-business-*-linux-x64.zip essai/telechargements/
+          cp "$PUB/deploiement/installer-jeu.sh" essai/installer-jeu.sh
+          (cd essai && nohup python3 -m http.server 8099 --bind 127.0.0.1 >/tmp/http.log 2>&1 &)
+          sleep 1
+          curl -fsS -o /dev/null http://127.0.0.1:8099/installer-jeu.sh
+      - name: Installation complète (publication signée)
+        run: |
+          echo "127.0.0.1 jeu.localhost" | sudo tee -a /etc/hosts
+          # l'installateur met le système à jour (apt-get upgrade) : sur la machine de la CI, le paquet firefox (snap)
+          # préinstallé ne se met pas à jour et ferait échouer l'essai pour une raison étrangère au jeu
+          sudo apt-mark hold firefox snapd
+          sudo env LB_ESSAI_LOCAL=1 LB_NEXUS=http://127.0.0.1:8099 bash "$PUB/deploiement/installer-jeu.sh" jeu.localhost < /dev/null | tee /tmp/installation.log
+          grep -Eq 'https://jeu\.localhost/installation#[A-Za-z0-9_-]{43}' /tmp/installation.log
+          test "$(sudo cat /etc/living-business/signataires)" = "$(cat "$RUNNER_TEMP/signataires")"
+      - name: Jeu en HTTPS derrière Caddy, service isolé
+        run: |
+          systemctl is-active living-business
+          # Caddy fabrique son certificat local dans la seconde qui suit son démarrage : on réessaie au lieu d'arriver trop tôt
+          curl -fsSk --retry 15 --retry-delay 2 --retry-all-errors --resolve jeu.localhost:443:127.0.0.1 https://jeu.localhost/api/v1/vivant
+          curl -fsSk --resolve jeu.localhost:443:127.0.0.1 -o /dev/null -w '%{http_code}\n' https://jeu.localhost/ | grep -q 200
+          test "$(sudo stat -c '%a %U' /var/lib/living-business/installation.txt)" = "600 living-business"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: autre.exemple' http://127.0.0.1:4173/)" = 421
+          systemctl show living-business -p NoNewPrivileges -p ProtectSystem | grep -q 'ProtectSystem=strict'
+          # clé des secrets hors du dossier des données, remise par systemd (chiffrée par la clé du serveur si possible)
+          sudo test ! -e /var/lib/living-business/cle-secrets
+          grep -Eq '^LoadCredential(Encrypted)?=cle-secrets:/etc/living-business/cle-secrets(\.cred)?$' /etc/systemd/system/living-business.service
+          grep -q '^LoadCredentialEncrypted=' /etc/systemd/system/living-business.service || echo "::warning::systemd-creds indisponible : clé en clair réservée à root"
+          sudo ufw status | grep -q '443/tcp'
+          # Caddy du dépôt officiel du projet (clé inscrite dans le script signé), jamais le paquet « universe » d'Ubuntu
+          VERSION_CADDY="$(dpkg-query -W -f='${Version}' caddy)"
+          echo "Caddy $VERSION_CADDY"
+          test -n "$VERSION_CADDY"
+          [[ "$VERSION_CADDY" != *ubuntu* ]]
+          POLITIQUE_CADDY="$(LC_ALL=C apt-cache policy caddy)"
+          echo "$POLITIQUE_CADDY"
+          [[ "$(grep -A1 '^ \*\*\* ' <<<"$POLITIQUE_CADDY")" == *https://dl.cloudsmith.io/public/caddy/stable/* ]]
+          # API d'administration de Caddy coupée : rien sur 127.0.0.1:2019, ni pour root ni pour le service du jeu
+          if curl -s --max-time 3 -o /dev/null http://127.0.0.1:2019/config/; then echo "API d'administration de Caddy joignable" >&2; exit 1; fi
+          if sudo -u living-business curl -s --max-time 3 -o /dev/null http://127.0.0.1:2019/config/; then echo "API de Caddy joignable par le jeu" >&2; exit 1; fi
+          # isolement du service : appels système filtrés, /proc réduit (score systemd affiché)
+          systemctl show living-business -p SystemCallFilter | grep -q '^SystemCallFilter=[a-z_]'
+          systemctl show living-business -p ProtectProc | grep -qx 'ProtectProc=invisible'
+          sudo systemd-analyze security living-business --no-pager | tail -n 1
+      - name: Mise à jour vérifiée sans perte (living-business-mise-a-jour)
+        run: |
+          CODE=$(sudo cat /var/lib/living-business/installation.txt)
+          sudo living-business-mise-a-jour < /dev/null | tee /tmp/maj.log
+          test "$(sudo cat /var/lib/living-business/installation.txt)" = "$CODE"
+          systemctl is-active living-business
+          sudo test ! -e /var/lib/living-business/cle-secrets
+      - name: Copie hors site isolée (rclone sans root, stockage en mémoire)
+        run: |
+          PHRASE_ESSAI="essai-$RANDOM-$RANDOM"
+          printf 'RCLONE_CONFIG_S3_TYPE=memory\nRCLONE_CONFIG_CHIFFRE_TYPE=crypt\nRCLONE_CONFIG_CHIFFRE_REMOTE=s3:essai/living-business\nRCLONE_CONFIG_CHIFFRE_PASSWORD=%s\n' "$(printf '%s\n' "$PHRASE_ESSAI" | rclone obscure -)" | sudo tee /etc/living-business/rclone.env >/dev/null
+          sudo chmod 600 /etc/living-business/rclone.env
+          sudo touch /etc/living-business/copie-verrouillee
+          sudo install -d -o living-business -g living-business -m 700 /var/lib/living-business/sauvegardes
+          echo '{}' | sudo -u living-business tee /var/lib/living-business/sauvegardes/essai-copie.json >/dev/null
+          sudo living-business-mise-a-jour < /dev/null
+          systemctl show living-business-sauvegarde.service -p DynamicUser | grep -qx 'DynamicUser=yes'
+          if grep -q 'delete' /etc/systemd/system/living-business-sauvegarde.service; then echo "stockage verrouillé : aucun effacement attendu" >&2; exit 1; fi
+          # rclone lit les sauvegardes (fichiers 0600 du jeu) dans son bac à sable et envoie la copie
+          sudo systemctl start living-business-sauvegarde.service
+          test "$(systemctl show living-business-sauvegarde.service -p ExecMainStatus --value)" = 0
+          sudo systemd-analyze security living-business-sauvegarde.service --no-pager | tail -n 1
+      - name: Script modifié sur Breizhcosystem = mise à jour refusée, rien d'exécuté
+        run: |
+          cp essai/installer-jeu.sh /tmp/installer-bon.sh
+          sed -i 's/^etape "Service Living Business"$/touch \/tmp\/piege-execute; etape "Service Living Business"/' essai/installer-jeu.sh
+          if cmp -s essai/installer-jeu.sh /tmp/installer-bon.sh; then echo "script non modifié : essai sans valeur" >&2; exit 1; fi
+          if sudo living-business-mise-a-jour < /dev/null; then echo "script modifié accepté" >&2; exit 1; fi
+          test ! -e /tmp/piege-execute
+          # modèle du dépôt (non signé) : récupère la publication, la vérifie avec la clé enregistrée, sinon refuse
+          if sudo env LB_ESSAI_LOCAL=1 LB_NEXUS=http://127.0.0.1:8099 bash deploiement/installer-jeu.sh < /dev/null; then echo "modèle : script modifié accepté" >&2; exit 1; fi
+          test ! -e /tmp/piege-execute
+          cp /tmp/installer-bon.sh essai/installer-jeu.sh
+          sudo env LB_ESSAI_LOCAL=1 LB_NEXUS=http://127.0.0.1:8099 bash deploiement/installer-jeu.sh < /dev/null
+          systemctl is-active living-business
+      - name: Journal en cas d'échec
+        if: failure()
+        run: sudo journalctl -u living-business -n 80 --no-pager; sudo journalctl -u caddy -n 40 --no-pager; sudo journalctl -u living-business-sauvegarde -n 40 --no-pager; cat /tmp/http.log || true

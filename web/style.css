@@ -1,0 +1,58 @@
+/* Living Business — coque de la carte et du HUD (jetons Breizhcosystem uniquement, /bz/bz.css).
+   L'ancien CSS est retiré (direction de design §6.4, annexe C) : tous les écrans utilisent les composants bz-* de
+   /bz/composants.css. Restent ici la structure propre au jeu (zone de contenu, scène 3D, grille à zones du HUD, image
+   instantanée, infobulle de la carte). Aucune couleur, taille, rayon ni espacement écrit en dur (src/ds/autres-ecrans.test.ts). */
+
+/* Règles d'éléments : dans la couche bz.base (après base.css), pour que les composants bz-* passent devant elles. */
+@layer bz.base {
+* { box-sizing: border-box; }
+html, body { block-size: 100%; }
+fieldset { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+legend { padding: 0; }
+}
+
+/* ---------------------------------------------------------------- coque : zone de contenu et scène */
+#app { block-size: 100%; display: flex; flex-direction: column; }
+.zone { position: relative; min-inline-size: 0; min-block-size: 0; background: var(--bz-fond); }
+.scene { position: absolute; inset: 0; }
+.scene canvas { display: block; inline-size: 100%; block-size: 100%; touch-action: none; cursor: grab; }
+.scene canvas.bz-scene { position: relative; }
+.page { position: absolute; inset: 0; overflow: auto; }
+/* <main> reçoit le focus après une navigation (palette, raccourci) : pas de contour autour de tout le contenu */
+.zone:focus { outline: none; }
+
+/* ---------------------------------------------------------------- HUD de la carte : grille à zones (§5.6) */
+/* Ordinateur et tablette : « Aujourd'hui » à gauche (360 px), caméra en haut à droite, barre d'outils et mini-carte en bas.
+   Téléphone : +, − et Recentrer seuls, à droite ; tout le reste est dans la feuille basse (Aujourd'hui · Calques · Légende). */
+.hud { position: absolute; inset: 0; z-index: var(--bz-z-hud); pointer-events: none; display: grid; gap: var(--bz-e-3);
+  padding: var(--bz-e-4) calc(var(--bz-e-4) + var(--bz-sa-droite)) var(--bz-e-4) calc(var(--bz-e-4) + var(--bz-sa-gauche));
+  grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "haut-gauche haut haut-droite" "haut-gauche . haut-droite" "bas-gauche bas bas"; }
+.hud > * { pointer-events: auto; min-inline-size: 0; }
+.hud-aujourdhui { grid-area: haut-gauche; align-self: start; }
+.hud-haut { grid-area: haut; justify-self: center; align-self: start; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: var(--bz-e-2); pointer-events: none; }
+.hud-haut > * { pointer-events: auto; }
+.hud-droite { grid-area: haut-droite; align-self: start; display: flex; flex-direction: column; align-items: center; gap: var(--bz-e-2); pointer-events: none; }
+.hud-droite > * { pointer-events: auto; }
+.hud .commandes-carte { display: flex; flex-direction: column; gap: var(--bz-e-0-5); padding: var(--bz-e-1); border-radius: var(--bz-r-3); }
+.hud .commandes-carte .bz-bouton--icone { min-inline-size: var(--bz-cible); min-block-size: var(--bz-cible); }
+.hud-bas { grid-area: bas; align-self: end; display: flex; flex-direction: column; align-items: center; gap: var(--bz-e-2); min-inline-size: 0; pointer-events: none; }
+.hud-bas > * { pointer-events: auto; max-inline-size: 100%; }
+.hud > .bz-minicarte, .hud > .hud-minicarte-ouvrir { grid-area: bas-gauche; align-self: end; justify-self: start; }
+.hud[data-masque] { grid-template-areas: ". . haut-droite" ". . ." ". . ."; }
+.hud-afficher { grid-area: haut-droite; align-self: start; }
+.hud-reseau { grid-area: bas; justify-self: center; align-self: end; max-inline-size: min(28rem, 100%); padding: var(--bz-e-4); border-radius: var(--bz-r-3); }
+.carte-instantanee { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; object-fit: cover; pointer-events: none; transition: opacity var(--bz-d-3) var(--bz-c-standard); }
+.carte-instantanee[data-fondu] { opacity: 0; }
+.infobulle { position: absolute; z-index: var(--bz-z-infobulle); pointer-events: none; padding: var(--bz-e-1) var(--bz-e-2); border-radius: var(--bz-r-1);
+  background: var(--bz-surface-elevee); color: var(--bz-texte); box-shadow: var(--bz-elev-flottant); border: var(--bz-bord-1) solid var(--bz-carte-bord);
+  font: var(--bz-g-moyen) var(--bz-t-petit)/var(--bz-i-label) var(--bz-police); transform: translate(-50%, calc(-100% - var(--bz-e-3))); display: flex; flex-direction: column; gap: var(--bz-e-0-5); max-inline-size: 20rem; }
+@media (max-width: 37.49em) {
+  .hud { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto; grid-template-areas: "haut haut-droite"; padding-block-end: 0; }
+  .hud .commandes-carte { grid-area: haut-droite; align-self: start; gap: var(--bz-e-entre-cibles); }
+  .hud-haut { justify-self: start; }
+  .hud-reseau { grid-area: haut; grid-column: 1 / -1; justify-self: stretch; align-self: start; max-inline-size: none; }
+  .bz-feuille .bz-visite { inline-size: auto; margin-block-end: var(--bz-e-4); }
+  .bz-feuille .camera-feuille { display: flex; flex-wrap: wrap; gap: var(--bz-e-entre-cibles); }
+  .bz-feuille .bz-segments { align-self: stretch; }
+}

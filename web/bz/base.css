@@ -1,0 +1,106 @@
+/* Breizhcosystem — base : reset, typographie, focus, sélection, préférences (direction de design §3.5, §3.8).
+   Jetons uniquement : aucune couleur, taille, durée ou ombre écrite en dur (vérifié par src/ds.test.ts). */
+@layer bz.base {
+  *, *::before, *::after { box-sizing: border-box; }
+  html {
+    font-family: var(--bz-police); font-feature-settings: var(--bz-police-reglages); font-optical-sizing: auto;
+    -webkit-text-size-adjust: 100%; text-size-adjust: 100%; background: var(--bz-fond); color: var(--bz-texte);
+    scroll-padding-block: calc(var(--bz-h-entete) + var(--bz-e-4)) calc(var(--bz-h-onglets) + var(--bz-pied-bas) + var(--bz-e-4));
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Taille de texte choisie dans iOS (pas sur macOS, où elle vaut 13 px ; pas si l'application impose une taille) */
+  @supports (font: -apple-system-body) and (-webkit-touch-callout: none) {
+    html:not([data-texte]) { font: -apple-system-body; font-family: var(--bz-police); font-feature-settings: var(--bz-police-reglages); font-optical-sizing: auto; }
+  }
+  body {
+    margin: 0; font-size: var(--bz-t-base); line-height: var(--bz-i-texte); letter-spacing: var(--bz-l-texte);
+    min-block-size: 100dvh; background: var(--bz-fond); color: var(--bz-texte);
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  }
+  h1, h2, h3, h4, h5, h6 { margin: 0; font-weight: var(--bz-g-fort); line-height: var(--bz-i-titre); text-wrap: balance; }
+  p { margin: 0; text-wrap: pretty; }
+  ul[role], ol[role] { margin: 0; padding: 0; list-style: none; }
+  img, svg, video, canvas { display: block; max-inline-size: 100%; }
+  svg { block-size: auto; }
+  button, input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
+  button { cursor: pointer; }
+  input, textarea { accent-color: var(--bz-marque); }
+  a { color: var(--bz-marque-texte); text-decoration-line: underline; text-decoration-thickness: 0.08em; text-underline-offset: 0.18em; }
+  a:hover { text-decoration-thickness: 0.12em; }
+  code, kbd, samp, pre { font-family: var(--bz-police-mono); font-size: 0.92em; }
+  ::selection { background: var(--bz-selection); color: var(--bz-texte); }
+  [hidden]:not([hidden="until-found"]) { display: none !important; }
+
+  /* Focus : un contour, jamais une ombre seule (elle disparaît en forced-colors) */
+  :focus-visible { outline: var(--bz-focus-largeur) solid var(--bz-focus-couleur); outline-offset: var(--bz-focus-ecart); }
+  :focus:not(:focus-visible) { outline: none; }
+  /* Sur la carte, le verre et les étiquettes : halo | contour | halo, visible sur toute couleur de la scène */
+  .bz-hud :focus-visible, .bz-verre :focus-visible, .bz-etiquette:focus-visible {
+    box-shadow: 0 0 0 calc(var(--bz-focus-ecart) + var(--bz-focus-largeur) + 2px) var(--bz-focus-halo); }
+  /* Canvas plein cadre : contour intérieur (sinon rogné par le bord de l'écran) ; halo intérieur posé par le cadre */
+  canvas.bz-scene:focus-visible { outline: none; }
+  .bz-scene-cadre[data-focus-clavier]::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+    outline: var(--bz-focus-largeur) solid var(--bz-focus-couleur); outline-offset: calc(-2 * var(--bz-focus-largeur));
+    box-shadow: inset 0 0 0 calc(3 * var(--bz-focus-largeur)) var(--bz-focus-halo); }
+  /* Surfaces inverses (toasts, infobulles, bandeau Simulation) */
+  .bz-toast, .bz-infobulle, .bz-bandeau--simulation { --bz-focus-couleur: var(--bz-focus-inverse); --bz-focus-halo: var(--bz-surface-inverse);
+    --bz-marque-texte: var(--bz-lien-inverse); --bz-texte-2: var(--bz-sur-inverse); }
+
+  /* Indications de raccourci : inutiles sans clavier ni survol */
+  kbd.bz-raccourci {
+    display: inline-flex; align-items: center; justify-content: center; min-inline-size: 1.5em; padding: 0 var(--bz-e-1);
+    border: var(--bz-bord-1) solid var(--bz-bordure); border-radius: var(--bz-r-1); background: var(--bz-surface);
+    color: var(--bz-texte-2); font: var(--bz-g-moyen) var(--bz-t-micro)/var(--bz-i-texte) var(--bz-police); letter-spacing: var(--bz-l-micro);
+  }
+  @media (hover: none) { kbd.bz-raccourci { display: none; } }
+  /* Sans [popover] (iOS < 17) : masqué tant que popover.js ne l'ouvre pas */
+  @supports not selector(:popover-open) {
+    [popover]:not([data-ouvert]) { display: none; }
+    [popover][data-ouvert] { position: fixed; z-index: var(--bz-z-popover); }
+  }
+
+  @media (forced-colors: active) {
+    :focus-visible, .bz-scene-cadre[data-focus-clavier]::after { outline-color: Highlight; }
+    [aria-current="page"], [aria-pressed="true"], [role="option"][aria-selected="true"] { border-color: Highlight; outline-color: Highlight; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :root:not([data-mouvement="normal"]) *, :root:not([data-mouvement="normal"]) *::before, :root:not([data-mouvement="normal"]) *::after {
+      animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+  }
+  :root[data-mouvement="reduit"] *, :root[data-mouvement="reduit"] *::before, :root[data-mouvement="reduit"] *::after {
+    animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+
+  /* ---- Rôles typographiques (§3.5) : à utiliser dans h() plutôt que des tailles libres ---- */
+  .bz-t-affiche { font: var(--bz-g-display) var(--bz-t-affiche)/var(--bz-i-serre) var(--bz-police-titre); letter-spacing: var(--bz-l-affiche); font-variation-settings: "SOFT" 50, "WONK" 0; text-wrap: balance; }
+  .bz-t-titre-1 { font: var(--bz-g-display) var(--bz-t-titre-1)/var(--bz-i-serre) var(--bz-police-titre); letter-spacing: var(--bz-l-affiche); text-wrap: balance; }
+  .bz-t-salutation { font: var(--bz-g-fort) var(--bz-t-titre-3)/var(--bz-i-titre) var(--bz-police-titre); letter-spacing: -0.01em; text-wrap: balance; }
+  .bz-t-titre-2 { font: var(--bz-g-fort) var(--bz-t-titre-2)/var(--bz-i-titre) var(--bz-police); letter-spacing: var(--bz-l-titre); text-wrap: balance; }
+  .bz-t-titre-3 { font: var(--bz-g-fort) var(--bz-t-titre-3)/var(--bz-i-titre) var(--bz-police); letter-spacing: var(--bz-l-titre); text-wrap: balance; }
+  .bz-t-titre-4 { font: var(--bz-g-fort) var(--bz-t-titre-4)/var(--bz-i-label) var(--bz-police); letter-spacing: -0.01em; text-wrap: balance; }
+  .bz-t-chapeau { font: var(--bz-g-normal) var(--bz-t-moyen)/var(--bz-i-texte) var(--bz-police); letter-spacing: var(--bz-l-texte); max-inline-size: var(--bz-mesure); }
+  .bz-t-texte { font: var(--bz-g-normal) var(--bz-t-base)/var(--bz-i-texte) var(--bz-police); letter-spacing: var(--bz-l-texte); max-inline-size: var(--bz-mesure); }
+  .bz-t-bouton { font: var(--bz-g-fort) var(--bz-t-bouton)/var(--bz-i-label) var(--bz-police); letter-spacing: 0; }
+  .bz-t-label { font: var(--bz-g-moyen) var(--bz-t-petit)/var(--bz-i-label) var(--bz-police); letter-spacing: 0; }
+  .bz-t-petit { font: var(--bz-g-normal) var(--bz-t-petit)/var(--bz-i-texte) var(--bz-police); letter-spacing: 0; }
+  .bz-t-micro { font: var(--bz-g-moyen) var(--bz-t-micro)/var(--bz-i-label) var(--bz-police); letter-spacing: var(--bz-l-micro); }
+  .bz-t-surtitre { font: var(--bz-g-fort) var(--bz-t-micro)/var(--bz-i-label) var(--bz-police); letter-spacing: var(--bz-l-capitales); text-transform: uppercase; color: var(--bz-texte-3); }
+  .bz-t-chiffre { font-family: var(--bz-police); font-weight: var(--bz-g-fort); line-height: var(--bz-i-serre); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+  .bz-t-code { font: var(--bz-g-normal) var(--bz-t-petit)/var(--bz-i-texte) var(--bz-police-mono); letter-spacing: 0; }
+  .bz-t-identifiant { font-variant-numeric: tabular-nums slashed-zero; }
+  .bz-t-long { line-height: var(--bz-i-long); hyphens: auto; max-inline-size: var(--bz-mesure); }
+  .bz-texte-2 { color: var(--bz-texte-2); }
+  .bz-texte-3 { color: var(--bz-texte-3); }
+
+  /* ---- Utilitaires d'accessibilité ---- */
+  .bz-visuellement-cache:not(:focus):not(:active) {
+    position: absolute !important; inline-size: 1px !important; block-size: 1px !important; padding: 0 !important; margin: -1px !important;
+    overflow: hidden !important; clip-path: inset(50%) !important; white-space: nowrap !important; border: 0 !important; }
+  /* Lien d'évitement « Aller au contenu » : premier élément focusable, visible au focus */
+  .bz-evitement {
+    position: fixed; inset-block-start: calc(var(--bz-sa-haut) + var(--bz-e-2)); inset-inline-start: calc(var(--bz-sa-gauche) + var(--bz-e-2));
+    z-index: var(--bz-z-infobulle); padding: var(--bz-e-2) var(--bz-e-4); border-radius: var(--bz-r-2);
+    background: var(--bz-surface-elevee); color: var(--bz-marque-texte); box-shadow: var(--bz-elev-flottant);
+    font: var(--bz-g-fort) var(--bz-t-bouton)/var(--bz-i-label) var(--bz-police); translate: 0 calc(-100% - var(--bz-e-8));
+  }
+  .bz-evitement:focus, .bz-evitement:focus-visible { translate: 0 0; }
+}

@@ -1,0 +1,7 @@
+<!-- Breizhcosystem — icône maison « Moucheture » 1.0 (grille 24, propriété Breizhcosystem). Le symbole de marque à 24 px, en currentColor. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path fill="currentColor" stroke="none" d="M12 7.75C11.5 12 9.75 15.5 6.5 19.25C7.8 19.35 8.85 18.85 9.5 18C10.15 19.6 11 20.9 12 22C13 20.9 13.85 19.6 14.5 18C15.15 18.85 16.2 19.35 17.5 19.25C14.25 15.5 12.5 12 12 7.75Z" />
+  <circle fill="currentColor" stroke="none" cx="6.75" cy="8.5" r="2.25" />
+  <circle fill="currentColor" stroke="none" cx="17.25" cy="8.5" r="2.25" />
+  <circle fill="currentColor" stroke="none" cx="12" cy="4.75" r="2.25" />
+</svg>

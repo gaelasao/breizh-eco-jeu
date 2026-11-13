@@ -1,0 +1,40 @@
+{
+  "name": "breizh-eco-jeu",
+  "version": "0.1.2",
+  "private": true,
+  "description": "Living Business par Breizhcosystem — le cockpit vivant de l'entreprise, logiciel libre, gratuit et auto-hébergeable.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gaelasao/breizh-eco-jeu.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test \"src/**/*.test.ts\" \"scripts/**/*.test.ts\"",
+    "typecheck": "tsc",
+    "check": "npm run typecheck && npm test",
+    "start": "node src/passerelle/serveur.ts",
+    "demo": "node src/passerelle/demo.ts",
+    "secours": "node src/passerelle/secours.ts",
+    "paquets": "node scripts/paquets.ts",
+    "icones": "node scripts/icones.ts",
+    "icones:sprite": "node scripts/sprite.ts",
+    "ds:synchro": "node scripts/ds-synchro.ts",
+    "vignettes": "node scripts/vignettes.ts"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "lucide-static": "1.71.0",
+    "typescript": "7.0.2"
+  },
+  "dependencies": {
+    "@github/combobox-nav": "3.0.2",
+    "@leeoniya/ufuzzy": "1.0.19",
+    "camera-controls": "3.1.2",
+    "three": "0.186.0",
+    "uplot": "1.6.32"
+  }
+}

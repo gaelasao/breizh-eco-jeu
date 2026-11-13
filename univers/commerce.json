@@ -1,0 +1,17 @@
+{
+  "id": "commerce",
+  "nom": "Commerce",
+  "version": 1,
+  "herite": "generique",
+  "types": [
+    { "id": "site", "libelle": "Magasin", "pluriel": "Magasins", "icone": "magasin" },
+    {
+      "id": "article", "libelle": "Produit", "pluriel": "Produits",
+      "champs": [{ "id": "prix_vente", "libelle": "Prix de vente", "type": "montant", "unite": "€" }]
+    },
+    { "id": "commande_client", "libelle": "Vente", "pluriel": "Ventes" },
+    { "id": "particulier", "libelle": "Client particulier", "pluriel": "Clients particuliers" },
+    { "id": "projet", "masque": true },
+    { "id": "vehicule", "masque": true }
+  ]
+}

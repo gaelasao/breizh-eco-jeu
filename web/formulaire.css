@@ -1,0 +1,34 @@
+/* Formulaire public (avis client, baromètre d'équipe) — jetons Breizhcosystem (/bz/bz.css), clair et sombre. */
+body { display: flex; flex-direction: column; align-items: center; padding: calc(var(--bz-sa-haut) + var(--bz-e-8)) var(--bz-goutiere) calc(var(--bz-sa-bas) + var(--bz-e-8)); }
+.carte { inline-size: 100%; max-inline-size: 35rem; background: var(--bz-surface); border: var(--bz-bord-1) solid var(--bz-carte-bord); border-radius: var(--bz-r-3); box-shadow: var(--bz-elev-carte); padding: var(--bz-e-6) var(--bz-e-5); }
+h1 { font: var(--bz-g-fort) var(--bz-t-titre-2)/var(--bz-i-titre) var(--bz-police-titre); letter-spacing: var(--bz-l-titre); margin: var(--bz-e-1) 0 var(--bz-e-2); }
+.surtitre { font: var(--bz-g-fort) var(--bz-t-micro)/var(--bz-i-label) var(--bz-police); letter-spacing: var(--bz-l-capitales); color: var(--bz-texte-3); text-transform: uppercase; }
+.intro { color: var(--bz-texte-2); margin: 0 0 var(--bz-e-5); }
+.chargement { color: var(--bz-texte-2); }
+fieldset { border: 0; padding: 0; margin: 0 0 var(--bz-e-6); }
+legend { font-weight: var(--bz-g-fort); margin-bottom: var(--bz-e-3); }
+.echelle { display: grid; grid-template-columns: repeat(11, 1fr); gap: var(--bz-e-1); }
+.echelle label { position: relative; }
+.echelle input { position: absolute; opacity: 0; inset: 0; margin: 0; }
+.echelle span { display: grid; place-items: center; block-size: var(--bz-cible); border: var(--bz-bord-1) solid var(--bz-bordure-champ); border-radius: var(--bz-r-1); font-weight: var(--bz-g-fort); font-variant-numeric: tabular-nums; cursor: pointer; background: var(--bz-surface); transition: background-color var(--bz-d-1) var(--bz-c-effet); }
+.echelle label:hover span { border-color: var(--bz-bordure-champ-survol); }
+.echelle input:focus-visible + span { outline: var(--bz-focus-largeur) solid var(--bz-focus-couleur); outline-offset: var(--bz-focus-ecart); }
+.echelle input:checked + span { background: var(--bz-marque-doux); border: var(--bz-bord-2) solid var(--bz-etat-indicateur); color: var(--bz-texte); }
+.bornes { display: flex; justify-content: space-between; font-size: var(--bz-t-micro); color: var(--bz-texte-2); margin-top: var(--bz-e-1); }
+textarea { inline-size: 100%; min-block-size: 6rem; border: var(--bz-bord-1) solid var(--bz-bordure-champ); border-radius: var(--bz-r-2); padding: var(--bz-e-2) var(--bz-e-3); font: inherit; background: var(--bz-surface); color: var(--bz-texte); resize: vertical; }
+button { inline-size: 100%; min-block-size: var(--bz-h-controle-lg); border: var(--bz-bord-1) solid transparent; border-radius: var(--bz-r-2); background: var(--bz-marque); color: var(--bz-sur-marque); font: var(--bz-g-fort) var(--bz-t-base)/var(--bz-i-label) var(--bz-police); cursor: pointer; }
+button:hover { background: var(--bz-marque-survol); }
+button:disabled { background: var(--bz-composant); color: var(--bz-texte-desactive); cursor: progress; }
+.erreur { background: var(--bz-critique-fond); color: var(--bz-critique-texte); border-radius: var(--bz-r-2); padding: var(--bz-e-2) var(--bz-e-3); margin-bottom: var(--bz-e-4); }
+.merci { text-align: center; padding: var(--bz-e-4) 0; }
+.merci .rond { inline-size: 4rem; block-size: 4rem; border-radius: var(--bz-r-rond); background: var(--bz-ok-plein); color: var(--bz-sur-ok); display: grid; place-items: center; font-size: var(--bz-t-titre-2); margin: 0 auto var(--bz-e-3); }
+.pied { color: var(--bz-texte-2); font-size: var(--bz-t-micro); margin-top: var(--bz-e-4); text-align: center; }
+@media (max-width: 26.25em) { .echelle { grid-template-columns: repeat(6, 1fr); } }
+.notice { border: var(--bz-bord-1) solid var(--bz-carte-bord); border-radius: var(--bz-r-2); background: var(--bz-fond-2, var(--bz-surface)); margin: 0 0 var(--bz-e-5); font-size: var(--bz-t-petit); color: var(--bz-texte-2); }
+.notice summary { min-block-size: var(--bz-cible); display: flex; align-items: center; justify-content: space-between; gap: var(--bz-e-2); padding: 0 var(--bz-e-3); font-weight: var(--bz-g-fort); color: var(--bz-texte); cursor: pointer; list-style: none; }
+.notice summary::-webkit-details-marker { display: none; }
+.notice summary::after { content: '+'; font-size: var(--bz-t-base); color: var(--bz-texte-2); }
+.notice[open] summary::after { content: '−'; }
+.notice summary:focus-visible { outline: var(--bz-focus-largeur) solid var(--bz-focus-couleur); outline-offset: var(--bz-focus-ecart); }
+.notice ul { margin: 0; padding: 0 var(--bz-e-3) var(--bz-e-3) var(--bz-e-6); display: grid; gap: var(--bz-e-2); }
+.notice strong { color: var(--bz-texte); }

@@ -1,0 +1,1221 @@
+{
+  "id": "generique",
+  "nom": "Entreprise (générique)",
+  "version": 1,
+  "roles": [
+    {
+      "id": "client",
+      "libelle": "Client",
+      "pluriel": "Clients"
+    },
+    {
+      "id": "fournisseur",
+      "libelle": "Fournisseur",
+      "pluriel": "Fournisseurs"
+    },
+    {
+      "id": "partenaire",
+      "libelle": "Partenaire",
+      "pluriel": "Partenaires"
+    },
+    {
+      "id": "prospect",
+      "libelle": "Prospect",
+      "pluriel": "Prospects"
+    },
+    {
+      "id": "sous_traitant",
+      "libelle": "Sous-traitant",
+      "pluriel": "Sous-traitants"
+    }
+  ],
+  "types": [
+    {
+      "id": "mon_entreprise",
+      "famille": "organisation",
+      "libelle": "Mon entreprise",
+      "pluriel": "Mes entités",
+      "icone": "siege",
+      "champs": [
+        {
+          "id": "siret",
+          "libelle": "SIRET",
+          "type": "texte"
+        },
+        {
+          "id": "secteur",
+          "libelle": "Secteur",
+          "type": "texte"
+        },
+        {
+          "id": "taille",
+          "libelle": "Taille",
+          "type": "choix",
+          "choix": [
+            "TPE (moins de 10 personnes)",
+            "PME (10 à 249)",
+            "ETI ou grande (250 et plus)"
+          ]
+        },
+        {
+          "id": "effectif",
+          "libelle": "Effectif",
+          "type": "nombre"
+        },
+        {
+          "id": "ville",
+          "libelle": "Ville",
+          "type": "texte"
+        },
+        {
+          "id": "mode_organisation",
+          "libelle": "Organisation",
+          "type": "choix",
+          "choix": [
+            "d’un seul tenant",
+            "par départements"
+          ]
+        },
+        {
+          "id": "etape_accueil",
+          "libelle": "Étape de l’accueil",
+          "type": "nombre"
+        },
+        { "id": "tresorerie", "libelle": "Trésorerie disponible", "type": "montant", "unite": "€" },
+        { "id": "charges_mensuelles", "libelle": "Charges mensuelles", "type": "montant", "unite": "€" },
+        { "id": "chiffre_affaires_annuel", "libelle": "Chiffre d’affaires annuel", "type": "montant", "unite": "€" },
+        { "id": "marge_brute", "libelle": "Marge brute", "type": "nombre", "unite": "%" },
+        { "id": "resultat_net", "libelle": "Résultat net annuel", "type": "montant", "unite": "€" },
+        { "id": "creances_clients", "libelle": "Créances clients", "type": "montant", "unite": "€" },
+        { "id": "dettes_fournisseurs", "libelle": "Dettes fournisseurs", "type": "montant", "unite": "€" },
+        { "id": "dettes_financieres", "libelle": "Emprunts et dettes financières", "type": "montant", "unite": "€" },
+        { "id": "capitaux_propres", "libelle": "Capitaux propres", "type": "montant", "unite": "€" },
+        { "id": "comptabilite_au", "libelle": "Comptabilité à jour au", "type": "date" }
+      ]
+    },
+    {
+      "id": "departement",
+      "famille": "departement",
+      "libelle": "Département",
+      "pluriel": "Départements",
+      "icone": "departement",
+      "champs": [
+        {
+          "id": "responsable",
+          "libelle": "Responsable",
+          "type": "reference",
+          "cible": {
+            "famille": "personne"
+          }
+        },
+        {
+          "id": "couleur",
+          "libelle": "Couleur",
+          "type": "choix",
+          "choix": [
+            "bleu",
+            "orange",
+            "vert",
+            "violet",
+            "rouge",
+            "turquoise",
+            "jaune",
+            "ardoise"
+          ]
+        },
+        {
+          "id": "mission",
+          "libelle": "Mission",
+          "type": "texte"
+        }
+      ]
+    },
+    {
+      "id": "employe",
+      "famille": "personne",
+      "libelle": "Employé",
+      "pluriel": "Employés",
+      "icone": "personne",
+      "champs": [
+        {
+          "id": "lieu",
+          "libelle": "Rattaché à",
+          "type": "reference",
+          "cible": {
+            "famille": "lieu"
+          }
+        },
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "poste",
+          "libelle": "Poste",
+          "type": "texte"
+        },
+        {
+          "id": "equipe",
+          "libelle": "Équipe",
+          "type": "texte"
+        },
+        {
+          "id": "disponibilite",
+          "libelle": "Disponibilité (déclarée)",
+          "type": "choix",
+          "choix": [
+            "disponible",
+            "absent",
+            "en congé"
+          ]
+        },
+        {
+          "id": "email",
+          "libelle": "E-mail",
+          "type": "texte"
+        }
+      ]
+    },
+    {
+      "id": "entreprise",
+      "famille": "tiers",
+      "libelle": "Entreprise",
+      "pluriel": "Entreprises",
+      "icone": "batiment",
+      "champs": [
+        {
+          "id": "activite",
+          "libelle": "Activité",
+          "type": "texte"
+        },
+        {
+          "id": "siret",
+          "libelle": "SIRET",
+          "type": "texte"
+        },
+        {
+          "id": "ville",
+          "libelle": "Ville",
+          "type": "texte"
+        },
+        {
+          "id": "num_departement",
+          "libelle": "Nº de département",
+          "type": "texte"
+        },
+        {
+          "id": "encours",
+          "libelle": "Encours",
+          "type": "montant",
+          "unite": "€"
+        },
+        {
+          "id": "limite_encours",
+          "libelle": "Limite d'encours",
+          "type": "montant",
+          "unite": "€"
+        },
+        {
+          "id": "contact",
+          "libelle": "Contact",
+          "type": "texte"
+        },
+        {
+          "id": "email",
+          "libelle": "E-mail",
+          "type": "texte"
+        }
+      ]
+    },
+    {
+      "id": "particulier",
+      "famille": "tiers",
+      "libelle": "Particulier",
+      "pluriel": "Particuliers",
+      "icone": "personne",
+      "champs": [
+        {
+          "id": "ville",
+          "libelle": "Ville",
+          "type": "texte"
+        },
+        {
+          "id": "contact",
+          "libelle": "Contact",
+          "type": "texte"
+        },
+        {
+          "id": "email",
+          "libelle": "E-mail",
+          "type": "texte"
+        }
+      ]
+    },
+    {
+      "id": "organisme_public",
+      "famille": "tiers",
+      "libelle": "Organisme public",
+      "pluriel": "Organismes publics",
+      "icone": "mairie",
+      "champs": [
+        {
+          "id": "ville",
+          "libelle": "Ville",
+          "type": "texte"
+        },
+        {
+          "id": "contact",
+          "libelle": "Contact",
+          "type": "texte"
+        },
+        {
+          "id": "email",
+          "libelle": "E-mail",
+          "type": "texte"
+        }
+      ]
+    },
+    {
+      "id": "siege",
+      "famille": "lieu",
+      "libelle": "Siège",
+      "pluriel": "Sièges",
+      "icone": "siege",
+      "champs": [
+        {
+          "id": "adresse",
+          "libelle": "Adresse",
+          "type": "texte"
+        },
+        {
+          "id": "besoin_effectif",
+          "libelle": "Besoin d’effectif (par jour)",
+          "type": "nombre"
+        }
+      ]
+    },
+    {
+      "id": "site",
+      "famille": "lieu",
+      "libelle": "Site",
+      "pluriel": "Sites",
+      "icone": "site",
+      "champs": [
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "adresse",
+          "libelle": "Adresse",
+          "type": "texte"
+        },
+        {
+          "id": "besoin_effectif",
+          "libelle": "Besoin d’effectif (par jour)",
+          "type": "nombre"
+        }
+      ]
+    },
+    {
+      "id": "entrepot",
+      "famille": "lieu",
+      "libelle": "Entrepôt",
+      "pluriel": "Entrepôts",
+      "icone": "entrepot",
+      "champs": [
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "adresse",
+          "libelle": "Adresse",
+          "type": "texte"
+        },
+        {
+          "id": "besoin_effectif",
+          "libelle": "Besoin d’effectif (par jour)",
+          "type": "nombre"
+        }
+      ]
+    },
+    {
+      "id": "atelier",
+      "famille": "lieu",
+      "libelle": "Atelier",
+      "pluriel": "Ateliers",
+      "icone": "atelier",
+      "champs": [
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "adresse",
+          "libelle": "Adresse",
+          "type": "texte"
+        },
+        {
+          "id": "besoin_effectif",
+          "libelle": "Besoin d’effectif (par jour)",
+          "type": "nombre"
+        }
+      ]
+    },
+    {
+      "id": "boutique",
+      "famille": "lieu",
+      "libelle": "Boutique",
+      "pluriel": "Boutiques",
+      "icone": "magasin",
+      "champs": [
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "adresse",
+          "libelle": "Adresse",
+          "type": "texte"
+        },
+        {
+          "id": "besoin_effectif",
+          "libelle": "Besoin d’effectif (par jour)",
+          "type": "nombre"
+        }
+      ]
+    },
+    {
+      "id": "projet",
+      "famille": "projet",
+      "libelle": "Projet",
+      "pluriel": "Projets",
+      "icone": "projet",
+      "champs": [
+        {
+          "id": "lieu",
+          "libelle": "Rattaché à",
+          "type": "reference",
+          "cible": {
+            "famille": "lieu"
+          }
+        },
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "client",
+          "libelle": "Client",
+          "type": "reference",
+          "cible": {
+            "famille": "tiers",
+            "role": "client"
+          }
+        },
+        {
+          "id": "montant",
+          "libelle": "Montant",
+          "type": "montant",
+          "unite": "€"
+        },
+        {
+          "id": "echeance",
+          "libelle": "Échéance",
+          "type": "date"
+        },
+        {
+          "id": "avancement",
+          "libelle": "Avancement",
+          "type": "nombre",
+          "unite": "%"
+        },
+        {
+          "id": "retard_jours",
+          "libelle": "Retard",
+          "type": "nombre",
+          "unite": "jours"
+        },
+        {
+          "id": "besoin_effectif",
+          "libelle": "Besoin d’effectif (par jour)",
+          "type": "nombre"
+        }
+      ]
+    },
+    {
+      "id": "article",
+      "famille": "ressource",
+      "libelle": "Article en stock",
+      "pluriel": "Articles en stock",
+      "icone": "stock",
+      "champs": [
+        {
+          "id": "lieu",
+          "libelle": "Rattaché à",
+          "type": "reference",
+          "cible": {
+            "famille": "lieu"
+          }
+        },
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "quantite",
+          "libelle": "Quantité",
+          "type": "nombre",
+          "obligatoire": true
+        },
+        {
+          "id": "seuil_alerte",
+          "libelle": "Seuil d'alerte",
+          "type": "nombre"
+        },
+        {
+          "id": "unite",
+          "libelle": "Unité",
+          "type": "texte"
+        },
+        {
+          "id": "fournisseur",
+          "libelle": "Fournisseur",
+          "type": "reference",
+          "cible": {
+            "famille": "tiers",
+            "role": "fournisseur"
+          }
+        }
+      ]
+    },
+    {
+      "id": "equipement",
+      "famille": "ressource",
+      "libelle": "Équipement",
+      "pluriel": "Équipements",
+      "icone": "outil",
+      "champs": [
+        {
+          "id": "lieu",
+          "libelle": "Rattaché à",
+          "type": "reference",
+          "cible": {
+            "famille": "lieu"
+          }
+        },
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "disponible",
+          "libelle": "Disponible",
+          "type": "booleen"
+        }
+      ]
+    },
+    {
+      "id": "vehicule",
+      "famille": "ressource",
+      "libelle": "Véhicule",
+      "pluriel": "Véhicules",
+      "icone": "vehicule",
+      "champs": [
+        {
+          "id": "lieu",
+          "libelle": "Rattaché à",
+          "type": "reference",
+          "cible": {
+            "famille": "lieu"
+          }
+        },
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "immatriculation",
+          "libelle": "Immatriculation",
+          "type": "texte"
+        },
+        {
+          "id": "disponible",
+          "libelle": "Disponible",
+          "type": "booleen"
+        },
+        {
+          "id": "prochaine_revision",
+          "libelle": "Prochaine révision",
+          "type": "date"
+        },
+        {
+          "id": "controle_technique",
+          "libelle": "Contrôle technique",
+          "type": "date"
+        },
+        {
+          "id": "etat_pneus",
+          "libelle": "Pneus",
+          "type": "choix",
+          "choix": [
+            "bons",
+            "à surveiller",
+            "à changer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "devis",
+      "famille": "commande",
+      "libelle": "Devis",
+      "pluriel": "Devis",
+      "icone": "document",
+      "champs": [
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "client",
+          "libelle": "Client",
+          "type": "reference",
+          "cible": {
+            "famille": "tiers",
+            "role": "client"
+          }
+        },
+        {
+          "id": "montant",
+          "libelle": "Montant",
+          "type": "montant",
+          "unite": "€"
+        },
+        {
+          "id": "statut",
+          "libelle": "Statut",
+          "type": "choix",
+          "choix": [
+            "brouillon",
+            "envoyé",
+            "accepté",
+            "refusé"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "commande_client",
+      "famille": "commande",
+      "libelle": "Commande client",
+      "pluriel": "Commandes clients",
+      "icone": "commande",
+      "champs": [
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "client",
+          "libelle": "Client",
+          "type": "reference",
+          "cible": {
+            "famille": "tiers",
+            "role": "client"
+          }
+        },
+        {
+          "id": "montant",
+          "libelle": "Montant",
+          "type": "montant",
+          "unite": "€"
+        },
+        {
+          "id": "livraison_prevue",
+          "libelle": "Livraison prévue",
+          "type": "date"
+        },
+        {
+          "id": "statut",
+          "libelle": "Statut",
+          "type": "choix",
+          "choix": [
+            "en cours",
+            "livrée",
+            "facturée"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "commande_fournisseur",
+      "famille": "commande",
+      "libelle": "Commande fournisseur",
+      "pluriel": "Commandes fournisseurs",
+      "icone": "livraison",
+      "champs": [
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "fournisseur",
+          "libelle": "Fournisseur",
+          "type": "reference",
+          "cible": {
+            "famille": "tiers",
+            "role": "fournisseur"
+          }
+        },
+        {
+          "id": "montant",
+          "libelle": "Montant",
+          "type": "montant",
+          "unite": "€"
+        },
+        {
+          "id": "livraison_prevue",
+          "libelle": "Livraison prévue",
+          "type": "date"
+        },
+        {
+          "id": "statut",
+          "libelle": "Statut",
+          "type": "choix",
+          "choix": [
+            "envoyée",
+            "confirmée",
+            "reçue"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "facture",
+      "famille": "commande",
+      "libelle": "Facture",
+      "pluriel": "Factures",
+      "icone": "facture",
+      "champs": [
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "tiers",
+          "libelle": "Client ou fournisseur",
+          "type": "reference",
+          "cible": {
+            "famille": "tiers"
+          }
+        },
+        {
+          "id": "montant",
+          "libelle": "Montant",
+          "type": "montant",
+          "unite": "€"
+        },
+        {
+          "id": "echeance",
+          "libelle": "Échéance",
+          "type": "date"
+        },
+        {
+          "id": "payee",
+          "libelle": "Payée",
+          "type": "booleen"
+        },
+        {
+          "id": "retard_jours",
+          "libelle": "Retard de paiement",
+          "type": "nombre",
+          "unite": "jours"
+        }
+      ]
+    },
+    {
+      "id": "tache",
+      "famille": "tache",
+      "libelle": "Tâche",
+      "pluriel": "Tâches",
+      "icone": "tache",
+      "champs": [
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "echeance",
+          "libelle": "Échéance",
+          "type": "date"
+        },
+        {
+          "id": "responsable",
+          "libelle": "Responsable",
+          "type": "reference",
+          "cible": {
+            "famille": "personne"
+          }
+        },
+        {
+          "id": "concerne",
+          "libelle": "Concerne",
+          "type": "reference"
+        },
+        {
+          "id": "statut",
+          "libelle": "Statut",
+          "type": "choix",
+          "choix": [
+            "à faire",
+            "en cours",
+            "bloquée",
+            "terminée"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "courrier",
+      "famille": "evenement",
+      "libelle": "Courrier",
+      "pluriel": "Courrier",
+      "icone": "courrier",
+      "champs": [
+        {
+          "id": "expediteur",
+          "libelle": "Expéditeur",
+          "type": "texte",
+          "obligatoire": true
+        },
+        {
+          "id": "tiers",
+          "libelle": "Client ou fournisseur",
+          "type": "reference",
+          "cible": {
+            "famille": "tiers"
+          }
+        },
+        {
+          "id": "objet",
+          "libelle": "Objet",
+          "type": "texte"
+        },
+        {
+          "id": "resume",
+          "libelle": "Résumé",
+          "type": "texte"
+        },
+        {
+          "id": "bac",
+          "libelle": "Bac",
+          "type": "choix",
+          "choix": [
+            "clients",
+            "fournisseurs",
+            "paiements",
+            "administratif",
+            "équipe",
+            "publicité",
+            "autre"
+          ]
+        },
+        {
+          "id": "urgence",
+          "libelle": "Urgence",
+          "type": "choix",
+          "choix": [
+            "haute",
+            "normale",
+            "basse"
+          ]
+        },
+        {
+          "id": "destinataire",
+          "libelle": "Pour",
+          "type": "reference",
+          "cible": {
+            "famille": "personne"
+          }
+        },
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "recu_le",
+          "libelle": "Reçu le",
+          "type": "date"
+        },
+        {
+          "id": "action",
+          "libelle": "Action proposée",
+          "type": "texte"
+        },
+        {
+          "id": "statut",
+          "libelle": "Statut",
+          "type": "choix",
+          "choix": [
+            "à traiter",
+            "traité"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "document",
+      "famille": "evenement",
+      "libelle": "Document",
+      "pluriel": "Documents & papiers",
+      "icone": "document",
+      "champs": [
+        {
+          "id": "categorie",
+          "libelle": "Catégorie",
+          "type": "choix",
+          "choix": [
+            "attestation",
+            "assurance",
+            "immatriculation",
+            "fiscal",
+            "contrat",
+            "certificat",
+            "autre"
+          ]
+        },
+        {
+          "id": "valide_jusqu_au",
+          "libelle": "Valide jusqu’au",
+          "type": "date"
+        },
+        {
+          "id": "organisme",
+          "libelle": "Organisme",
+          "type": "texte"
+        },
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "emplacement",
+          "libelle": "Où le trouver",
+          "type": "texte"
+        },
+        {
+          "id": "note",
+          "libelle": "Note",
+          "type": "texte"
+        }
+      ]
+    },
+    {
+      "id": "avis_client",
+      "famille": "evenement",
+      "libelle": "Avis client",
+      "pluriel": "Avis clients",
+      "icone": "avis",
+      "champs": [
+        {
+          "id": "concerne",
+          "libelle": "Client",
+          "type": "reference",
+          "cible": {
+            "famille": "tiers"
+          },
+          "obligatoire": true
+        },
+        {
+          "id": "note",
+          "libelle": "Satisfaction",
+          "type": "nombre",
+          "unite": "/10",
+          "obligatoire": true
+        },
+        {
+          "id": "recommande",
+          "libelle": "Recommanderait (0-10)",
+          "type": "nombre",
+          "unite": "/10"
+        },
+        {
+          "id": "commentaire",
+          "libelle": "Commentaire",
+          "type": "texte"
+        },
+        {
+          "id": "recu_le",
+          "libelle": "Reçu le",
+          "type": "date"
+        },
+        {
+          "id": "canal",
+          "libelle": "Canal",
+          "type": "texte"
+        }
+      ]
+    },
+    {
+      "id": "barometre",
+      "famille": "evenement",
+      "libelle": "Réponse au baromètre",
+      "pluriel": "Baromètre collaborateurs",
+      "icone": "avis",
+      "champs": [
+        {
+          "id": "departement",
+          "libelle": "Département",
+          "type": "reference",
+          "cible": {
+            "famille": "departement"
+          }
+        },
+        {
+          "id": "note",
+          "libelle": "Bien-être",
+          "type": "nombre",
+          "unite": "/10",
+          "obligatoire": true
+        },
+        {
+          "id": "charge",
+          "libelle": "Charge de travail ressentie",
+          "type": "nombre",
+          "unite": "/10"
+        },
+        {
+          "id": "commentaire",
+          "libelle": "Commentaire (anonyme)",
+          "type": "texte"
+        },
+        {
+          "id": "recu_le",
+          "libelle": "Reçu le",
+          "type": "date"
+        }
+      ]
+    },
+    {
+      "id": "evenement",
+      "famille": "evenement",
+      "libelle": "Événement",
+      "pluriel": "Événements",
+      "icone": "evenement",
+      "champs": []
+    },
+    {
+      "id": "indicateur",
+      "famille": "indicateur",
+      "libelle": "Indicateur",
+      "pluriel": "Indicateurs",
+      "icone": "jauge",
+      "champs": [
+        {
+          "id": "valeur",
+          "libelle": "Valeur",
+          "type": "nombre"
+        },
+        {
+          "id": "objectif",
+          "libelle": "Objectif",
+          "type": "nombre"
+        },
+        {
+          "id": "unite",
+          "libelle": "Unité",
+          "type": "texte"
+        }
+      ]
+    }
+  ],
+  "regles": [
+    {
+      "id": "stock_minimum",
+      "libelle": "Stock",
+      "type": "article",
+      "champ": "quantite",
+      "sens": "min",
+      "seuil": {
+        "champ": "seuil_alerte"
+      },
+      "seuilCritique": 0,
+      "mouvement": true
+    },
+    {
+      "id": "retard_projet",
+      "libelle": "Retard du projet",
+      "type": "projet",
+      "champ": "retard_jours",
+      "sens": "max",
+      "seuil": 0,
+      "seuilCritique": 15,
+      "unite": "jours"
+    },
+    {
+      "id": "retard_paiement",
+      "libelle": "Retard de paiement",
+      "type": "facture",
+      "champ": "retard_jours",
+      "sens": "max",
+      "seuil": 0,
+      "seuilCritique": 30,
+      "unite": "jours"
+    },
+    {
+      "id": "encours_client",
+      "libelle": "Encours",
+      "type": "entreprise",
+      "champ": "encours",
+      "sens": "max",
+      "seuil": {
+        "champ": "limite_encours"
+      },
+      "unite": "€",
+      "mouvement": true,
+      "role": "client"
+    },
+    {
+      "id": "avis_bas",
+      "libelle": "Avis client",
+      "type": "avis_client",
+      "champ": "note",
+      "sens": "min",
+      "seuil": 7,
+      "seuilCritique": 4,
+      "unite": "/10"
+    }
+  ],
+  "echeances": [
+    {
+      "id": "tache_en_retard",
+      "libelle": "Tâche",
+      "type": "tache",
+      "champ": "echeance",
+      "termine": {
+        "champ": "statut",
+        "valeurs": [
+          "terminée"
+        ]
+      },
+      "critiqueApresJours": 7
+    },
+    {
+      "id": "livraison_fournisseur",
+      "libelle": "Livraison fournisseur",
+      "type": "commande_fournisseur",
+      "champ": "livraison_prevue",
+      "termine": {
+        "champ": "statut",
+        "valeurs": [
+          "reçue"
+        ]
+      },
+      "critiqueApresJours": 5
+    },
+    {
+      "id": "livraison_client",
+      "libelle": "Livraison client",
+      "type": "commande_client",
+      "champ": "livraison_prevue",
+      "termine": {
+        "champ": "statut",
+        "valeurs": [
+          "livrée",
+          "facturée"
+        ]
+      },
+      "critiqueApresJours": 3
+    },
+    {
+      "id": "revision_vehicule",
+      "libelle": "Révision",
+      "type": "vehicule",
+      "champ": "prochaine_revision",
+      "critiqueApresJours": 30,
+      "avantJours": 30
+    },
+    {
+      "id": "controle_technique",
+      "libelle": "Contrôle technique",
+      "type": "vehicule",
+      "champ": "controle_technique",
+      "critiqueApresJours": 0,
+      "avantJours": 30
+    },
+    {
+      "id": "document_expire",
+      "libelle": "Document",
+      "type": "document",
+      "champ": "valide_jusqu_au",
+      "critiqueApresJours": 0,
+      "avantJours": 30
+    }
+  ]
+}

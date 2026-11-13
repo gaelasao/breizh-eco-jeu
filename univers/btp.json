@@ -1,0 +1,27 @@
+{
+  "id": "btp",
+  "nom": "BTP",
+  "version": 1,
+  "herite": "generique",
+  "roles": [
+    { "id": "maitre_ouvrage", "libelle": "Maître d'ouvrage", "pluriel": "Maîtres d'ouvrage", "reseau": "client" }
+  ],
+  "types": [
+    {
+      "id": "projet", "libelle": "Chantier", "pluriel": "Chantiers", "icone": "grue",
+      "champs": [
+        { "id": "lot", "libelle": "Lot", "type": "choix", "choix": ["Gros œuvre", "Second œuvre", "Finitions"] },
+        { "id": "adresse", "libelle": "Adresse du chantier", "type": "texte" }
+      ]
+    },
+    { "id": "entrepot", "libelle": "Dépôt", "pluriel": "Dépôts" },
+    { "id": "article", "libelle": "Matériau", "pluriel": "Matériaux" },
+    {
+      "id": "engin", "famille": "ressource", "libelle": "Engin", "pluriel": "Engins", "icone": "engin",
+      "champs": [{ "id": "disponible", "libelle": "Disponible", "type": "booleen" }]
+    }
+  ],
+  "regles": [
+    { "id": "retard_projet", "libelle": "Retard du chantier", "type": "projet", "champ": "retard_jours", "sens": "max", "seuil": 0, "seuilCritique": 10, "unite": "jours" }
+  ]
+}

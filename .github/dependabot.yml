@@ -1,0 +1,18 @@
+# Mises à jour proposées par Dependabot, jamais avant 7 jours de quarantaine (14 pour une version majeure) : une
+# version piégée est en général repérée et retirée du registre en 24 à 72 h. Même règle pour une mise à jour faite à
+# la main (docs/conformite/SECURITE.md). Vérifié par scripts/chaine-ci.test.ts.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
