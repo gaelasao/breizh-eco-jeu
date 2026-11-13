@@ -174,7 +174,7 @@ const airtable: Adaptateur = {
   id: 'airtable', nom: 'Airtable', categorie: 'Base de données', couleur: '#18bfff',
   description: 'Une table Airtable (clients, fournisseurs, stock…) synchronisée dans les deux sens.',
   etapes: [
-    'Sur airtable.com/create/tokens : « Create token », droits data.records:read (+ data.records:write pour écrire), accès à votre base.',
+    'Sur airtable.com/create/tokens : « Create token », droits data.records:read (+ data.records:write pour écrire, + webhook:manage pour le temps réel), accès à votre base.',
     'Ouvrez la table : l’adresse contient l’identifiant de base « app… ».',
     'Indiquez le nom exact de la table (ou son identifiant « tbl… »).',
   ],
