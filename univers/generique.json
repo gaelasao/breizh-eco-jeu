@@ -600,7 +600,48 @@
             "à surveiller",
             "à changer"
           ]
-        }
+        },
+        {
+          "id": "genre",
+          "libelle": "Type de véhicule",
+          "type": "choix",
+          "choix": [
+            "voiture",
+            "camionnette",
+            "camion",
+            "engin",
+            "remorque"
+          ]
+        },
+        {
+          "id": "conducteur",
+          "libelle": "Utilisé par",
+          "type": "reference",
+          "cible": {
+            "famille": "personne"
+          }
+        },
+        { "id": "kilometrage", "libelle": "Kilométrage", "type": "nombre", "unite": "km" },
+        { "id": "kilometrage_le", "libelle": "Kilométrage relevé le", "type": "date" },
+        { "id": "prevenir_jours", "libelle": "Prévenir avant une échéance", "type": "nombre", "unite": "jours" },
+        { "id": "ct_tous_les_mois", "libelle": "Contrôle technique tous les", "type": "nombre", "unite": "mois" },
+        { "id": "revision_km", "libelle": "Révision au compteur", "type": "nombre", "unite": "km" },
+        { "id": "revision_tous_les_mois", "libelle": "Révision tous les", "type": "nombre", "unite": "mois" },
+        { "id": "revision_tous_les_km", "libelle": "Révision tous les", "type": "nombre", "unite": "km" },
+        { "id": "pneus_le", "libelle": "Pneus à revoir le", "type": "date" },
+        { "id": "pneus_km", "libelle": "Pneus au compteur", "type": "nombre", "unite": "km" },
+        { "id": "pneus_tous_les_mois", "libelle": "Pneus tous les", "type": "nombre", "unite": "mois" },
+        { "id": "pneus_tous_les_km", "libelle": "Pneus tous les", "type": "nombre", "unite": "km" },
+        { "id": "pneus_saison", "libelle": "Pneus montés", "type": "choix", "choix": ["été", "hiver", "4 saisons"] },
+        { "id": "assurance_le", "libelle": "Assurance à renouveler le", "type": "date" },
+        { "id": "assurance_tous_les_mois", "libelle": "Assurance tous les", "type": "nombre", "unite": "mois" },
+        { "id": "carte_grise_le", "libelle": "Carte grise ou vignette le", "type": "date" },
+        { "id": "carte_grise_tous_les_mois", "libelle": "Carte grise ou vignette tous les", "type": "nombre", "unite": "mois" },
+        { "id": "autre_libelle", "libelle": "Autre échéance, son nom", "type": "texte" },
+        { "id": "autre_le", "libelle": "Autre échéance le", "type": "date" },
+        { "id": "autre_km", "libelle": "Autre échéance au compteur", "type": "nombre", "unite": "km" },
+        { "id": "autre_tous_les_mois", "libelle": "Autre échéance tous les", "type": "nombre", "unite": "mois" },
+        { "id": "autre_tous_les_km", "libelle": "Autre échéance tous les", "type": "nombre", "unite": "km" }
       ]
     },
     {
@@ -977,6 +1018,34 @@
       ]
     },
     {
+      "id": "entretien_vehicule",
+      "famille": "evenement",
+      "libelle": "Entretien de véhicule",
+      "pluriel": "Entretiens de véhicule",
+      "icone": "document",
+      "champs": [
+        { "id": "concerne", "libelle": "Véhicule", "type": "reference", "cible": { "famille": "ressource" } },
+        { "id": "departement", "libelle": "Département", "type": "reference", "cible": { "famille": "departement" } },
+        {
+          "id": "echeance",
+          "libelle": "Nature",
+          "type": "choix",
+          "choix": [
+            "contrôle technique",
+            "révision ou entretien",
+            "pneus",
+            "assurance",
+            "carte grise ou vignette",
+            "autre échéance"
+          ]
+        },
+        { "id": "fait_le", "libelle": "Fait le", "type": "date" },
+        { "id": "kilometrage", "libelle": "Kilométrage", "type": "nombre", "unite": "km" },
+        { "id": "cout", "libelle": "Coût", "type": "montant", "unite": "€" },
+        { "id": "note", "libelle": "Note", "type": "texte" }
+      ]
+    },
+    {
       "id": "avis_client",
       "famille": "evenement",
       "libelle": "Avis client",
@@ -1198,8 +1267,9 @@
       "libelle": "Révision",
       "type": "vehicule",
       "champ": "prochaine_revision",
-      "critiqueApresJours": 30,
-      "avantJours": 30
+      "critiqueApresJours": 7,
+      "avantJours": 21,
+      "champAvantJours": "prevenir_jours"
     },
     {
       "id": "controle_technique",
@@ -1207,7 +1277,45 @@
       "type": "vehicule",
       "champ": "controle_technique",
       "critiqueApresJours": 0,
-      "avantJours": 30
+      "avantJours": 30,
+      "champAvantJours": "prevenir_jours"
+    },
+    {
+      "id": "pneus_vehicule",
+      "libelle": "Pneus",
+      "type": "vehicule",
+      "champ": "pneus_le",
+      "critiqueApresJours": 14,
+      "avantJours": 21,
+      "champAvantJours": "prevenir_jours"
+    },
+    {
+      "id": "assurance_vehicule",
+      "libelle": "Assurance",
+      "type": "vehicule",
+      "champ": "assurance_le",
+      "critiqueApresJours": 0,
+      "avantJours": 30,
+      "champAvantJours": "prevenir_jours"
+    },
+    {
+      "id": "carte_grise_vehicule",
+      "libelle": "Carte grise ou vignette",
+      "type": "vehicule",
+      "champ": "carte_grise_le",
+      "critiqueApresJours": 0,
+      "avantJours": 30,
+      "champAvantJours": "prevenir_jours"
+    },
+    {
+      "id": "echeance_vehicule",
+      "libelle": "Échéance du véhicule",
+      "type": "vehicule",
+      "champ": "autre_le",
+      "critiqueApresJours": 7,
+      "avantJours": 21,
+      "champAvantJours": "prevenir_jours",
+      "champLibelle": "autre_libelle"
     },
     {
       "id": "document_expire",

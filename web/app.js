@@ -155,7 +155,7 @@ const ecrireLocal = (k, v) => { try { localStorage.setItem(k, v); } catch { /* s
 const ouvrirSurListe = () => lireLocal('lb-ouvrir-sur') === 'liste';
 const vueAujourdhui = () => (E.sceneEchec || ouvrirSurListe() ? 'matin' : 'carte');
 /** Vue demandée par l'adresse (#/planning, #/role:client…) ; rien si elle n'a pas la forme d'une vue. */
-const VUE_VALIDE = /^(carte|tableau|pipeline|matin|sante|departements|planning|courrier|reglages|compte|accueil|satisfaction|optimiser|nexus|progression)$|^(dep|role|famille|type|reglages):[\w-]+$/;
+const VUE_VALIDE = /^(carte|tableau|pipeline|matin|sante|departements|planning|courrier|reglages|compte|accueil|satisfaction|optimiser|nexus|progression|vehicules)$|^(dep|role|famille|type|reglages|vehicule):[\w-]+$/;
 /** Dans la barre d'adresse, l'écran du réseau s'appelle « reseau » (#/reseau, #/reglages:reseau) ; la clé interne de la
     vue reste « nexus », et les anciennes adresses (#/nexus) sont toujours comprises. */
 const adresseDepuisVue = (v) => (v === 'nexus' ? 'reseau' : v === 'reglages:nexus' ? 'reglages:reseau' : v);
@@ -1103,6 +1103,7 @@ function vueAutorisee(v) {
   if (v === 'carte' || v === 'matin' || v === 'compte' || v === 'tableau' || v === 'pipeline' || v === 'progression') return true;
   if (v === 'reglages' || v === 'accueil') return Boolean(E.monde.profil.peutAdministrer);
   if (/^(role|famille|type):/.test(v)) return true;
+  if (v.startsWith('vehicule:')) return E.monde.objets.some((o) => o.id === v.slice(9) && o.vehicule);
   if (v.startsWith('dep:')) return E.monde.objets.some((o) => o.id === v.slice(4));
   return Boolean(placeDeVue(navigation(), v));
 }
@@ -1322,7 +1323,8 @@ function basculerRail() {
 
 function titreCourant() {
   const dep = E.vue.startsWith('dep:') ? E.monde.objets.find((o) => o.id === E.vue.slice(4))?.nom ?? '' : '';
-  const t = titreDeVue(navigation(), E.vue, { nomProfil: E.monde.profil.nom, departement: dep });
+  const veh = E.vue.startsWith('vehicule:') ? E.monde.objets.find((o) => o.id === E.vue.slice(9))?.nom ?? '' : '';
+  const t = titreDeVue(navigation(), E.vue, { nomProfil: E.monde.profil.nom, departement: dep, vehicule: veh });
   if (t === MARQUE.jeu && estVueListe(E.vue)) { // liste hors du rail (prospects, tâches…) : le nom de la liste
     const [g, k] = E.vue.split(':');
     const u = E.monde.univers;
@@ -1641,6 +1643,8 @@ async function rendreVue() {
     if (E.vue === 'sante') return rendreSante();
     if (E.vue === 'nexus') return rendreNexus();
     if (E.vue === 'progression') return rendreProgression();
+    if (E.vue === 'vehicules') return rendreVehicules();
+    if (E.vue.startsWith('vehicule:')) return rendreVehicule(E.vue.slice(9));
     if (E.vue.startsWith('dep:')) return rendreDepartement(E.vue.slice(4));
     return rendreListe(E.vue);
   }
@@ -9080,6 +9084,273 @@ async function rendreDepartement(id) {
         h('h2', { class: 'bz-t-titre-4', id: 'dep-dossiers', texte: 'Dossiers, stock et matériel' }),
         [...st.ouvertes, ...st.ressources, ...st.projets].length ? h('ul', { class: 'bz-liste-simple', role: 'list' }, [...st.ouvertes, ...st.ressources, ...st.projets].map((o) => ligneMembre(o, `${o.libelleType}${valeurDe(o, 'montant') ? ` · ${nfEuro.format(valeurDe(o, 'montant'))}` : ''}`))) : blocVide({ titre: 'Rien en cours.', compact: true })))));
   if (E.kanbanFocus) { const k = E.kanbanFocus; E.kanbanFocus = null; setTimeout(() => $(`[data-cle="tache-${CSS.escape(k)}"]`)?.focus({ preventScroll: true }), 0); }
+}
+
+// ---------------------------------------------------------------- véhicules (§6.1 P7, §4.18)
+/* Deux écrans : la liste des véhicules (« vehicules ») et le suivi d'un véhicule (« vehicule:<id> »).
+   Tout le calcul (échéances en jours et en kilomètres, historique, total de l'année) est fait par la passerelle
+   et arrive posé sur chaque véhicule ; web/vehicules.js (module pur) le met en mots ; ici, on dessine.
+   La rubrique n'apparaît qu'à partir du premier véhicule : la règle est dans web/simplicite.js. */
+let VEH = null;
+const chargerVehicules = async () => (VEH ??= await import('/vehicules.js'));
+const ICONE_ECHEANCE = { controle_technique: 'shield-check', revision: 'wrench', pneus: 'circle-dashed', assurance: 'shield', carte_grise: 'file-text', libre: 'calendar' };
+const vehiculeDe = (id) => E.monde.objets.find((o) => o.id === id && o.vehicule) ?? null;
+const peutAgirVehicule = () => Boolean(E.monde.profil.peutPreparer);
+
+/** Badge d'état d'une échéance : le même mot et la même couleur que dans « Aujourd'hui ». */
+function badgeEcheance(e) {
+  const ton = VEH.TON_STATUT[e.statut];
+  if (!ton) return h('span', { class: 'bz-t-petit bz-texte-2', texte: 'À renseigner' });
+  return h('span', { class: `bz-badge bz-badge--${ton === 'ok' ? 'info' : ton}` }, icone(VEH.ICONE_STATUT[e.statut], { taille: 'sm' }), casseDePhrase(VEH.delaiEcheance(e)));
+}
+
+/** « C'est fait » : un clic enregistre la date du jour et le compteur connu ; le coût se saisit dans la foulée. */
+async function marquerFait(v, e) {
+  const prepare = VEH.faitPour(e, { km: v.vehicule.kilometrage.km ?? '' });
+  if (!prepare.ok) { informer(prepare.erreur, 'attention'); return; }
+  try {
+    const r = await api('POST', '/actions', { cle: cle(), capacite: 'vehicule.fait', cible: v.id, parametres: prepare.valeur, executer: E.monde.profil.peutApprouver });
+    await charger();
+    if (r.etat !== 'reussie_technique') { informer('Enregistrement en attente d’approbation.', 'ok'); return; }
+    const apres = vehiculeDe(v.id);
+    const suite = apres?.vehicule.echeances.find((x) => x.id === e.id);
+    informer(`${e.libelle} : c’est fait.${suite?.date ? ` Prochaine fois le ${VEH.dateCourte(suite.date)}.` : ' La suivante reste à programmer.'}`, 'ok',
+      { libelle: 'Ajouter le coût', faire: () => ouvrirCoutVehicule(v.id) });
+  } catch (err) { informer(err.message, 'critique'); }
+}
+
+/** Le coût de la dernière intervention : saisi après coup, sans rien bloquer. */
+function ouvrirCoutVehicule(vehiculeId) {
+  const v = vehiculeDe(vehiculeId);
+  const ligne = v?.vehicule.historique[0];
+  if (!ligne) return;
+  const S = { cout: ligne.cout === null ? '' : String(ligne.cout), note: '', erreur: null, envoi: false };
+  const D = dialogueVivant({
+    titre: 'Combien cela a-t-il coûté ?', surtitre: ligne.libelle, taille: 'sm',
+    onsubmit: async () => {
+      const n = S.cout.trim() === '' ? null : Number(S.cout.replace(',', '.').replace(/\s/g, ''));
+      if (n !== null && !(Number.isFinite(n) && n >= 0)) { S.erreur = 'Indiquez un montant, ou laissez vide.'; D.rendre(); return; }
+      S.envoi = true; D.rendre();
+      try {
+        const champs = { cout: n };
+        if (S.note.trim()) champs.note = S.note.trim();
+        await api('POST', '/actions', { cle: cle(), capacite: 'objet.modifier', cible: ligne.id, parametres: { champs }, executer: E.monde.profil.peutApprouver });
+        D.fermer();
+        await charger();
+        informer('Coût enregistré.', 'ok');
+      } catch (err) { S.erreur = err.message; S.envoi = false; D.rendre(); }
+    },
+    contenu: () => ({
+      corps: [
+        messageEnLigne('critique', S.erreur),
+        h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'veh-cout', texte: 'Coût (€)' }),
+          h('input', { id: 'veh-cout', class: 'bz-champ__saisie', type: 'text', inputmode: 'decimal', autocomplete: 'off', value: S.cout, oninput: (ev) => (S.cout = ev.target.value) })),
+        h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'veh-note', texte: 'Note (facultatif)' }),
+          h('input', { id: 'veh-note', class: 'bz-champ__saisie', type: 'text', maxlength: '200', autocomplete: 'off', value: S.note, oninput: (ev) => (S.note = ev.target.value) })),
+      ],
+      pied: [h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => D.fermer() }, 'Plus tard'),
+        h('button', { type: 'submit', class: 'bz-bouton bz-bouton--principal', 'aria-busy': S.envoi ? 'true' : null }, icone('check'), 'Enregistrer')],
+    }),
+  });
+}
+
+/** Le compteur, saisi à la main : un nombre, et la date du jour. */
+function ouvrirKilometrage(vehiculeId) {
+  const v = vehiculeDe(vehiculeId);
+  if (!v) return;
+  const S = { km: v.vehicule.kilometrage.km === null ? '' : String(v.vehicule.kilometrage.km), erreur: null, envoi: false };
+  const D = dialogueVivant({
+    titre: 'Relever le kilométrage', surtitre: sansDemo(v.nom), taille: 'sm',
+    onsubmit: async () => {
+      const n = Number(S.km.replace(',', '.').replace(/\s/g, ''));
+      if (!(Number.isFinite(n) && n >= 0)) { S.erreur = 'Indiquez le kilométrage lu au compteur.'; D.rendre(); return; }
+      S.envoi = true; D.rendre();
+      try {
+        await api('POST', '/actions', { cle: cle(), capacite: 'objet.modifier', cible: v.id, parametres: { champs: { kilometrage: Math.round(n), kilometrage_le: jourLocal() } }, executer: E.monde.profil.peutApprouver });
+        D.fermer();
+        await charger();
+        informer('Kilométrage mis à jour.', 'ok');
+      } catch (err) { S.erreur = err.message; S.envoi = false; D.rendre(); }
+    },
+    contenu: () => ({
+      corps: [
+        messageEnLigne('critique', S.erreur),
+        h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Lu au compteur, à la main. Les échéances au kilométrage s’appuient dessus.' }),
+        h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'veh-km', texte: 'Kilométrage (km)' }),
+          h('input', { id: 'veh-km', class: 'bz-champ__saisie', type: 'text', inputmode: 'numeric', required: true, autocomplete: 'off', value: S.km, 'aria-invalid': S.erreur ? 'true' : null, oninput: (ev) => (S.km = ev.target.value) })),
+      ],
+      pied: [h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => D.fermer() }, 'Annuler'),
+        h('button', { type: 'submit', class: 'bz-bouton bz-bouton--principal', 'aria-busy': S.envoi ? 'true' : null }, icone('check'), 'Enregistrer')],
+    }),
+  });
+}
+
+/** Renseigner une échéance : sa date, son compteur, sa répétition. Tout est facultatif, rien n'est imposé. */
+function ouvrirEcheance(vehiculeId, echeanceId) {
+  const v = vehiculeDe(vehiculeId);
+  const e = v?.vehicule.echeances.find((x) => x.id === echeanceId);
+  if (!e) return;
+  const texte = (x) => (x === null || x === undefined ? '' : String(x));
+  const S = { date: texte(e.date), km: texte(e.km), mois: texte(e.periodeMois), kmPeriode: texte(e.periodeKm), libelle: e.champs.libelle ? texte(valeurDe(v, e.champs.libelle)) : '', erreur: null, envoi: false };
+  const champ = (id, libelle, valeur, type, surSaisie, aide = null) => h('div', { class: 'bz-champ' },
+    h('label', { class: 'bz-champ__libelle', for: id, texte: libelle }),
+    aide ? h('span', { class: 'bz-champ__aide', texte: aide }) : null,
+    h('input', { id, class: 'bz-champ__saisie', type: type === 'date' ? 'date' : 'text', inputmode: type === 'date' ? null : type === 'texte' ? null : 'numeric', maxlength: type === 'texte' ? '60' : null, autocomplete: 'off', value: valeur, oninput: (ev) => surSaisie(ev.target.value) }));
+  const D = dialogueVivant({
+    titre: e.champs.libelle ? 'Une échéance à vous' : e.libelle, surtitre: sansDemo(v.nom), taille: 'md',
+    onsubmit: async () => {
+      const lire = (x) => { if (x.trim() === '') return null; const n = Number(x.replace(',', '.').replace(/\s/g, '')); return Number.isFinite(n) && n >= 0 ? Math.round(n) : NaN; };
+      const champs = { [e.champs.date]: S.date.trim() === '' ? null : S.date, [e.champs.mois]: lire(S.mois) };
+      if (e.champs.km) champs[e.champs.km] = lire(S.km);
+      if (e.champs.kmPeriode) champs[e.champs.kmPeriode] = lire(S.kmPeriode);
+      if (e.champs.libelle) champs[e.champs.libelle] = S.libelle.trim() || null;
+      if (Object.values(champs).some((x) => Number.isNaN(x))) { S.erreur = 'Les durées et les kilométrages s’écrivent en chiffres.'; D.rendre(); return; }
+      S.envoi = true; D.rendre();
+      try {
+        await api('POST', '/actions', { cle: cle(), capacite: 'objet.modifier', cible: v.id, parametres: { champs }, executer: E.monde.profil.peutApprouver });
+        D.fermer();
+        await charger();
+        informer('Échéance enregistrée.', 'ok');
+      } catch (err) { S.erreur = err.message; S.envoi = false; D.rendre(); }
+    },
+    contenu: () => ({
+      corps: [
+        messageEnLigne('critique', S.erreur),
+        h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Tout est facultatif : une date suffit pour être prévenu. Les durées proposées sont indicatives, vérifiez ce qui s’applique à ce véhicule.' }),
+        e.champs.libelle ? champ('veh-ech-nom', 'Nom de l’échéance', S.libelle, 'texte', (x) => (S.libelle = x), 'Par exemple : vidange hydraulique, extincteur, chronotachygraphe.') : null,
+        h('div', { class: 'bz-grille-champs' },
+          champ('veh-ech-date', 'Prochaine fois le', S.date, 'date', (x) => (S.date = x)),
+          e.champs.km ? champ('veh-ech-km', 'Prochaine fois à (km)', S.km, 'nombre', (x) => (S.km = x)) : null,
+          champ('veh-ech-mois', 'Répéter tous les (mois)', S.mois, 'nombre', (x) => (S.mois = x), e.moisSuggere ? `Proposé : ${e.moisSuggere} mois.` : null),
+          e.champs.kmPeriode ? champ('veh-ech-kmp', 'Répéter tous les (km)', S.kmPeriode, 'nombre', (x) => (S.kmPeriode = x), e.kmSuggere ? `Proposé : ${nombre(e.kmSuggere)} km.` : null) : null),
+      ],
+      pied: [h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => D.fermer() }, 'Annuler'),
+        h('button', { type: 'submit', class: 'bz-bouton bz-bouton--principal', 'aria-busy': S.envoi ? 'true' : null }, icone('check'), 'Enregistrer')],
+    }),
+  });
+}
+
+/** Ajouter un véhicule : un nom, un type, et c'est tout. Le reste se complète quand on veut. */
+function ouvrirNouveauVehicule() {
+  const type = E.monde.univers.types.find((t) => t.famille === 'ressource' && /v[eé]hicule/i.test(t.id));
+  if (!type) return;
+  const genres = type.champs.find((c) => c.id === 'genre')?.choix ?? [];
+  const S = { nom: '', genre: '', erreur: null, envoi: false };
+  const D = dialogueVivant({
+    titre: `Ajouter un ${type.libelle.toLocaleLowerCase('fr-FR')}`, surtitre: 'Trente secondes', taille: 'sm',
+    onsubmit: async () => {
+      const prepare = VEH.nouveauVehicule(S.nom, S.genre, type.id);
+      if (!prepare.ok) { S.erreur = prepare.erreur; D.rendre(); $('#veh-nom')?.focus(); return; }
+      S.envoi = true; D.rendre();
+      try {
+        const o = await api('POST', '/objets', { ...prepare.valeur, roles: [] });
+        D.fermer();
+        await charger();
+        informer(`${sansDemo(o.nom)} ajouté. Dites quand est sa prochaine échéance quand vous voulez.`, 'ok');
+        changerVue(`vehicule:${o.id}`);
+      } catch (err) { S.erreur = err.message; S.envoi = false; D.rendre(); }
+    },
+    contenu: () => ({
+      corps: [
+        messageEnLigne('critique', S.erreur),
+        h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'veh-nom', texte: 'Nom ou surnom' }),
+          h('span', { class: 'bz-champ__aide', texte: 'Celui que tout le monde emploie : « le Kangoo », « Camion bleu ».' }),
+          h('input', { id: 'veh-nom', class: 'bz-champ__saisie', type: 'text', required: true, maxlength: '200', autocomplete: 'off', value: S.nom, 'aria-invalid': S.erreur ? 'true' : null, oninput: (ev) => (S.nom = ev.target.value) })),
+        genres.length ? h('fieldset', { class: 'bz-champ' }, h('legend', { class: 'bz-champ__libelle', texte: 'Type (facultatif)' }),
+          h('div', { class: 'bz-segments', role: 'radiogroup', 'aria-label': 'Type de véhicule' },
+            genres.map((g) => h('button', { type: 'button', role: 'radio', 'aria-checked': S.genre === g, onclick: () => { S.genre = S.genre === g ? '' : g; D.rendre(); }, texte: casseDePhrase(g) })))) : null,
+      ],
+      pied: [h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => D.fermer() }, 'Annuler'),
+        h('button', { type: 'submit', class: 'bz-bouton bz-bouton--principal', 'aria-busy': S.envoi ? 'true' : null }, icone('plus'), 'Ajouter')],
+    }),
+  });
+}
+
+/** Liste des véhicules : le plus pressant en haut, une ligne par véhicule, le suivi à un clic. */
+async function rendreVehicules() {
+  await chargerVehicules();
+  if (E.vue !== 'vehicules') return;
+  const plan = VEH.planListe(E.monde, { filtre: dansFiltre });
+  const admin = E.monde.profil.peutAdministrer;
+  if (!VEH.vehiculesDe(E.monde).length) {
+    const type = E.monde.univers.types.find((t) => t.famille === 'ressource' && /v[eé]hicule/i.test(t.id));
+    remplir($('#page'), h('div', { class: 'bz-ecran' }, videRubrique('vehicules', {
+      action: h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirNouveauVehicule() }, icone('plus'), 'Ajouter un véhicule'),
+      secondaire: type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirAssistant('fichier', { type: type.id }) }, icone('upload'), 'Reprendre d’un fichier') : null,
+    })));
+    return;
+  }
+  const ligne = (r) => h('li', { class: 'bz-priorite' },
+    h('span', { class: 'bz-priorite__icone' }, r.ton ? iconeEtat(r.ton === 'ok' ? 'info' : r.ton, { decoratif: true }) : icone('truck')),
+    h('div', { class: 'bz-priorite__texte' },
+      h('p', { class: 'bz-priorite__titre' },
+        h('a', { href: `#/vehicule:${r.id}`, class: 'bz-lien-cible', onclick: (ev) => allerA(`vehicule:${r.id}`, ev), texte: r.nom }),
+        r.echeance ? h('span', { texte: ` — ${r.echeance.libelle} : ${VEH.delaiEcheance(r.echeance)}` }) : h('span', { class: 'bz-texte-2', texte: ' — aucune échéance renseignée' })),
+      h('p', { class: 'bz-t-micro bz-texte-2', texte: [r.identite, VEH.texteKilometrage(r.kilometrage).replace(/\.$/, ''), r.aRelever ? 'kilométrage à relever' : null].filter(Boolean).join(' · ') })),
+    h('div', { class: 'bz-priorite__action bz-groupe-boutons' },
+      r.aRegler ? h('span', { class: 'bz-badge bz-badge--attention', texte: pluriel(r.aRegler, 'à prévoir', 'à prévoir') }) : null,
+      h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => changerVue(`vehicule:${r.id}`) }, icone('arrow-right', { taille: 'sm' }), 'Suivi')));
+  remplir($('#page'), h('div', { class: 'bz-ecran bz-pile' },
+    h('div', { class: 'bz-liste__tete' },
+      h('p', { class: 'bz-liste__compte bz-t-petit bz-texte-2', texte: plan.resume }),
+      admin ? h('div', { class: 'bz-groupe-boutons' },
+        h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirNouveauVehicule() }, icone('plus'), 'Ajouter un véhicule')) : null),
+    filtreDepartements(),
+    plan.aRelever ? h('p', { class: 'bz-t-petit bz-texte-2 bz-ligne-icone' }, icone('gauge', { taille: 'sm' }),
+      h('span', { texte: `${pluriel(plan.aRelever, 'véhicule attend', 'véhicules attendent')} un relevé de kilométrage : sans lui, les échéances au kilométrage ne veulent plus rien dire.` })) : null,
+    plan.lignes.length ? h('ol', { class: 'bz-priorites' }, plan.lignes.map(ligne))
+      : blocVide({ titre: 'Aucun véhicule pour ces filtres.', texte: 'Essayez « Toute l’entreprise ».' })));
+}
+
+/** Suivi d'un véhicule : son compteur, ses échéances, « C'est fait », et ce qui a déjà été fait. */
+async function rendreVehicule(id) {
+  await chargerVehicules();
+  if (E.vue !== `vehicule:${id}`) return;
+  const v = vehiculeDe(id);
+  if (!v) { E.vue = 'vehicules'; rendreBarre(); return rendreVue(); }
+  const f = VEH.planFiche(v, E.monde);
+  const peut = peutAgirVehicule();
+  const ligneEcheance = (e) => h('li', { class: 'bz-priorite' },
+    h('span', { class: 'bz-priorite__icone' }, icone(ICONE_ECHEANCE[e.id] ?? 'calendar')),
+    h('div', { class: 'bz-priorite__texte' },
+      h('p', { class: 'bz-priorite__titre' }, h('span', { texte: e.libelle }), ' ', badgeEcheance(e)),
+      h('p', { class: 'bz-t-micro bz-texte-2', texte: [e.date ? `Prochaine fois le ${VEH.dateCourte(e.date)}` : null, e.km !== null ? `à ${VEH.km(e.km)}` : null, VEH.texteRepetition(e), e.etat ? `Pneus ${e.etat}` : null].filter(Boolean).join(' · ') })),
+    h('div', { class: 'bz-priorite__action bz-groupe-boutons' },
+      peut && e.statut !== 'absente' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--sm', 'data-infobulle': VEH.texteSuivante(e), onclick: () => marquerFait(v, e) }, icone('check', { taille: 'sm' }), 'C’est fait') : null,
+      peut ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => ouvrirEcheance(v.id, e.id) }, icone('pencil', { taille: 'sm' }), e.statut === 'absente' ? 'Renseigner' : 'Modifier') : null));
+  const ligneHistorique = (l) => h('tr', {},
+    h('td', { 'data-colonne': 'Date' }, VEH.dateCourte(l.faitLe)),
+    h('td', { 'data-colonne': 'Quoi' }, l.libelle),
+    h('td', { class: 'bz-num', 'data-colonne': 'Kilométrage' }, h('span', { class: 'bz-t-chiffre', texte: VEH.km(l.km) })),
+    h('td', { class: 'bz-num', 'data-colonne': 'Coût' }, l.cout === null
+      ? h('span', { class: 'bz-texte-2' }, '—', h('span', { class: 'bz-visuellement-cache', texte: ' Pas encore renseigné' }))
+      // le montant exact, centimes compris : une ligne d'historique n'arrondit pas ce qui a été payé
+      : h('span', { class: 'bz-t-chiffre', texte: euros(l.cout) })));
+  remplir($('#page'), h('div', { class: 'bz-ecran bz-pile' },
+    h('p', {}, h('a', { href: '#/vehicules', class: 'bz-lien-fleche', onclick: (ev) => allerA('vehicules', ev) }, icone('arrow-left', { taille: 'sm' }), 'Tous les véhicules')),
+    h('div', { class: 'bz-liste__tete' },
+      h('div', { class: 'bz-pile bz-pile--serre' },
+        h('p', { class: 'bz-t-chapeau', texte: f.identite || 'Type et immatriculation à compléter' }),
+        h('p', { class: 'bz-t-petit bz-texte-2 bz-ligne-icone' }, icone('gauge', { taille: 'sm' }), h('span', { texte: f.texteKilometrage }))),
+      h('div', { class: 'bz-groupe-boutons' },
+        peut ? h('button', { type: 'button', class: `bz-bouton bz-bouton--${f.aRelever ? 'principal' : 'secondaire'}`, onclick: () => ouvrirKilometrage(v.id) }, icone('gauge'), 'Relever le kilométrage') : null,
+        h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => selectionner(v.id) }, icone('panel-left'), 'Ouvrir la fiche'))),
+    f.aRelever ? messageEnLigne('attention', `Kilométrage trop ancien pour que les échéances au kilométrage veuillent dire quelque chose. ${f.texteKilometrage}`) : null,
+    h('section', { class: 'bz-pile', 'aria-labelledby': 'veh-echeances' },
+      h('h2', { class: 'bz-t-titre-4', id: 'veh-echeances', texte: 'Ce qui arrive' }),
+      f.echeances.length ? h('ol', { class: 'bz-priorites' }, f.echeances.map(ligneEcheance))
+        : blocVide({ titre: 'Aucune échéance renseignée.', texte: 'Dites quand est le prochain contrôle ou la prochaine révision : vous serez prévenu à temps.', compact: true })),
+    f.aRemplir.length && peut ? h('details', { class: 'bz-repli', id: 'repli-veh-aremplir', open: E.replisOuverts.has('veh-aremplir'),
+      ontoggle: (ev) => { if (ev.currentTarget.open) E.replisOuverts.add('veh-aremplir'); else E.replisOuverts.delete('veh-aremplir'); } },
+      h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'À renseigner quand vous voulez' }), h('span', { class: 'bz-repli__note', texte: pluriel(f.aRemplir.length, 'échéance', 'échéances') }), icone('chevron-down', { taille: 'sm' })),
+      h('div', { class: 'bz-repli__corps' }, h('ol', { class: 'bz-priorites' }, f.aRemplir.map(ligneEcheance)))) : null,
+    h('section', { class: 'bz-pile', 'aria-labelledby': 'veh-historique' },
+      h('h2', { class: 'bz-t-titre-4', id: 'veh-historique', texte: 'Ce qui a été fait' }),
+      h('p', { class: 'bz-t-petit bz-texte-2', texte: f.texteTotal }),
+      f.historique.length ? h('div', { class: 'bz-tableau-cadre' }, h('table', { class: 'bz-tableau', 'aria-label': 'Entretiens du véhicule' },
+        h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Date'), h('th', { scope: 'col' }, 'Quoi'), h('th', { scope: 'col', class: 'bz-num' }, 'Kilométrage'), h('th', { scope: 'col', class: 'bz-num' }, 'Coût'))),
+        h('tbody', {}, f.historique.map(ligneHistorique))))
+        : blocVide({ titre: 'Rien d’enregistré pour l’instant.', texte: 'Chaque « C’est fait » viendra s’inscrire ici, avec son coût.', compact: true }))));
 }
 
 /** Filtre par département (puces neutres, §4.12) : plus de couleur par département dans l'interface. */

@@ -15,6 +15,10 @@ import { majQuetes, type Quete } from '../core/quetes.ts';
 import { lireReussites, nouvellesReussites, progression, type Progression, type Reussite } from '../core/progression.ts';
 import { situationsPour, type Situation } from '../core/situation.ts';
 import { defType, libelleRole, validerObjet, type Univers } from '../core/univers.ts';
+import {
+  champsApresFait, defEcheance, echeancesDe, estVehicule, historiqueDe, kilometrageDe, situationsVehicules, totalAnnee,
+  TYPE_ENTRETIEN, type EcheanceVehicule, type KilometrageVehicule, type LigneEntretien,
+} from '../core/vehicules.ts';
 import { calculerVitalite, type ResultatVitalite } from '../core/vitalite.ts';
 import { chargerUnivers } from '../config/univers.ts';
 import { donneesDemo, NOM_ORG_DEMO, ORG_DEMO, PROFILS_DEMO, voitMotifsAbsence, type Profil } from '../demo/donnees.ts';
@@ -189,6 +193,18 @@ export interface ObjetVue {
   simule: boolean;
   /** Activité du jour d'un employé selon le planning (null si non planifié). */
   jour: { valeur: string; type: string; libelle: string; cible: string | null } | null;
+  /** Suivi d'un véhicule : son compteur et ses échéances, déjà calculés (null pour tout le reste). */
+  vehicule: VueVehicule | null;
+}
+
+/** Ce que l'écran d'un véhicule montre sans rien recalculer. */
+export interface VueVehicule {
+  kilometrage: KilometrageVehicule;
+  echeances: EcheanceVehicule[];
+  /** Ce qui a été fait, le plus récent d'abord, et ce que cela a coûté cette année. */
+  historique: LigneEntretien[];
+  annee: number;
+  totalAnnee: number | null;
 }
 
 const ID_SUR = /^[A-Za-z0-9_-]{1,80}$/;
@@ -444,6 +460,25 @@ export class Monde {
       mode: o.mode,
       simule: e.simulation && e.modifies.has(o.id),
       jour: o.famille === 'personne' ? this.#jourDe(p, e, o.id, isoJour(this.#o.maintenant())) : null,
+      vehicule: estVehicule(o) ? this.#vueVehicule(o, e, p) : null,
+    };
+  }
+
+  /**
+   * Suivi d'un véhicule : le calcul est fait ici, une seule fois, pour que l'écran n'ait qu'à dessiner. L'historique
+   * ne retient que les interventions que ce profil peut voir (elles suivent le véhicule par « concerne »).
+   */
+  #vueVehicule(v: ObjetMetier, e: Espace, p: Profil): VueVehicule {
+    const maintenant = this.#o.maintenant();
+    const lisibles = [...e.objets.values()].filter((o) => o.type === TYPE_ENTRETIEN && this.#visible(p, o, e.objets));
+    const historique = historiqueDe(lisibles, v.id);
+    const annee = maintenant.getFullYear();
+    return {
+      kilometrage: kilometrageDe(v, maintenant),
+      echeances: echeancesDe(v, maintenant, { toutes: true }),
+      historique,
+      annee,
+      totalAnnee: totalAnnee(historique, annee),
     };
   }
 
@@ -753,7 +788,12 @@ export class Monde {
 
   #situations(e: Espace): Situation[] {
     const ctx = this.#ctx();
-    return [...e.objets.values()].flatMap((o) => situationsPour(this.#univers, o, this.#responsable(o, e.objets), ctx));
+    const objets = [...e.objets.values()];
+    return [
+      ...objets.flatMap((o) => situationsPour(this.#univers, o, this.#responsable(o, e.objets), ctx)),
+      // échéances AU KILOMÉTRAGE et compteur trop vieux : ce que les règles de date ne savent pas voir
+      ...situationsVehicules(objets, (o) => this.#responsable(o, e.objets), ctx),
+    ];
   }
 
   #recalculerQuetes(): void {
@@ -895,6 +935,24 @@ export class Monde {
       if (ech !== undefined && ech !== null && (typeof ech !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(ech))) throw new ErreurApi(400, 'echeance_invalide');
       return { titre, echeance: (ech as string | null | undefined) ?? null };
     }
+    // « C'est fait » sur une échéance de véhicule : la date, le compteur, le coût s'il est donné, et la suivante
+    if (capacite === 'vehicule.fait') {
+      if (!estVehicule(o)) throw new ErreurApi(400, 'pas_un_vehicule', 'Cette fiche n’est pas un véhicule.');
+      const d = typeof x.echeance === 'string' ? defEcheance(x.echeance) : undefined;
+      if (!d) throw new ErreurApi(400, 'echeance_inconnue', 'Échéance de véhicule inconnue.');
+      const date = x.date === undefined || x.date === null || x.date === '' ? isoJour(this.#o.maintenant()) : x.date;
+      if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new ErreurApi(400, 'date_invalide');
+      const lu = (v: unknown, nom: string, max: number): number | null => {
+        if (v === undefined || v === null || v === '') return null;
+        const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'));
+        if (!Number.isFinite(n) || n < 0 || n > max) throw new ErreurApi(400, `${nom}_invalide`);
+        return Math.round(n * 100) / 100;
+      };
+      const km = lu(x.km, 'kilometrage', 5e6);
+      const cout = lu(x.cout, 'cout', 1e7);
+      const note = typeof x.note === 'string' ? uneLigne(x.note).slice(0, 200) : '';
+      return { echeance: d.id, date, km: km === null ? null : Math.round(km), cout, note };
+    }
     if (capacite === 'objet.modifier') {
       const t = defType(this.#univers, o.type);
       if (!t || !estObj(x.champs)) throw new ErreurApi(400, 'parametres_invalides');
@@ -957,6 +1015,43 @@ export class Monde {
         e.objets.set(id, tache);
         e.modifies.add(id);
         a.message = `Tâche créée : ${tache.nom}`;
+        return 'ok';
+      }
+      if (cmd.capacite === 'vehicule.fait') {
+        const d = defEcheance(cmd.parametres.echeance as string);
+        if (!d || !estVehicule(o)) { a.message = 'Échéance de véhicule inconnue.'; return 'echec'; }
+        const date = cmd.parametres.date as string;
+        const km = cmd.parametres.km as number | null;
+        const intitule = (typeof o.champs[d.champLibelle ?? ''] === 'string' ? String(o.champs[d.champLibelle ?? '']).trim() : '') || d.libelle;
+        // 1. ce qui a été fait, gardé tel quel (la visibilité suit le véhicule, par « concerne »)
+        const id = `ev-${randomUUID().slice(0, 12)}`;
+        const ligne: ObjetMetier = {
+          id, orgId: o.orgId, famille: 'evenement', type: TYPE_ENTRETIEN, roles: [],
+          nom: `${intitule} — ${o.nom}`,
+          champs: {
+            concerne: o.id, echeance: d.nature, fait_le: date,
+            ...(km === null ? {} : { kilometrage: km }),
+            ...(cmd.parametres.cout === null ? {} : { cout: cmd.parametres.cout as number }),
+            ...(cmd.parametres.note ? { note: cmd.parametres.note as string } : {}),
+            ...(typeof o.champs.departement === 'string' ? { departement: o.champs.departement } : {}),
+          },
+          provenance: 'declare', source: { id: 'passerelle:vehicules', libelle: 'Enregistré dans le jeu', derniereSynchro: maintenant },
+          majLe: maintenant, disponibilite: 'disponible', mode: o.mode,
+        };
+        if (validerObjet(this.#univers, ligne).length) { a.message = 'Entretien invalide pour cet univers.'; return 'echec'; }
+        // 2. la suivante, programmée toute seule, et le compteur relevé à cette occasion
+        const champs = champsApresFait(o, d, date, km);
+        const nouveaux: Record<string, ValeurChamp> = { ...o.champs };
+        for (const [k, v] of Object.entries(champs)) { if (v === null) delete nouveaux[k]; else nouveaux[k] = v; }
+        const vehicule: ObjetMetier = { ...o, champs: nouveaux, majLe: maintenant, provenance: 'declare' };
+        const pb = validerObjet(this.#univers, vehicule);
+        if (pb.length) { a.message = pb.join(' ; '); return 'echec'; }
+        e.objets.set(id, ligne);
+        e.objets.set(o.id, vehicule);
+        e.modifies.add(id);
+        e.modifies.add(o.id);
+        const suite = champs[d.champDate];
+        a.message = `${intitule} : fait le ${date}${suite ? `, prochaine fois le ${String(suite)}` : ', prochaine fois à programmer'}`;
         return 'ok';
       }
       if (cmd.capacite === 'objet.modifier') {

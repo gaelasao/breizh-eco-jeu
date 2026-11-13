@@ -68,6 +68,8 @@ function monde(plus: Record<string, unknown> = {}, objets: unknown[] = []) {
 }
 const tiers = (id: string, role: string) => ({ id, famille: 'tiers', type: 'entreprise', roles: [{ id: role, libelle: role }], champs: [] });
 const objet = (id: string, famille: string, type: string) => ({ id, famille, type, roles: [], champs: [] });
+/** Un véhicule, tel que la passerelle le rend : une ressource à qui elle a posé son suivi. */
+const vehicule = (id: string) => ({ ...objet(id, 'ressource', 'vehicule'), vehicule: { kilometrage: { km: null, le: null, jours: null, perime: true }, echeances: [], historique: [], annee: 2026, totalAnnee: null } });
 
 test('premier jour : une entreprise vide ne montre qu’Aujourd’hui, Connecter mes données et Réglages', () => {
   const m = monde();
@@ -93,6 +95,7 @@ test('règles de déblocage, une par une : chaque donnée ouvre ses rubriques, e
     ['une facture', monde({}, [objet('fa1', 'commande', 'facture')]), ['commandes', 'optimiser', 'pipeline', 'nexus']],
     ['une commande à un fournisseur', monde({}, [objet('cf1', 'commande', 'commande_fournisseur')]), ['commandes', 'optimiser', 'nexus']],
     ['un article en stock', monde({}, [objet('a1', 'ressource', 'article')]), ['stock', 'optimiser', 'nexus']],
+    ['un véhicule', monde({}, [vehicule('v1')]), ['stock', 'vehicules', 'optimiser', 'nexus']],
     ['un document', monde({}, [objet('d1', 'evenement', 'document')]), ['documents', 'optimiser']],
     ['un courrier', monde({}, [objet('m1', 'evenement', 'courrier')]), ['courrier', 'optimiser']],
     ['une tâche', monde({}, [objet('t1', 'tache', 'tache')]), ['optimiser', 'taches']],
@@ -150,7 +153,7 @@ test('rien n’est pris en otage : « Tout afficher », rubrique courante, actio
 
 test('droits et profils inchangés : la simplicité ne rend jamais ce que les droits retirent', () => {
   const tout = monde({ sante: { score: 60, couverture: 0.8 }, organisation: { nom: 'K', demo: false, departements: 3 } },
-    [tiers('c1', 'client'), tiers('f1', 'fournisseur'), objet('e1', 'personne', 'employe'), objet('l1', 'lieu', 'siege'), objet('fa1', 'commande', 'facture'), objet('a1', 'ressource', 'article'), objet('d1', 'evenement', 'document'), objet('m1', 'evenement', 'courrier'), objet('t1', 'tache', 'tache')]);
+    [tiers('c1', 'client'), tiers('f1', 'fournisseur'), objet('e1', 'personne', 'employe'), objet('l1', 'lieu', 'siege'), objet('fa1', 'commande', 'facture'), objet('a1', 'ressource', 'article'), vehicule('v1'), objet('d1', 'evenement', 'document'), objet('m1', 'evenement', 'courrier'), objet('t1', 'tache', 'tache')]);
   const terrain = { ...tout, profil: { id: 'terrain', nom: 'Yann', peutAdministrer: false, peutPreparer: false, peutApprouver: false }, sante: null, optimisations: null };
   const d = S.deblocages(terrain);
   const droits = N.groupesNavigation(terrain);

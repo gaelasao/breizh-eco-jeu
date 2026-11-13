@@ -21,6 +21,11 @@ export const tacheDue = (o, maintenant = new Date()) => { const e = valeurDe(o, 
 /** Tâches dues (le compteur de « Tâches » : une chose due, jamais un total). */
 export const tachesDues = (m, maintenant = new Date()) => tachesOuvertes(m).filter((o) => tacheDue(o, maintenant)).length;
 
+const APRESENT = new Set(['depassee', 'aujourdhui', 'bientot']);
+/** Échéances de véhicule à prévoir (le compteur de « Véhicules » : une chose due, jamais la taille de la flotte). */
+export const echeancesVehicules = (m) => (m.objets ?? [])
+  .reduce((n, o) => n + (o.vehicule?.echeances ?? []).filter((e) => APRESENT.has(e.statut)).length, 0);
+
 /**
  * Groupes du rail, dans l'ordre (§6.1 P1) : Aujourd'hui · Planning · Pilotage · Relations · Activité · Réseau.
  * Entrée : { id, vue (vue ouverte au clic), vues (autres vues dont elle est la destination), prefixes, libelle, icone,
@@ -35,6 +40,7 @@ export function groupesNavigation(m, { aFaire = 0, vueAujourdhui = 'carte', main
   const mecontents = m.satisfaction ? Object.values(m.satisfaction.clients ?? {}).filter((c) => c?.statut === 'mauvaise').length : 0;
   const trous = m.planning?.trousAujourdhui || 0;
   const dues = tachesDues(m, maintenant);
+  const vehicules = echeancesVehicules(m);
   const p = m.profil ?? {};
   const groupes = [
     { id: 'aujourdhui', libelle: 'Aujourd’hui', entrees: [
@@ -65,6 +71,8 @@ export function groupesNavigation(m, { aFaire = 0, vueAujourdhui = 'carte', main
     { id: 'activite', libelle: 'Activité', entrees: [
       { id: 'commandes', vue: 'famille:commande', libelle: 'Commandes', icone: 'receipt' },
       { id: 'stock', vue: 'famille:ressource', libelle: 'Stock', icone: 'package', raccourci: 'g s' },
+      { id: 'vehicules', vue: 'vehicules', prefixes: ['vehicule:'], libelle: 'Véhicules', icone: 'truck',
+        compte: vehicules, compteLibelle: vehicules ? pluriel(vehicules, 'échéance de véhicule à prévoir', 'échéances de véhicule à prévoir') : '' },
       { id: 'documents', vue: 'type:document', libelle: 'Documents', icone: 'file-text' },
       { id: 'lieux', vue: 'famille:lieu', libelle: 'Lieux', icone: 'map-pin' },
     ] },
@@ -148,7 +156,7 @@ export function salutation(nomProfil, maintenant = new Date()) {
 }
 
 /** Titre de l'en-tête pour une vue. */
-export function titreDeVue(groupes, vue, { nomProfil = '', maintenant = new Date(), departement = '' } = {}) {
+export function titreDeVue(groupes, vue, { nomProfil = '', maintenant = new Date(), departement = '', vehicule = '' } = {}) {
   if (vue === 'carte' || vue === 'matin') return salutation(nomProfil, maintenant).texte;
   if (vue === 'tableau') return 'Liste des lieux';
   if (vue === 'pipeline') return 'Pipeline';
@@ -157,5 +165,6 @@ export function titreDeVue(groupes, vue, { nomProfil = '', maintenant = new Date
   if (vue === 'progression') return 'Progression';
   if (vue === 'accueil') return 'Compléter mon entreprise';
   if (String(vue).startsWith('dep:') && departement) return sansDemo(departement);
+  if (String(vue).startsWith('vehicule:') && vehicule) return sansDemo(vehicule);
   return placeDeVue(groupes, vue)?.entree.libelle ?? 'Living Business';
 }
