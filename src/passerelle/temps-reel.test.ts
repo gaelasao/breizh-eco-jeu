@@ -274,13 +274,21 @@ test('Microsoft : abonnement Graph au lecteur du classeur (clientState du résea
 test('Notion et HubSpot : rien à créer chez l’outil, le jeu prouve la connexion par l’empreinte de son jeton de renouvellement', async () => {
   const sim = simulation(() => null);
   const m = await monter(sim);
-  await brancher(m, sim, 'notion', 'notion', { base: '1f2e3d4c5b6a47898abcdef012345678' }, { Nom: '__nom' }, { acces: faux('nt', 'acces'), rafraichissement: faux('nt', 'rafr') });
+  const no = await brancher(m, sim, 'notion', 'notion', { base: '1f2e3d4c5b6a47898abcdef012345678' }, { Nom: '__nom' }, { acces: faux('nt', 'acces'), rafraichissement: faux('nt', 'rafr') });
   await m.app.synchro.entretenirTempsReel();
   const ab = [...sim.abonnements.values()][0]!;
   assert.equal(ab.empreinte, createHash('sha256').update(faux('nt', 'rafr')).digest('base64url'));
   assert.equal(JSON.stringify(sim.appels.filter((a) => a.url.pathname === '/v0/relais/abonnements').map((a) => a.corps)).includes(faux('nt', 'rafr')), false, 'le jeton lui-même ne part pas');
   assert.equal(ab.maj.length, 0);
   assert.equal(sim.appels.filter((a) => a.url.origin !== RESEAU).length, 0, 'aucun appel à Notion pour s’abonner');
+  // mis en pause : l'abonnement est retiré du réseau ; réactivé : refait
+  m.app.synchro.modifier(m.p, no.id, { actif: false });
+  await m.app.synchro.entretenirTempsReel();
+  assert.equal(sim.abonnements.size, 0);
+  assert.equal(vue(m.app, m.p, no.id).tempsReel, null);
+  m.app.synchro.modifier(m.p, no.id, { actif: true });
+  await m.app.synchro.entretenirTempsReel();
+  assert.equal(sim.abonnements.size, 1);
   // connexion par clé (mode avancé) : relue à son intervalle, sans appel au réseau
   const avant = sim.abonnements.size;
   m.app.synchro.creer(m.p, { source: 'hubspot', config: { objet: 'companies', jeton: faux('pat', 'cle', 'hubspot') }, typeObjet: 'entreprise', roles: [], mapping: { name: '__nom' }, sens: 'lecture', intervalleS: 600, actif: true });

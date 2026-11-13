@@ -221,6 +221,8 @@ export class Synchro {
   #reseau: ReseauTempsReel | null = null;
   #regroupes = new Map<string, NodeJS.Timeout>();
   #entretien: Promise<void> | null = null;
+  /** Un entretien a été demandé pendant qu'un autre tournait : refait juste après (nouveau branchement, réglage changé). */
+  #entretienEncore = false;
 
   constructor(monde: Monde, chiffreur: Chiffreur, o: { fetch?: Recuperateur; etat?: EtatSynchro | null; changement?: () => void; relais?: RelaisOAuth } = {}) {
     this.#monde = monde;
@@ -736,6 +738,8 @@ export class Synchro {
     if (appareil) this.#appareils.delete(appareil);
     if (oauth) this.#oauth.delete(oauth);
     this.#changement();
+    // temps réel : abonnement refait (autre base, autre feuille…) ou retiré (pause) sans attendre le prochain entretien
+    if ((c.tempsReel || this.#eligible(c)) && this.#reseau?.relie()) void this.entretenirTempsReel();
     return this.#vue(c);
   }
 
@@ -1035,12 +1039,16 @@ export class Synchro {
    * avant expiration, vérification, arrêt d'un branchement en pause ou supprimé du temps réel. Un seul à la fois.
    */
   entretenirTempsReel(): Promise<void> {
-    if (this.#entretien) return this.#entretien;
+    if (this.#entretien) { this.#entretienEncore = true; return this.#entretien; }
     this.#entretien = (async () => {
       try {
-        for (const c of [...this.#connecteurs.values()]) {
-          try { await this.#entretenir(c); } catch { /* noté dans l'état du branchement ; nouvel essai plus tard */ }
-        }
+        do {
+          this.#entretienEncore = false;
+          for (const c of [...this.#connecteurs.values()]) {
+            if (!this.#connecteurs.has(c.id)) continue; // supprimé entre-temps
+            try { await this.#entretenir(c); } catch { /* noté dans l'état du branchement ; nouvel essai plus tard */ }
+          }
+        } while (this.#entretienEncore);
       } finally { this.#entretien = null; }
     })();
     return this.#entretien;
