@@ -404,8 +404,10 @@
     font: var(--bz-g-fort) var(--bz-t-titre-4)/var(--bz-i-label) var(--bz-police); letter-spacing: -0.01em; }
   .bz-entete__titre.bz-t-salutation { font: var(--bz-g-fort) var(--bz-t-titre-4)/var(--bz-i-label) var(--bz-police-titre); }
   .bz-entete__titre:has(+ .bz-entete__date) { flex-grow: 0; }
-  .bz-entete__date { display: none; flex: 1 1 auto; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--bz-texte-2); font-size: var(--bz-t-petit); }
-  @media (min-width: 48em) { .bz-entete__date { display: block; } }
+  .bz-entete__date { display: none; flex: 0 1 auto; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--bz-texte-2); font-size: var(--bz-t-petit); }
+  /* La date s'efface avant que le titre ne soit coupé : à 1 024 px, « Aujourd'hui » restait « Aujou… » (§4.1) */
+  @media (min-width: 75em) { .bz-entete__date { display: block; } }
+  @media (min-width: 48em) and (max-width: 74.99em) { .bz-coque[data-rail="replie"] .bz-entete__date { display: block; } }
   @media (min-width: 37.5em) {
     .bz-entete { padding-inline-start: var(--bz-goutiere); }
     .bz-entete__symbole { display: none; }
@@ -420,6 +422,8 @@
   .bz-entete__outil { display: none; }
   @media (min-width: 37.5em) { .bz-entete__recherche, .bz-entete__outil { display: inline-flex; } }
   @media (min-width: 37.5em) and (max-width: 47.99em) { .bz-entete__recherche { flex: none; padding: 0; justify-content: center; inline-size: var(--bz-h-controle); } .bz-entete__recherche > span, .bz-entete__recherche > kbd { display: none; } }
+  /* entre 48 et 75 em : la recherche se resserre avant tout le monde, le titre garde sa place */
+  @media (min-width: 48em) and (max-width: 74.99em) { .bz-entete__recherche { flex: 0 1 14rem; } }
   .bz-avatar { display: inline-grid; place-items: center; inline-size: 2rem; block-size: 2rem; border: var(--bz-bord-1) solid var(--bz-bordure); border-radius: var(--bz-r-rond);
     background: var(--bz-composant); color: var(--bz-texte); font: var(--bz-g-fort) var(--bz-t-petit)/1 var(--bz-police); }
   .bz-entete__avatar { padding: 0; min-inline-size: var(--bz-h-controle); }

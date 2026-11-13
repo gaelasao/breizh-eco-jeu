@@ -202,3 +202,14 @@ test('coque : plus de mot « CE MATIN », de visite lancée d’office, ni de po
   assert.doesNotMatch(horsCouche, /^h1, h2, h3 \{/m);
   assert.match(style, /@layer bz\.base \{\n\* \{ box-sizing: border-box; \}/);
 });
+
+test('fenêtre étroite (1 024 px) : la date s’efface avant que le titre ne soit coupé', () => {
+  const css = lire('web/bz/composants.css');
+  // la date ne prend plus la place du titre : elle ne grandit pas, et n'apparaît qu'à partir de 75 em
+  assert.match(css, /\.bz-entete__date \{ display: none; flex: 0 1 auto;/);
+  assert.match(css, /@media \(min-width: 75em\) \{ \.bz-entete__date \{ display: block; \} \}/);
+  assert.match(css, /@media \(min-width: 48em\) and \(max-width: 74\.99em\) \{ \.bz-coque\[data-rail="replie"\] \.bz-entete__date \{ display: block; \} \}/, 'le menu replié rend la place : la date revient');
+  // et la recherche se resserre avant le titre
+  assert.match(css, /@media \(min-width: 48em\) and \(max-width: 74\.99em\) \{ \.bz-entete__recherche \{ flex: 0 1 14rem; \} \}/);
+  assert.match(css, /\.bz-entete__titre \{ flex: 1 1 auto;/, 'le titre prend la place restante');
+});
