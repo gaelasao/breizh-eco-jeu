@@ -69,6 +69,8 @@ export interface TableSuivi {
   nom: string;
   /** En-têtes de la table, dans l'ordre. */
   entetes: string[];
+  /** Nom de la colonne qui identifie une ligne (elle porte la référence de la fiche). */
+  reference: string;
   /** Branchement de lecture créé pour faire revenir les lignes ajoutées à la main. */
   connecteur: string | null;
 }
@@ -120,31 +122,39 @@ export function typesSuivis(u: Univers): DefType[] {
   return typesVisibles(u).filter((t) => t.famille !== 'organisation').slice(0, ONGLETS_MAX);
 }
 
-/** En-têtes d'un onglet : lisibles par un humain, la référence et l'état du jeu à la fin. */
-export function entetesDe(t: DefType): string[] {
-  const vus = new Set<string>([COL_NOM]);
-  const entetes = [COL_NOM];
-  if (t.famille === 'tiers') { entetes.push(COL_ROLES); vus.add(COL_ROLES); }
-  for (const c of t.champs) {
-    let libelle = c.libelle;
-    for (let n = 2; vus.has(libelle); n++) libelle = `${c.libelle} (${n})`;
-    vus.add(libelle);
-    entetes.push(libelle);
-  }
-  entetes.push(COL_REFERENCE, COL_STATUT, COL_MAJ);
-  return entetes;
+/**
+ * Colonnes d'un onglet : le nom, les rôles d'un tiers, les champs du type, puis les trois colonnes du jeu.
+ * Deux colonnes ne portent jamais le même nom : un champ qui s'appellerait déjà « Statut » garde son nom, et
+ * c'est la colonne du jeu qui devient « Statut (2) ». Les noms retenus sont renvoyés avec la correspondance.
+ */
+export function colonnesDe(t: DefType): { entetes: string[]; mapping: Record<string, string>; reference: string; statut: string; maj: string } {
+  const vus = new Set<string>();
+  const unique = (base: string) => {
+    let nom = base;
+    for (let n = 2; vus.has(nom); n++) nom = `${base} (${n})`;
+    vus.add(nom);
+    return nom;
+  };
+  const entetes: string[] = [];
+  const mapping: Record<string, string> = {};
+  const ajouter = (libelle: string, cible: string | null) => { const e = unique(libelle); entetes.push(e); if (cible) mapping[e] = cible; return e; };
+  ajouter(COL_NOM, NOM);
+  if (t.famille === 'tiers') ajouter(COL_ROLES, ROLES);
+  for (const c of t.champs) ajouter(c.libelle, c.id);
+  const reference = ajouter(COL_REFERENCE, null);
+  const statut = ajouter(COL_STATUT, null);
+  const maj = ajouter(COL_MAJ, null);
+  return { entetes, mapping, reference, statut, maj };
 }
 
+/** En-têtes et colonne d'identification d'une table, pour `TableCreee`. */
+const parColonnes = (t: DefType) => { const c = colonnesDe(t); return { entetes: c.entetes, reference: c.reference }; };
+
+/** En-têtes d'un onglet : lisibles par un humain, la référence et l'état du jeu à la fin. */
+export const entetesDe = (t: DefType): string[] => colonnesDe(t).entetes;
+
 /** Correspondance en-tête → cible du jeu (les colonnes du jeu, elles, ne sont rattachées à rien). */
-export function mappingDe(t: DefType): Record<string, string> {
-  const entetes = entetesDe(t);
-  const m: Record<string, string> = { [COL_NOM]: NOM };
-  if (t.famille === 'tiers') m[COL_ROLES] = ROLES;
-  // les champs suivent le nom (et les rôles) dans le même ordre que `entetesDe`
-  const debut = t.famille === 'tiers' ? 2 : 1;
-  t.champs.forEach((c, i) => { const e = entetes[debut + i]; if (e) m[e] = c.id; });
-  return m;
-}
+export const mappingDe = (t: DefType): Record<string, string> => colonnesDe(t).mapping;
 
 /** Nom d'onglet unique et accepté partout (ni apostrophe courbe à rallonge, ni doublon). */
 function nomsOnglets(types: readonly DefType[]): Map<string, string> {
@@ -166,7 +176,7 @@ type Config = Readonly<Record<string, string>>;
 /** Appel à l'outil avec la connexion du compte choisi (jeton renouvelé au besoin par la synchro). */
 export type AppelOutil = <T>(config: Record<string, string>, appel: (cfg: Config, secret: string | null, f: Recuperateur) => Promise<T>) => Promise<T>;
 
-export interface TableCreee { typeId: string; cle: string; nom: string; entetes: string[] }
+export interface TableCreee { typeId: string; cle: string; nom: string; entetes: string[]; reference: string }
 export interface ClasseurCree { id: string; url: string; tables: TableCreee[] }
 
 interface OutilMiroir {
@@ -222,9 +232,9 @@ const outilSheets: OutilMiroir = {
     const tables: TableCreee[] = [];
     for (const t of types) {
       const titre = noms.get(t.id) as string;
-      const entetes = entetesDe(t);
-      await entetesGoogle(appel, c.id, titre, entetes);
-      tables.push({ typeId: t.id, cle: titre, nom: titre, entetes });
+      const col = colonnesDe(t);
+      await entetesGoogle(appel, c.id, titre, col.entetes);
+      tables.push({ typeId: t.id, cle: titre, nom: titre, entetes: col.entetes, reference: col.reference });
     }
     return { id: c.id, url: c.url, tables };
   },
@@ -246,13 +256,13 @@ const outilSheets: OutilMiroir = {
     const tables: TableCreee[] = [];
     for (const t of types) {
       const titre = c.onglets.get((noms.get(t.id) as string).toLowerCase()) ?? (noms.get(t.id) as string);
-      const entetes = entetesDe(t);
-      if (manquants.includes(t)) await entetesGoogle(appel, c.id, titre, entetes);
-      tables.push({ typeId: t.id, cle: titre, nom: titre, entetes });
+      const col = colonnesDe(t);
+      if (manquants.includes(t)) await entetesGoogle(appel, c.id, titre, col.entetes);
+      tables.push({ typeId: t.id, cle: titre, nom: titre, entetes: col.entetes, reference: col.reference });
     }
     return { id: c.id, url: c.url, tables };
   },
-  config: (classeur, table) => ({ classeur: `https://docs.google.com/spreadsheets/d/${classeur.id}/edit`, feuille: table.cle, colonneId: COL_REFERENCE }),
+  config: (classeur, table) => ({ classeur: `https://docs.google.com/spreadsheets/d/${classeur.id}/edit`, feuille: table.cle, colonneId: table.reference }),
 };
 
 // ----- Notion (une base de données, une source de données par type : POST /v1/databases puis POST /v1/data_sources)
@@ -269,15 +279,12 @@ const avecTirets = (x: string) => x.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/,
 
 /** Schéma d'une source de données Notion : exactement une propriété `title` (le nom), le reste selon le type du champ. */
 function proprietesNotion(t: DefType): Record<string, unknown> {
-  const p: Record<string, unknown> = { [COL_NOM]: { title: {} } };
-  const entetes = entetesDe(t);
-  const m = mappingDe(t);
-  for (const e of entetes) {
-    if (e === COL_NOM) continue;
-    if (e === COL_REFERENCE || e === COL_MAJ) { p[e] = { rich_text: {} }; continue; }
-    if (e === COL_STATUT) { p[e] = { select: { options: [{ name: STATUT_ACTIVE, color: 'green' }, { name: STATUT_SUPPRIMEE, color: 'red' }] } }; continue; }
-    if (e === COL_ROLES) { p[e] = { rich_text: {} }; continue; }
-    const champ = t.champs.find((c) => c.id === m[e]);
+  const col = colonnesDe(t);
+  const p: Record<string, unknown> = {};
+  for (const e of col.entetes) {
+    if (e === col.entetes[0]) { p[e] = { title: {} }; continue; } // le nom : la seule propriété « title » d'un tableau
+    if (e === col.statut) { p[e] = { select: { options: [{ name: STATUT_ACTIVE, color: 'green' }, { name: STATUT_SUPPRIMEE, color: 'red' }] } }; continue; }
+    const champ = t.champs.find((c) => c.id === col.mapping[e]);
     switch (champ?.type) {
       case 'nombre': p[e] = { number: { format: 'number' } }; break;
       case 'montant': p[e] = { number: { format: 'euro' } }; break;
@@ -333,14 +340,14 @@ const outilNotion: OutilMiroir = {
     if (!ID_NOTION.test(id)) throw new ErreurSortante('Notion n’a pas renvoyé l’identifiant de la base de données.');
     const premiere = sourcesNotion(base)[0];
     if (!premiere) throw new ErreurSortante('Notion n’a pas renvoyé le tableau de la base de données.');
-    const tables: TableCreee[] = [{ typeId: premier.id, cle: premiere.id, nom: noms.get(premier.id) as string, entetes: entetesDe(premier) }];
+    const tables: TableCreee[] = [{ typeId: premier.id, cle: premiere.id, nom: noms.get(premier.id) as string, ...parColonnes(premier) }];
     for (const t of suite) {
       const r = await appelNotion(appel, '/data_sources', 'POST', {
         parent: { type: 'database_id', database_id: avecTirets(id) }, title: titreNotion(noms.get(t.id) as string), properties: proprietesNotion(t),
       });
       const sid = estObj(r) && typeof r.id === 'string' ? sansTiret(r.id) : '';
       if (!ID_NOTION.test(sid)) throw new ErreurSortante(`Notion n’a pas créé le tableau « ${noms.get(t.id) as string} ».`);
-      tables.push({ typeId: t.id, cle: sid, nom: noms.get(t.id) as string, entetes: entetesDe(t) });
+      tables.push({ typeId: t.id, cle: sid, nom: noms.get(t.id) as string, ...parColonnes(t) });
     }
     return { id, url: `https://www.notion.so/${id}`, tables };
   },
@@ -359,7 +366,7 @@ const outilNotion: OutilMiroir = {
         cle = estObj(r) && typeof r.id === 'string' ? sansTiret(r.id) : '';
       }
       if (!ID_NOTION.test(cle)) throw new ErreurSortante(`Notion n’a pas créé le tableau « ${nomTable} ».`);
-      tables.push({ typeId: t.id, cle, nom: nomTable, entetes: entetesDe(t) });
+      tables.push({ typeId: t.id, cle, nom: nomTable, ...parColonnes(t) });
     }
     return { id, url: `https://www.notion.so/${id}`, tables };
   },
@@ -385,10 +392,10 @@ const ID_ESPACE = /^wsp[A-Za-z0-9]{14}$/;
 
 /** Champs d'une table Airtable : le premier (le nom) devient le champ principal. */
 function champsAirtable(t: DefType): { name: string; type: string; options?: Record<string, unknown> }[] {
-  const m = mappingDe(t);
-  return entetesDe(t).map((e) => {
-    if (e === COL_STATUT) return { name: e, type: 'singleSelect', options: { choices: [{ name: STATUT_ACTIVE, color: 'greenBright' }, { name: STATUT_SUPPRIMEE, color: 'redBright' }] } };
-    const champ = t.champs.find((c) => c.id === m[e]);
+  const col = colonnesDe(t);
+  return col.entetes.map((e) => {
+    if (e === col.statut) return { name: e, type: 'singleSelect', options: { choices: [{ name: STATUT_ACTIVE, color: 'greenBright' }, { name: STATUT_SUPPRIMEE, color: 'redBright' }] } };
+    const champ = t.champs.find((c) => c.id === col.mapping[e]);
     switch (champ?.type) {
       case 'nombre': case 'montant': return { name: e, type: 'number', options: { precision: 2 } };
       case 'date': return { name: e, type: 'date', options: { dateFormat: { name: 'iso' } } };
@@ -422,7 +429,7 @@ const outilAirtable: OutilMiroir = {
       const nomTable = noms.get(t.id) as string;
       const cle = creees.get(nomTable.toLowerCase());
       if (!cle) throw new ErreurSortante(`Airtable n’a pas créé la table « ${nomTable} ».`);
-      return { typeId: t.id, cle, nom: nomTable, entetes: entetesDe(t) };
+      return { typeId: t.id, cle, nom: nomTable, ...parColonnes(t) };
     });
     return { id, url: `https://airtable.com/${id}`, tables };
   },
@@ -447,7 +454,7 @@ const outilAirtable: OutilMiroir = {
         cle = typeof (r as { id?: unknown } | null)?.id === 'string' ? (r as { id: string }).id : '';
       }
       if (!ID_TABLE.test(cle)) throw new ErreurSortante(`Airtable n’a pas créé la table « ${nomTable} ».`);
-      tables.push({ typeId: t.id, cle, nom: nomTable, entetes: entetesDe(t) });
+      tables.push({ typeId: t.id, cle, nom: nomTable, ...parColonnes(t) });
     }
     return { id, url: `https://airtable.com/${id}`, tables };
   },
@@ -549,7 +556,7 @@ export class Miroir {
       classeur: c ? { outil: c.outil, nomOutil: ENDROIT[c.outil].outil, nom: c.nom, url: c.url, creeLe: c.creeLe } : null,
       proposition: this.proposition(),
       comptes: this.#comptes().map((x) => ({ id: x.id, outil: x.outil, nomOutil: ENDROIT[x.outil].outil, nom: x.nom })),
-      types: types.map((t) => ({ id: t.id, libelle: t.pluriel, suivi: this.suivi(t.id), onglet: c?.tables[t.id]?.nom ?? null, lignes: this.#comptees(t.id) })),
+      types: types.map((t) => ({ id: t.id, libelle: t.pluriel, famille: t.famille, suivi: this.suivi(t.id), onglet: c?.tables[t.id]?.nom ?? null, lignes: this.#comptees(t.id) })),
       attente,
       dernier: this.#etat.dernier,
       // message simple, sans jargon : l'état du dernier envoi
@@ -594,7 +601,7 @@ export class Miroir {
     }
     const classeur: ClasseurSuivi = {
       outil: choix.outil, id: cree.id, nom, url: cree.url, compte: choix.id, creeLe: this.#maintenant().toISOString(),
-      tables: Object.fromEntries(cree.tables.map((t) => [t.typeId, { cle: t.cle, nom: t.nom, entetes: t.entetes, connecteur: null }])),
+      tables: Object.fromEntries(cree.tables.map((t) => [t.typeId, { cle: t.cle, nom: t.nom, entetes: t.entetes, reference: t.reference, connecteur: null }])),
     };
     this.#etat = { ...this.#etat, classeur, empreintes: {}, lignes: {}, attente: [] };
     this.#brancherLectures();
@@ -710,9 +717,12 @@ export class Miroir {
     const ligne = this.#etat.lignes[objId];
     delete this.#etat.empreintes[objId];
     if (!c || !ligne || !c.tables[ligne.type]) { delete this.#etat.lignes[objId]; return; }
+    const t = defType(this.#monde.univers, ligne.type);
+    const col = t ? colonnesDe(t) : null;
+    if (!col) { delete this.#etat.lignes[objId]; return; }
     this.#empiler({
       objet: objId, type: ligne.type, quoi: 'suppression', essais: 0, prochain: this.#maintenant().toISOString(), erreur: null,
-      valeurs: { [COL_STATUT]: STATUT_SUPPRIMEE, [COL_MAJ]: this.#maintenant().toISOString().slice(0, 10) },
+      valeurs: { [col.statut]: STATUT_SUPPRIMEE, [col.maj]: this.#maintenant().toISOString().slice(0, 10) },
     });
     this.#changement();
     this.planifier();
@@ -741,20 +751,28 @@ export class Miroir {
     return neufs;
   }
 
-  /** Valeurs d'une fiche pour sa ligne du classeur (colonnes du jeu comprises). */
-  #valeurs(objId: string, typeId: string): Record<string, ValeurSortante> | null {
+  /**
+   * Valeurs d'une fiche pour sa ligne du classeur (colonnes du jeu comprises). `ext` : référence déjà portée par la
+   * ligne — elle est gardée telle quelle, sinon la synchronisation ne retrouverait plus la ligne qu'elle a reliée.
+   */
+  #valeurs(objId: string, typeId: string, ext: string | null): Record<string, ValeurSortante> | null {
     const t = defType(this.#monde.univers, typeId);
     const c = this.#etat.classeur;
     if (!t || !c?.tables[typeId]) return null;
-    const m = mappingDe(t);
-    const cibles = Object.values(m);
-    const v = this.#monde.valeursExport(objId, cibles);
+    const col = colonnesDe(t);
+    const v = this.#monde.valeursExport(objId, Object.values(col.mapping));
     const r: Record<string, ValeurSortante> = {};
-    for (const [entete, cible] of Object.entries(m)) r[entete] = v[cible] ?? null;
-    r[COL_REFERENCE] = objId;
-    r[COL_STATUT] = STATUT_ACTIVE;
-    r[COL_MAJ] = this.#maintenant().toISOString().slice(0, 10);
+    for (const [entete, cible] of Object.entries(col.mapping)) r[entete] = v[cible] ?? null;
+    r[col.reference] = ext ?? objId;
+    r[col.statut] = STATUT_ACTIVE;
+    r[col.maj] = this.#maintenant().toISOString().slice(0, 10);
     return r;
+  }
+
+  /** Tous les envois en attente redeviennent dus : « Envoyer maintenant » n'attend pas le prochain essai. */
+  relancer(): void {
+    const maintenant = this.#maintenant().toISOString();
+    for (const a of this.#etat.attente) a.prochain = maintenant;
   }
 
   /**
@@ -773,7 +791,8 @@ export class Miroir {
       const prets = this.#etat.attente.filter((a) => Date.parse(a.prochain) <= maintenant).slice(0, PAR_PASSAGE);
       for (const a of prets) {
         const table = c.tables[a.type];
-        const valeurs = a.quoi === 'suppression' ? (a.valeurs ?? null) : this.#valeurs(a.objet, a.type);
+        const connue = table ? this.#ligneDe(table, a.objet) : null;
+        const valeurs = a.quoi === 'suppression' ? (a.valeurs ?? null) : this.#valeurs(a.objet, a.type, connue);
         if (!table || !valeurs) { this.#retirer(a); continue; }
         try {
           const ext = await this.#ecrire(c, table, a, valeurs);
@@ -814,9 +833,12 @@ export class Miroir {
     const ecrire = ADAPTATEURS[outil.source].ecrire;
     if (!ecrire) throw new ErreurSortante(`${ENDROIT[c.outil].outil} ne sait pas écrire.`);
     const config = outil.config(c, table);
-    // ligne déjà connue du jeu, sinon ligne reconnue par le branchement de lecture (fiche née d'une ligne ajoutée à la main)
-    const ext = this.#etat.lignes[a.objet]?.ext ?? (table.connecteur ? this.#synchro.externeIdMiroir(table.connecteur, a.objet) : null) ?? null;
-    return this.#synchro.avecCompte(c.compte, config, (cfg, secret, f) => ecrire(cfg, secret, ext, valeurs, f));
+    return this.#synchro.avecCompte(c.compte, config, (cfg, secret, f) => ecrire(cfg, secret, this.#ligneDe(table, a.objet), valeurs, f));
+  }
+
+  /** Ligne déjà connue du jeu, sinon celle que le branchement de lecture a reliée (ligne ajoutée à la main). */
+  #ligneDe(table: TableSuivi, objId: string): string | null {
+    return this.#etat.lignes[objId]?.ext ?? (table.connecteur ? this.#synchro.externeIdMiroir(table.connecteur, objId) : null) ?? null;
   }
 
   /**
@@ -833,18 +855,19 @@ export class Miroir {
     if (!ecrire) return 0;
     let posees = 0;
     for (const [typeId, table] of Object.entries(c.tables)) {
-      if (!this.suivi(typeId)) continue;
+      const t = defType(this.#monde.univers, typeId);
+      if (!this.suivi(typeId) || !t) continue;
       // lues par le NOM : une ligne écrite à la main en a un, mais pas encore de référence
-      const config = { ...outil.config(c, table), colonneId: COL_NOM };
+      const col = colonnesDe(t);
+      const config = { ...outil.config(c, table), colonneId: col.entetes[0] as string };
       let lignes;
       try {
         lignes = await this.#synchro.avecCompte(c.compte, config, (cfg, secret, f) => lire(cfg, secret, f));
       } catch { continue; } // onglet illisible pour l'instant : repris au passage suivant
       for (const l of lignes) {
-        const reference = (l.champs[COL_REFERENCE] ?? '').trim();
-        if (reference) continue;
+        if ((l.champs[col.reference] ?? '').trim()) continue;
         try {
-          await this.#synchro.avecCompte(c.compte, config, (cfg, secret, f) => ecrire(cfg, secret, l.externeId, { [COL_REFERENCE]: nouvelleReference() }, f));
+          await this.#synchro.avecCompte(c.compte, config, (cfg, secret, f) => ecrire(cfg, secret, l.externeId, { [col.reference]: nouvelleReference() }, f));
           posees++;
         } catch { break; } // outil indisponible : les lignes suivantes attendent le prochain passage
       }
@@ -866,7 +889,7 @@ function lireEtat(x: EtatMiroir | null | undefined): EtatMiroir {
     ? { outil: c.outil, id: c.id, nom: texteCourt(c.nom, 90), url: c.url, compte: c.compte, creeLe: typeof c.creeLe === 'string' ? c.creeLe : '',
       tables: Object.fromEntries(Object.entries(c.tables).filter(([, t]) => estObj(t) && typeof (t as TableSuivi).cle === 'string').map(([k, t]) => {
         const v = t as TableSuivi;
-        return [k, { cle: v.cle, nom: typeof v.nom === 'string' ? v.nom : v.cle, entetes: Array.isArray(v.entetes) ? v.entetes.filter((e): e is string => typeof e === 'string') : [], connecteur: typeof v.connecteur === 'string' ? v.connecteur : null }];
+        return [k, { cle: v.cle, nom: typeof v.nom === 'string' ? v.nom : v.cle, entetes: Array.isArray(v.entetes) ? v.entetes.filter((e): e is string => typeof e === 'string') : [], reference: typeof v.reference === 'string' ? v.reference : COL_REFERENCE, connecteur: typeof v.connecteur === 'string' ? v.connecteur : null }];
       })) }
     : null;
   const texteDe = (o: unknown): Record<string, string> => Object.fromEntries(Object.entries(estObj(o) ? o : {}).filter(([, v]) => typeof v === 'string')) as Record<string, string>;

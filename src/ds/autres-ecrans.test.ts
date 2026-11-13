@@ -170,8 +170,8 @@ test('onglet Breizhcosystem : verrous visibles avant l’action, vitrine, opport
 });
 
 // ---------------------------------------------------------------- Réglages et « Mettre en ligne »
-test('réglages : les 12 sections du §6.1 P9 dans l’ordre, anciennes adresses rangées, aucune route perdue', () => {
-  assert.deepEqual(G.SECTIONS.map((s) => s.libelle), ['Entreprise', 'Accès et équipe', 'Apparence et accessibilité', 'Clavier', 'Carte', 'Notifications', 'Connecteurs', 'Sauvegardes', 'Mettre en ligne', 'Breizhcosystem', 'Confidentialité', 'À propos']);
+test('réglages : les sections du §6.1 P9 dans l’ordre, anciennes adresses rangées, aucune route perdue', () => {
+  assert.deepEqual(G.SECTIONS.map((s) => s.libelle), ['Entreprise', 'Accès et équipe', 'Apparence et accessibilité', 'Clavier', 'Carte', 'Notifications', 'Connecteurs', 'Mon fichier de suivi', 'Sauvegardes', 'Mettre en ligne', 'Breizhcosystem', 'Confidentialité', 'À propos']);
   for (const ancienne of ['acces', 'apparence', 'carte', 'reseau', 'en-ligne', 'nexus', 'outils', 'cles', 'sauvegardes']) assert.equal(G.pageDemandee(ancienne), ancienne, `#/reglages:${ancienne} marche toujours`);
   assert.equal(G.sectionDe('cles'), 'outils', 'clés d’API dans Connecteurs (mode avancé)');
   assert.equal(G.sectionDe('reseau'), 'acces');

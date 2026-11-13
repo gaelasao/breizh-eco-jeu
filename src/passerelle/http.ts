@@ -849,6 +849,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
     if (methode === 'DELETE' && chemin === '/suivi') return envoyer(res, 200, app.miroir.detacher(profil));
     if (methode === 'POST' && chemin === '/suivi/reecrire') return envoyer(res, 200, app.miroir.toutReecrire(profil));
     if (methode === 'POST' && chemin === '/suivi/maintenant') {
+      app.miroir.relancer(); // « Envoyer maintenant » : les envois en attente repartent sans attendre leur tour
       const r = await app.miroir.passer();
       await app.miroir.adopter().catch(() => 0);
       return envoyer(res, 200, { ...app.miroir.vue(profil), envoyees: r.envoyees, restants: r.restants });

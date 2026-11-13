@@ -3,7 +3,7 @@
    Aucune route ne disparaît : les anciens identifiants (#/reglages:outils, :cles, :reseau…) ouvrent toujours la même
    page, rangée dans sa section. */
 
-/** Les 12 sections, dans l'ordre du §6.1 P9 : { id, libelle, icone, description }. */
+/** Les 13 sections, dans l'ordre du §6.1 P9 : { id, libelle, icone, description }. */
 export const SECTIONS = Object.freeze([
   { id: 'entreprise', libelle: 'Entreprise', icone: 'building-2', description: 'Nom, ville, SIRET, organisation' },
   { id: 'acces', libelle: 'Accès et équipe', icone: 'users', description: 'Personnes, droits, réseau du bureau' },
@@ -12,6 +12,7 @@ export const SECTIONS = Object.freeze([
   { id: 'carte', libelle: 'Carte', icone: 'map', description: 'Qualité, heure, animations' },
   { id: 'notifications', libelle: 'Notifications', icone: 'bell', description: 'Alertes, suggestions, célébrations' },
   { id: 'outils', libelle: 'Connecteurs', icone: 'plug', description: 'Logiciels connectés, clés d’API' },
+  { id: 'suivi', libelle: 'Mon fichier de suivi', icone: 'table', description: 'Le classeur où tout s’écrit aussi' },
   { id: 'sauvegardes', libelle: 'Sauvegardes', icone: 'archive', description: 'Copies automatiques et chiffrées' },
   { id: 'en-ligne', libelle: 'Mettre en ligne', icone: 'smartphone', description: 'Utiliser Living Business partout' },
   { id: 'nexus', libelle: 'Breizhcosystem', icone: 'bz-nexus', description: 'Le réseau des entreprises bretonnes' },
