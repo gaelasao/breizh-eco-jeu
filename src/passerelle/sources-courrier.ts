@@ -106,6 +106,9 @@ function lienOutil(x: unknown, hotes: readonly string[]): string {
 const CHAMPS_COMMUNS = [
   { id: 'combien', libelle: 'Messages montrés', aide: 'Les plus récents de votre boîte de réception.', choix: COMBIEN, obligatoire: true },
   { id: 'quandTraite', libelle: 'Quand un courrier passe à « traité »', aide: 'Ce que Living Business fait alors dans votre boîte. Sans synchronisation « dans les deux sens », rien n’est fait.', choix: QUAND_TRAITE },
+  // `mode: 'oauth'` : ce jeton vient de « Se connecter avec… » et de nulle part ailleurs. Il n'est jamais montré, et
+  // le catalogue n'y voit pas une clé qu'on pourrait coller : sans relais ouvert, la boîte n'est donc pas proposée.
+  { id: 'jeton', libelle: 'Connexion', aide: 'Obtenue par « Se connecter avec… ». Chiffrée sur cet ordinateur, jamais affichée.', secret: true, obligatoire: true, mode: 'oauth' },
 ] as const;
 
 /** Faut-il toucher à la boîte, et jusqu'où ? */

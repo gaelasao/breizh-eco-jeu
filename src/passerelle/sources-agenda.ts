@@ -111,6 +111,9 @@ function finParDefaut(debut: { valeur: string; journee: boolean }): { valeur: st
 const CHAMPS_COMMUNS = [
   { id: 'agenda', libelle: 'Agenda', aide: 'Lequel de vos agendas ? Choisissez-le dans la liste.', obligatoire: true, liste: true },
   { id: 'periode', libelle: 'Période', aide: 'Jusqu’où regarder dans le futur. Les 30 derniers jours sont toujours lus.', choix: PERIODES, obligatoire: true },
+  // `mode: 'oauth'` : ce jeton vient de « Se connecter avec… » et de nulle part ailleurs. Il n'est jamais montré, et
+  // le catalogue n'y voit pas une clé qu'on pourrait coller : sans relais ouvert, l'agenda n'est donc pas proposé.
+  { id: 'jeton', libelle: 'Connexion', aide: 'Obtenue par « Se connecter avec… ». Chiffrée sur cet ordinateur, jamais affichée.', secret: true, obligatoire: true, mode: 'oauth' },
 ] as const;
 
 // ---------------------------------------------------------------- Google Agenda

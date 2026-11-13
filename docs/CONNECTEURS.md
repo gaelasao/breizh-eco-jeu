@@ -85,6 +85,10 @@ faire), déplacer un rendez-vous d'un agenda à l'autre, et la synchronisation i
 `delta` (Microsoft) — la période choisie est relue en entier, ce qui tient largement pour quelques centaines de
 rendez-vous, et évite d'avoir à gérer l'expiration d'un jeton de synchronisation (Google répond alors `410`).
 
+Un rendez-vous a une heure, une échéance n'en a pas : un champ « date » accepte donc aussi bien `2026-11-20` que
+`2026-11-20T09:00` (à la minute, dans le fuseau de l'entreprise). Les deux formes se relisent telles quelles, et
+l'import de fichiers les accepte toutes les deux.
+
 Documentation lue : Google <https://developers.google.com/workspace/calendar/api/v3/reference/calendarList/list>,
 <https://developers.google.com/workspace/calendar/api/v3/reference/calendarList>,
 <https://developers.google.com/workspace/calendar/api/v3/reference/events/list>,

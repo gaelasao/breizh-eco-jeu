@@ -175,7 +175,10 @@ test('correspondance des colonnes : proposée, montrée, modifiable, et un champ
 test('Microsoft : le compte professionnel est dit AVANT le clic, et les refus deviennent des conseils', () => {
   const app = lire('web/app.js');
   assert.match(app, /Il vous faut un compte Microsoft 365 professionnel\./);
-  assert.match(app, /compte personnel \(Outlook, Hotmail, Live\) est refusé par Microsoft dès la page de connexion/);
+  assert.match(app, /compte personnel \(Outlook\.com, Hotmail, Live\) est refusé par Microsoft dès la page de connexion/);
+  // l'agenda et le courrier Outlook passent par le même point d'entrée « organizations » : le compte professionnel
+  // est donc dit pour eux aussi, avant le clic
+  assert.match(app, /votre agenda, votre courrier Outlook professionnel/, 'l’avertissement couvre tout ce que le compte ouvre');
   assert.match(app, /const microsoft = C\.compte\?\.id === 'microsoft' \|\| \['excel365', 'dynamics365', 'businesscentral'\]\.includes\(s\?\.id\)/);
   assert.match(app, /!connecte && microsoft \? AVERTISSEMENT_MICROSOFT : null/, 'montré avant le clic, pas après le refus');
   const relais = lire('src/passerelle/oauth-relais.ts');

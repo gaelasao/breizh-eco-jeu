@@ -7023,7 +7023,7 @@ function infoRelais(nomOutil) {
  * entreprise. Un compte personnel est donc refusé dès la page de connexion de Microsoft.
  */
 const AVERTISSEMENT_MICROSOFT = resultatAssistant('attention', 'Il vous faut un compte Microsoft 365 professionnel.', {
-  detail: 'L’adresse de votre entreprise, celle qui ouvre OneDrive Entreprise ou SharePoint. Un compte personnel (Outlook, Hotmail, Live) est refusé par Microsoft dès la page de connexion : Microsoft n’ouvre pas Excel aux classeurs d’un OneDrive personnel. Vos fichiers sont sur un compte personnel ? Importez-les en fichier, section « Sans rien connecter ».',
+  detail: 'L’adresse de votre entreprise, celle qui ouvre Microsoft 365 (OneDrive Entreprise, SharePoint, votre agenda, votre courrier Outlook professionnel). Un compte personnel (Outlook.com, Hotmail, Live) est refusé par Microsoft dès la page de connexion : Microsoft n’ouvre pas Excel aux classeurs d’un OneDrive personnel. Vos fichiers sont sur un compte personnel ? Importez-les en fichier, section « Sans rien connecter ».',
 });
 /**
  * Agenda, boîte de réception : « dans les deux sens » se choisit AVANT la connexion, parce que c'est lui qui décide
@@ -7052,7 +7052,9 @@ function choixContenu(C) {
       h('span', { class: 'bz-choix__texte' },
         h('span', { class: 'bz-choix__titre' }, h('span', { texte: x.libelle }), x.unClic ? h('span', { class: 'bz-badge' }, icone('mouse-pointer-click'), '1 clic') : null),
         h('span', { class: 'bz-choix__detail', texte: x.cle && !x.unClic ? `${x.detail} Avec une clé.` : x.detail }))))),
-    aVenir.length ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `Plus tard dans ce même compte : ${aVenir.map((x) => x.libelle.toLowerCase()).join(', ')}. Ce n’est pas encore fait : rien n’est proposé tant que ça ne marche pas.` }) : null,
+    // ce qui n'est proposé nulle part : ou bien ce n'est pas encore fait, ou bien l'outil ne l'a pas encore ouvert.
+    // Dans les deux cas, le résultat est le même pour la personne : ça ne marche pas aujourd'hui, donc on ne le propose pas.
+    aVenir.length ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `Dans ce même compte, plus tard : ${aVenir.map((x) => x.libelle).join(', ')}. Pas aujourd’hui : on ne propose que ce qui marche.` }) : null,
   ];
 }
 function corpsConnexion(C) {
@@ -7086,7 +7088,9 @@ function corpsConnexion(C) {
             actions: h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => seConnecterOutil(C) }, 'Changer de compte')) }),
           h('p', { class: 'bz-t-petit', texte: `La connexion est chiffrée sur cet ordinateur et n’est jamais affichée. Vos données vont directement de ${nomOutil} à Living Business, sans passer par Breizhcosystem ; seuls les jetons de connexion y passent, à la connexion et à chaque renouvellement.` }),
         ],
-      h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => modeCle(C) }, icone('code-xml'), 'Mode avancé : pour votre informaticien')),
+      // un agenda, une boîte de réception : aucune clé à créer soi-même, donc aucun mode avancé à proposer
+      s.champs.some((ch) => ch.secret && ch.mode !== 'oauth')
+        ? h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => modeCle(C) }, icone('code-xml'), 'Mode avancé : pour votre informaticien')) : null,
     ];
   }
   // Parcours par clé : le jargon de l'outil (droits, noms internes, « API V2 ») reste dans les replis « pour votre

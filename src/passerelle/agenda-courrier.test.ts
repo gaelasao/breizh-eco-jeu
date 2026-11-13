@@ -8,7 +8,7 @@ import { agendagoogle, agendamicrosoft, bornes, corpsGoogle, corpsMicrosoft, dat
 import { combien, enteteGmail, ficheCourrier, gmail, lienGmail, nomExpediteur, outlook } from './sources-courrier.ts';
 import { bacDe, urgenceDe } from './tri-courrier.ts';
 import { ADAPTATEURS } from './sources.ts';
-import { FOURNISSEUR_DE, NOM_FOURNISSEUR } from './oauth-relais.ts';
+import { enveloppe, FOURNISSEUR_DE, lireEnveloppe, NOM_FOURNISSEUR } from './oauth-relais.ts';
 import { OUTILS_TEMPS_REEL, suiviDe, TEMPS_REEL_DE } from './temps-reel.ts';
 import { Application } from './application.ts';
 
@@ -38,7 +38,10 @@ test('catalogue : agenda et courrier sont branchés, en français, sans aucune c
     assert.equal(a.lecture, 'appel');
     assert.equal(a.ecriture, true);
     assert.ok(a.etapes.length === 3 && a.etapes.every((e) => e.length > 20), `${id} : trois étapes dites en entier`);
-    assert.equal(a.champs.filter((c) => c.secret).length, 0, `${id} : aucune clé à créer ni à coller`);
+    // un seul secret, et il ne vient que de « Se connecter avec… » : rien à créer ni à coller soi-même
+    const secrets = a.champs.filter((c) => c.secret);
+    assert.equal(secrets.length, 1, `${id} : un seul secret`);
+    assert.equal(secrets[0]?.mode, 'oauth', `${id} : aucune clé à coller`);
     assert.doesNotMatch(`${a.description} ${a.etapes.join(' ')}`, /\b(scope|token|API|OAuth|webhook)\b/, `${id} : pas de jargon`);
   }
   // chaque outil a SA portée : brancher une feuille ne demande jamais l'agenda, ni l'agenda le courrier
@@ -306,6 +309,72 @@ test('temps réel de l’agenda : canal chez Google, abonnement chez Microsoft, 
   assert.ok(duree <= 10_080 * 60_000, 'Microsoft n’accepte pas plus de 10 080 minutes pour un événement');
   await OUTILS_TEMPS_REEL.microsoftagenda.renouveler?.({}, JETON, f2, ab2, avis);
   assert.equal((a2.at(-1) as Appel).methode, 'PATCH');
+});
+
+// ---------------------------------------------------------------- anti-boucle et droits refusés, par la vraie synchro
+
+/** Un agenda simulé qui garde ses rendez-vous : on peut y lire, y écrire, et compter les appels. */
+function agendaSimule() {
+  const evenements = new Map<string, { id: string; summary: string; start: { dateTime: string }; end: { dateTime: string }; status: string }>();
+  evenements.set('rdv001', { id: 'rdv001', summary: 'Visite de chantier', start: { dateTime: '2026-11-20T09:00:00+01:00' }, end: { dateTime: '2026-11-20T10:00:00+01:00' }, status: 'confirmed' });
+  const compte = { lectures: 0, ecritures: 0 };
+  const f = (async (url: URL | string, init?: RequestInit) => {
+    const u = new URL(String(url));
+    const methode = init?.method ?? 'GET';
+    if (u.pathname.endsWith('/events') && methode === 'GET') { compte.lectures++; return json({ items: [...evenements.values()] }); }
+    if (u.pathname.endsWith('/calendarList')) return json({ items: [{ id: 'primary', summary: 'Mon agenda', primary: true, accessRole: 'owner' }] });
+    if (methode === 'POST') { compte.ecritures++; const id = `rdv${String(evenements.size + 1).padStart(3, '0')}`; evenements.set(id, { ...(JSON.parse(String(init?.body)) as any), id }); return json({ id }); }
+    if (methode === 'PATCH') { compte.ecritures++; return json({ id: u.pathname.split('/').pop() }); }
+    return json({});
+  }) as typeof fetch;
+  return { f, compte, evenements };
+}
+
+test('anti-boucle : ce qui vient de l’agenda n’y retourne pas ; ce que le jeu change, si', async () => {
+  const { f, compte } = agendaSimule();
+  const app = await Application.creer({ exemple: 'pme', fetch: f });
+  const p = app.monde.profil('dirigeante');
+  assert.ok(p);
+  const c = app.synchro.creer(p, {
+    source: 'agendagoogle', config: { agenda: 'primary', periode: 'periode90', jeton: JETON }, typeObjet: 'rendez_vous', roles: [],
+    mapping: { titre: '__nom', debut: 'debut', fin: 'fin', lieu: 'lieu', etat: 'etat', lien: 'lien' },
+    sens: 'deux', intervalleS: 300, actif: true,
+  });
+  await app.synchro.synchroniser(c.id);
+  assert.equal(compte.lectures, 1);
+  // le rendez-vous lu est entré dans le jeu, et n'est PAS reparti chez Google : son empreinte n'a pas changé
+  assert.equal(compte.ecritures, 0, 'rien n’est renvoyé à l’agenda après une simple lecture');
+  const entre = app.monde.objetsReels().find((o) => o.type === 'rendez_vous' && o.nom === 'Visite de chantier');
+  assert.ok(entre, 'le rendez-vous de l’agenda est dans le jeu');
+  // une deuxième synchronisation, rien n'ayant bougé : toujours aucune écriture
+  await app.synchro.synchroniser(c.id);
+  assert.equal(compte.ecritures, 0, 'relire ne déclenche pas d’écriture : pas de boucle');
+  // la personne change le rendez-vous DANS LE JEU : là, il repart
+  await app.monde.preparerAction(p, 'reel', { cle: 'cle-agenda-000001', cible: entre.id, capacite: 'objet.modifier', parametres: { champs: { lieu: 'Quimper' } }, executer: true });
+  await app.synchro.synchroniser(c.id);
+  assert.equal(compte.ecritures, 1, 'un changement fait ici repart une fois, et une seule');
+  await app.synchro.synchroniser(c.id);
+  assert.equal(compte.ecritures, 1);
+});
+
+test('droits refusés : connexion absente, ou refusée par l’outil — la personne lit une phrase utilisable', async () => {
+  // aucune connexion : l'adaptateur le dit, et ne tente aucun appel
+  const jamais = (async () => { throw new Error('aucun appel attendu'); }) as typeof fetch;
+  for (const [nom, a] of [['Google', agendagoogle], ['Microsoft', agendamicrosoft]] as const) {
+    await assert.rejects(a.lire({ agenda: 'x' }, null, jamais), new RegExp(`Connexion ${nom} manquante`));
+  }
+  await assert.rejects(gmail.lire({}, null, jamais), /Connexion Google manquante/);
+  await assert.rejects(outlook.lire({}, null, jamais), /Connexion Microsoft manquante/);
+
+  // l'outil refuse (droit non accordé, jeton révoqué) : message lisible, jamais une trace technique
+  const { f } = simuler(() => json({ error: { code: 'forbidden', message: 'insufficient permission' } }, 403));
+  await assert.rejects(agendagoogle.lire({ agenda: 'primary' }, JETON, f), /Accès refusé/);
+  await assert.rejects(outlook.ecrire?.({ quandTraite: 'lu' }, JETON, 'MSG1', { statut: 'traité' }, f) as Promise<unknown>, /Accès refusé/);
+
+  // le droit accordé à la connexion voyage avec elle : c'est lui que la synchro relit avant d'autoriser une écriture
+  const lectureSeule = enveloppe({ fournisseur: 'googleagenda', acces: 'jeton-lecture', rafraichissement: null, expire: null, extra: {}, droits: 'lecture' });
+  assert.equal(lireEnveloppe(lectureSeule)?.droits, 'lecture');
+  assert.equal(lireEnveloppe(enveloppe({ fournisseur: 'microsoftcourrier', acces: 'j', rafraichissement: null, expire: null, extra: {}, droits: 'ecriture' }))?.droits, 'ecriture');
 });
 
 // ---------------------------------------------------------------- de bout en bout : lire, rattacher, anti-boucle
