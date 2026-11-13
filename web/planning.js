@@ -44,6 +44,11 @@ export function libelleCase(P, v) {
 }
 /** Groupes d'options du choix d'une case, dans l'ordre du menu. */
 export const GROUPES_OPTIONS = Object.freeze(['Lieux', 'Projets', 'Missions', 'Absences', 'Autre']);
+/**
+ * Aucun endroit où affecter quelqu'un : ni lieu, ni projet. Le menu d'une case ne proposerait que des absences, et
+ * la question des trous n'aurait pas de sens (toutes les cases sont « Non affecté »). L'écran demande alors un lieu.
+ */
+export const sansLieu = (P) => !(P?.options ?? []).some((o) => o.groupe === 'Lieux' || o.groupe === 'Projets');
 export function optionsGroupees(P) {
   return GROUPES_OPTIONS.map((g) => ({ groupe: g, options: (P.options ?? []).filter((o) => o.groupe === g) })).filter((g) => g.options.length);
 }

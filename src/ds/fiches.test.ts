@@ -5,6 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 type Champ = { id: string; libelle: string; type: string; valeur: unknown; lien?: { id: string; nom: string } | null; unite?: string | null; choix?: string[] };
 type Objet = { id: string; nom: string; type: string; famille: string; champs: Champ[] };
@@ -35,6 +36,7 @@ type P = {
   lotPour: (P: unknown, c: unknown[], v: string) => Array<{ employe: string; date: string; valeur: string }>;
   lotRemplir: (P: unknown, a: unknown, c: unknown[]) => Array<{ employe: string; date: string; valeur: string }>;
   lotInverse: (P: unknown, l: unknown[]) => Array<{ employe: string; date: string; valeur: string }>;
+  sansLieu: (P: unknown) => boolean;
   appliquer: (P: Plan, l: unknown[]) => Plan;
   texteLot: (P: unknown, l: unknown[]) => string;
 };
@@ -197,4 +199,25 @@ test('planning : sélection en rectangle, déplacement au clavier, glisser pour 
   assert.deepEqual(Pl.lotPour(P, [{ employe: 'e2', date: '2026-11-09' }, { employe: 'e2', date: '2026-11-12' }], 'projet:p1').map((c) => c.date), ['2026-11-12']);
   assert.equal(espaces(Pl.texteLot(P, [{ employe: 'e1', date: '2026-11-14', valeur: 'lieu:l1' }])), 'Gwen : Atelier, samedi 14 novembre');
   assert.equal(espaces(Pl.texteLot(P, remplir)), '4 cases modifiées');
+});
+
+test('planning sans lieu : « Ajouter un lieu de travail… » dans la case, et plus de « Aucun trou » hors sujet', () => {
+  const app = readFileSync(new URL('../../web/app.js', import.meta.url), 'utf8');
+  // module pur : aucun endroit où affecter quelqu'un = ni lieu, ni projet (les absences ne comptent pas)
+  assert.equal(Pl.sansLieu(plan()), false);
+  const sans = { ...plan(), options: plan().options.filter((o) => !['Lieux', 'Projets'].includes(o.groupe)) };
+  assert.equal(Pl.sansLieu(sans), true);
+  assert.equal(Pl.sansLieu({ ...plan(), options: plan().options.filter((o) => o.groupe === 'Projets') }), false, 'un chantier suffit');
+  assert.equal(Pl.sansLieu({}), true);
+  // le menu d'une case ouvre la saisie d'un lieu, puis revient sur la case
+  assert.match(app, /const sansOu = PLAN\.sansLieu\(P\);/);
+  assert.match(app, /texte: 'Ajouter un lieu de travail…'/);
+  assert.match(app, /creerLieuPuisRevenir\(cases\)/);
+  assert.match(app, /ouvrirSaisie\(\{ type \}, \{ apres: async \(\) => \{\s+await rendrePlanning\(\);/, 'le lieu créé, on revient au planning');
+  assert.match(app, /if \(b\) \{ b\.focus\(\); ouvrirChoixCase\(b, cases\); \}/, 'et le choix se rouvre sur la même case');
+  // le bandeau vert « Aucun trou » ne s'affiche plus quand la question n'a pas de sens
+  const dessin = app.slice(app.indexOf('const alertes = P.alertes.length'), app.indexOf('const caseDeCle ='));
+  assert.match(dessin, /: PLAN\.sansLieu\(P\)\s+\?/);
+  assert.match(dessin, /texte: 'Ajoutez un lieu pour dire où chacun travaille\.'/);
+  assert.ok(dessin.indexOf('PLAN.sansLieu(P)') < dessin.indexOf('Aucun trou dans le planning'), 'l’absence de lieu passe avant le bilan des trous');
 });

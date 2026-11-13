@@ -4360,7 +4360,7 @@ async function partirDeZero() {
 }
 
 // ---------------------------------------------------------------- saisie manuelle
-function ouvrirSaisie(cible) {
+function ouvrirSaisie(cible, { apres = null } = {}) {
   const u = E.monde.univers;
   let t = u.types.find((x) => x.id === cible.type);
   if (!t) return;
@@ -4388,7 +4388,8 @@ function ouvrirSaisie(cible) {
         D.fermer();
         await charger();
         informer(`${t.libelle} ajouté : ${o.nom}.`, 'ok');
-        await selectionner(o.id);
+        // `apres` : on revient là d'où l'on vient (une case du planning) au lieu d'ouvrir la fiche
+        if (apres) await apres(o); else await selectionner(o.id);
       } catch (err) { S.erreur = err.message; S.envoi = false; D.rendre(); }
     },
     contenu: () => {
@@ -4516,7 +4517,15 @@ function dessinerPlanning() {
     ? h('details', { class: 'bz-repli bz-planning__trous', open: E.planningTrousOuverts ?? !tel, ontoggle: (e) => { E.planningTrousOuverts = e.target.open; } },
       h('summary', {}, iconeEtat('attention', { taille: 'sm', decoratif: true }), h('span', { class: 'bz-repli__titre', texte: `${pluriel(P.alertes.length, 'trou', 'trous')} dans le planning des 6 prochains jours ouvrés, aujourd’hui compris` }), icone('chevron-down', { taille: 'sm' })),
       h('ul', { class: 'bz-repli__corps bz-liste-simple' }, [...alertesParJour].map(([j, l]) => h('li', {}, h('strong', { texte: `${j === P.aujourdhui ? 'Aujourd’hui' : M.jourLong(j)} : ` }), l.map((a) => sansDemo(a.texte)).join(' · ')))))
-    : h('p', { class: 'bz-t-petit bz-texte-2 bz-ligne-icone' }, iconeEtat('ok', { taille: 'sm', decoratif: true }), h('span', { texte: 'Aucun trou dans le planning des 6 prochains jours ouvrés, aujourd’hui compris.' }));
+    // sans lieu, la question des trous n'a pas de sens : toutes les cases sont « Non affecté ». On dit quoi faire.
+    : PLAN.sansLieu(P)
+      ? h('div', { class: 'bz-resultat', 'data-ton': 'info' }, iconeEtat('info', { decoratif: true }),
+        h('div', { class: 'bz-pile bz-pile--serre' },
+          h('strong', { texte: 'Ajoutez un lieu pour dire où chacun travaille.' }),
+          h('p', { class: 'bz-t-petit', texte: 'Un siège, un atelier, un chantier : il apparaîtra dans chaque case, et les jours sans personne se verront.' }),
+          P.modifiable ? h('div', { class: 'bz-groupe-boutons' },
+            h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--sm', cle: 'planning-ajouter-lieu', onclick: () => creerLieuPuisRevenir([{ employe: P.lignes[0].id, date: P.jours.includes(P.aujourdhui) ? P.aujourdhui : P.jours[0] }]) }, icone('map-pin', { taille: 'sm' }), 'Ajouter un lieu de travail')) : null))
+      : h('p', { class: 'bz-t-petit bz-texte-2 bz-ligne-icone' }, iconeEtat('ok', { taille: 'sm', decoratif: true }), h('span', { texte: 'Aucun trou dans le planning des 6 prochains jours ouvrés, aujourd’hui compris.' }));
 
   remplir(page, h('div', { class: 'bz-ecran bz-planning', 'data-vue': vue },
     P.simulation ? h('p', { class: 'bz-badge' }, icone('flask-conical', { taille: 'sm' }), 'Simulation : rien n’est enregistré') : null,
@@ -4645,6 +4654,9 @@ function ouvrirChoixCase(ancre, cases) {
   const choisir = (v) => { cacher(pop); affecterLot(PLAN.lotPour(P, cases, v)); };
   const items = [];
   const option = (o) => { const b = h('button', { type: 'button', role: 'menuitemradio', class: 'bz-menu__option', 'aria-checked': o.valeur === actuelle, onclick: () => choisir(o.valeur) }, icone(ICONE_CASE[PLAN.typeCase(o.valeur)] ?? 'circle', { taille: 'sm' }), h('span', { texte: sansDemo(o.libelle) }), o.valeur === actuelle ? icone('check', { taille: 'sm' }) : null); items.push(b); return b; };
+  // sans lieu ni projet, le menu ne proposait que des absences : on ne pouvait pas dire où quelqu'un travaille
+  const sansOu = PLAN.sansLieu(P);
+  const ajouterLieu = () => { const b = h('button', { type: 'button', role: 'menuitem', class: 'bz-menu__option', onclick: () => { cacher(pop); creerLieuPuisRevenir(cases); } }, icone('map-pin', { taille: 'sm' }), h('span', { texte: 'Ajouter un lieu de travail…' })); items.push(b); return b; };
   remplir(pop,
     h('p', { class: 'bz-t-label bz-planning__choix-titre', id: 'planning-choix-titre', texte: titre }),
     h('div', { class: 'bz-planning__choix-liste', role: 'menu', 'aria-labelledby': 'planning-choix-titre',
@@ -4655,6 +4667,8 @@ function ouvrirChoixCase(ancre, cases) {
         if (e.key === 'Home') { e.preventDefault(); items[0]?.focus(); }
         if (e.key === 'End') { e.preventDefault(); items.at(-1)?.focus(); }
       } },
+    sansOu ? h('div', { role: 'group', 'aria-label': 'Lieux', class: 'bz-planning__choix-groupe' },
+      h('p', { class: 'bz-t-surtitre bz-texte-2', 'aria-hidden': 'true', texte: 'Lieux' }), ajouterLieu()) : null,
     PLAN.optionsGroupees(P).map((g) => h('div', { role: 'group', 'aria-label': g.groupe, class: 'bz-planning__choix-groupe' },
       h('p', { class: 'bz-t-surtitre bz-texte-2', 'aria-hidden': 'true', texte: g.groupe }), g.options.map(option))),
     un ? h('div', { role: 'group', 'aria-label': 'Recopier', class: 'bz-planning__choix-groupe' }, (() => {
@@ -4671,6 +4685,17 @@ function ouvrirChoixCase(ancre, cases) {
   montrer(pop);
   placerPres(pop, ancre);
   setTimeout(() => (items.find((b) => b.getAttribute('aria-checked') === 'true') ?? items[0])?.focus(), 0);
+}
+
+/** Premier lieu depuis une case du planning : on le saisit, puis on revient sur la case pour y affecter quelqu'un. */
+function creerLieuPuisRevenir(cases) {
+  const type = E.monde.univers.types.find((t) => t.famille === 'lieu')?.id;
+  if (!type) return;
+  ouvrirSaisie({ type }, { apres: async () => {
+    await rendrePlanning();
+    const b = $(`[data-cle="case-${CSS.escape(PLAN.cleCase(cases[0]))}"]`);
+    if (b) { b.focus(); ouvrirChoixCase(b, cases); }
+  } });
 }
 
 /** Envoi optimiste d'un lot de cases, annulable ; hors ligne : en file d'attente ; refus du serveur : retour en arrière. */
