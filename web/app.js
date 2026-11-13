@@ -225,14 +225,16 @@ const E = {
   sousReglages: null,       // page de Réglages ouverte (null : la liste des sections sur téléphone)
   sources: null,
   dernieres: {},            // dernière vue visitée de chaque groupe (onglets du téléphone)
-  railReplie: lireLocal('lb-rail') === 'replie',
+  // null : aucun choix fait, le menu suit la largeur (replié sur un écran étroit, déplié au-delà)
+  railReplie: lireLocal('lb-rail') === 'replie' ? true : lireLocal('lb-rail') === 'ouvert' ? false : null,
   reports: lireReports(),   // « Plus tard » : actions renvoyées au lendemain, sur cet appareil
   cranFeuille: 'mi',        // feuille de la carte sur téléphone : poignee, mi (40 %), plein (90 %)
   replisOuverts: new Set(), // sections repliées d'« Aujourd'hui » que la personne a ouvertes (gardées au rendu)
   ongletFeuille: 'aujourdhui',
   hudMasque: false,         // « Masquer l'interface » (H) : la carte seule
   boussole: false,          // la boussole n'apparaît qu'après une rotation (§5.5)
-  miniCarte: lireLocal('lb-minicarte') !== 'repliee',
+  // null : aucun choix fait, le plan du port suit la largeur (replié tant que la carte est à l'étroit)
+  miniCarte: lireLocal('lb-minicarte') === 'repliee' ? false : lireLocal('lb-minicarte') === 'ouverte' ? true : null,
   perso: lirePersonnalisation(lireLocal(CLE_PERSO)), // carte personnalisée : noms, couleurs, places, sur cet appareil
   charger3D: false,         // réseau faible : la 3D ne se charge que sur demande (§5.10)
   simplicite: { tout: false, vues: null }, // choix de la personne : « Tout afficher », notes déjà lues (web/simplicite.js)
@@ -1085,7 +1087,10 @@ function rendreTout() {
    « G puis une lettre ». Les entrées sont de vrais liens (#/vue) : ouvrir dans un nouvel onglet et Retour marchent. */
 const estTelephone = () => matchMedia('(max-width: 37.49em)').matches;
 const estOrdinateur = () => matchMedia('(min-width: 60em)').matches;
-const railEffectif = () => !estOrdinateur() || E.railReplie;
+/* Entre 960 et 1 200 px (un 1024×768, un portable à côté d'une fenêtre) : le menu complet mange un cinquième de la
+   largeur et pousse le reste. Tant que personne n'a choisi, il s'ouvre replié ; un clic le déplie et ce choix reste. */
+const ecranEtroit = () => matchMedia('(min-width: 60em) and (max-width: 74.99em)').matches;
+const railEffectif = () => !estOrdinateur() || (E.railReplie ?? ecranEtroit());
 const VUES_AVEC_TITRE = new Set(['carte', 'matin', 'tableau', 'pipeline', 'sante', 'planning', 'courrier', 'satisfaction', 'optimiser', 'departements', 'nexus', 'reglages', 'compte', 'progression']); // le titre (h1) est dans l'en-tête
 const vueAvecTitre = (v) => VUES_AVEC_TITRE.has(v) || estVueListe(v) || String(v).startsWith('dep:');
 const LIBELLE_TON = { critique: 'Critique', attention: 'À traiter', info: 'Information', ok: 'En ordre' };
@@ -1299,9 +1304,9 @@ function rendreRail() {
           icone(e.icone), h('span', { class: 'bz-rail__libelle', texte: e.libelle }))
         : lienNav(e, { classe: 'bz-rail__lien', infobulle: replie }))),
       h('button', {
-        type: 'button', class: 'bz-rail__lien bz-rail__replier', cle: 'rail-replier', 'aria-expanded': !E.railReplie, 'aria-controls': 'rail', 'aria-keyshortcuts': 'B',
+        type: 'button', class: 'bz-rail__lien bz-rail__replier', cle: 'rail-replier', 'aria-expanded': !replie, 'aria-controls': 'rail', 'aria-keyshortcuts': 'B',
         'data-infobulle': replie ? 'Déplier le menu (B)' : null, 'data-infobulle-place': 'droite', onclick: basculerRail,
-      }, icone(E.railReplie ? 'panel-left' : 'panel-left-close'), h('span', { class: 'bz-rail__libelle', texte: E.railReplie ? 'Déplier le menu' : 'Replier le menu' }),
+      }, icone(replie ? 'panel-left' : 'panel-left-close'), h('span', { class: 'bz-rail__libelle', texte: replie ? 'Déplier le menu' : 'Replier le menu' }),
       h('kbd', { class: 'bz-raccourci', 'aria-hidden': 'true', texte: 'B' }))));
   const liste = n.querySelector('.bz-rail__groupes');
   if (liste) {
@@ -1318,7 +1323,7 @@ function rendreRail() {
 }
 function basculerRail() {
   if (!estOrdinateur()) return;
-  E.railReplie = !E.railReplie;
+  E.railReplie = !railEffectif(); // le premier clic part de ce qui est à l'écran, pas d'un réglage jamais touché
   ecrireLocal('lb-rail', E.railReplie ? 'replie' : 'ouvert');
   masquerInfobulle();
   rendreRail();
@@ -1618,7 +1623,7 @@ window.addEventListener('popstate', () => {
   if (v !== E.vue && `#/${adresseDepuisVue(v)}` !== adresseDeVue()) changerVue(v, { historique: false });
 });
 // Le rail (ordinateur ou tablette) et la feuille de la carte (téléphone) suivent la largeur de la fenêtre
-for (const q of ['(min-width: 60em)', '(max-width: 37.49em)']) {
+for (const q of ['(min-width: 60em)', '(min-width: 75em)', '(max-width: 37.49em)', '(min-width: 68.75em)']) {
   matchMedia(q).addEventListener?.('change', () => { if (!E.monde || !$('#coque')) return; masquerInfobulle(); rendreBarre(); if (E.vue === 'carte') rendreHud(); });
 }
 
@@ -2119,7 +2124,10 @@ function rendreHudInterne() {
   // « Connecter mes données » reste visible tant qu'aucune source n'est connectée (§5.6), mais une vue n'a qu'un bouton
   // principal (P1, §4.5) : s'il y a déjà celui de la carte héros d'« Aujourd'hui » (panneau ouvert), il passe en secondaire
   const herosPrincipal = !estTelephone() && !E.matinReduit && !(Boolean(E.selection) && !E.panneauMalgreFiche && !matchMedia('(min-width: 100em)').matches) && Boolean(planCourant().heros?.bouton);
-  const connecter = sansSourceReelle() ? h('button', { type: 'button', class: `bz-bouton ${herosPrincipal ? 'bz-bouton--secondaire' : 'bz-bouton--principal'}`, cle: 'hud-connecter', onclick: () => ouvrirAssistant() }, icone('plug'), 'Connecter mes données') : null;
+  // carte à l'étroit (sous 1 100 px, ou fiche ouverte) : la barre d'outils passerait sur deux lignes et recouvrirait le
+  // plan du port. « Connecter mes données » la quitte — il reste dans le menu et dans le panneau — et le plan se replie.
+  const carteEtroite = () => !matchMedia('(min-width: 68.75em)').matches || Boolean(E.selection);
+  const connecter = sansSourceReelle() && !carteEtroite() ? h('button', { type: 'button', class: `bz-bouton ${herosPrincipal ? 'bz-bouton--secondaire' : 'bz-bouton--principal'}`, cle: 'hud-connecter', onclick: () => ouvrirAssistant() }, icone('plug'), 'Connecter mes données') : null;
   // un nouveau rendu (calques, mise à jour en direct) garde la position de lecture de la feuille ou du panneau
   const defile = $('#feuille-corps')?.scrollTop ?? $('#panneau-aujourdhui')?.scrollTop ?? 0;
   const garderDefilement = () => { const n = $('#feuille-corps') ?? $('#panneau-aujourdhui'); if (n && defile) n.scrollTop = defile; };
@@ -2148,7 +2156,7 @@ function rendreHudInterne() {
       h('div', { class: 'commandes-carte bz-verre', role: 'group', 'aria-label': 'Caméra' }, zoomAvant(), zoomArriere(), pivoter(), recentrer(),
         boutonCarte(document.fullscreenElement ? 'minimize' : 'maximize', document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran', document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran', pleinEcran)),
       boussole()),
-    E.miniCarte !== false ? miniCarte({ repliable: true }) : h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-verre hud-minicarte-ouvrir', cle: 'minicarte-ouvrir', onclick: () => basculerMiniCarte(true) }, icone('map'), 'Mini-carte'),
+    (E.miniCarte ?? !carteEtroite()) ? miniCarte({ repliable: true }) : h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-verre hud-minicarte-ouvrir', cle: 'minicarte-ouvrir', onclick: () => basculerMiniCarte(true) }, icone('map'), 'Mini-carte'),
     h('div', { class: 'hud-bas' },
       visite,
       h('div', { class: 'bz-barre-carte bz-verre', role: 'toolbar', 'aria-label': 'Outils de la carte' },
@@ -9959,7 +9967,7 @@ function contenuPalette(_requete = '', { plus = false } = {}) {
     plus ? null : { id: 'action:activite', titre: 'Activité récente', contexte: 'Ce qui s’est passé, ce qu’on peut encore annuler', icone: 'bell', mots: 'historique notifications annuler', faire: () => ouvrirActivite() },
     plus ? null : { id: 'action:aide', titre: 'Aide', icone: 'circle-help', mots: 'assistance visite raccourcis', faire: ouvrirAide },
     plus || !rubriquesEnAttente().length ? null : { id: 'action:tout-afficher', titre: toutAffiche() ? 'Revenir au menu simple' : 'Tout afficher dans le menu', contexte: 'Aussi les rubriques qui attendent vos données', icone: 'menu', mots: 'menu complet rubriques cachees masquees toutes simple', faire: () => reglerToutAfficher(!toutAffiche()) },
-    estOrdinateur() ? { id: 'action:rail', titre: E.railReplie ? 'Déplier le menu' : 'Replier le menu', icone: E.railReplie ? 'panel-left' : 'panel-left-close', raccourci: 'b', mots: 'rail navigation barre laterale', faire: basculerRail } : null,
+    estOrdinateur() ? { id: 'action:rail', titre: railEffectif() ? 'Déplier le menu' : 'Replier le menu', icone: railEffectif() ? 'panel-left' : 'panel-left-close', raccourci: 'b', mots: 'rail navigation barre laterale', faire: basculerRail } : null,
     m.profil.peutAdministrer ? { id: 'action:mise-en-route', titre: m.organisation.demo ? 'Créer mon entreprise' : 'Compléter mon entreprise pas à pas', icone: 'building-2', mots: 'accueil mise en route creer lieux equipe services', faire: () => changerVue('accueil') } : null,
     m.profil.peutAdministrer && !m.organisation.demo ? { id: 'action:premiers-pas', titre: 'Premiers pas', icone: 'list-checks', mots: 'accueil demarrer aide checklist', faire: ouvrirPremiersPas } : null,
     INVITE_INSTALLATION ? { id: 'action:installer', titre: 'Installer l’application', icone: 'download', mots: 'pwa ecran d accueil', faire: installerApplication } : null,

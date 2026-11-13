@@ -1290,7 +1290,9 @@
     .bz-fiche__poignee { display: none; }
     .bz-fiche__tete { padding-block-start: var(--bz-e-4); }
   }
-  @media (min-width: 60em) {
+  /* Sous 1 100 px, la fiche s'ouvre PAR-DESSUS la liste : à côté, il ne resterait à la liste qu'une bande où
+     « Ville » et « État » se coupent. Au-delà, les deux tiennent côte à côte et la fiche se redimensionne. */
+  @media (min-width: 68.75em) {
     .bz-coque__contenu[data-fiche] { grid-template-columns: minmax(0, 1fr) var(--fiche-largeur, var(--bz-l-fiche)); }
     .bz-coque__contenu[data-fiche] > .bz-fiche { position: relative; inset: auto; grid-column: 2; grid-row: 1; inline-size: auto; box-shadow: none; z-index: var(--bz-z-collant); }
     .bz-fiche__largeur { display: block; position: absolute; inset-block: 0; inset-inline-start: calc(-1 * var(--bz-e-1)); inline-size: var(--bz-e-2); cursor: col-resize; z-index: 1; touch-action: none; }
