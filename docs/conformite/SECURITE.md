@@ -53,6 +53,26 @@ Le script d'installation s'exécute en root chez chaque entreprise : c'est l'act
   seule cette page garantit qu'un paquet vient de l'éditeur).
   `LISEZMOI.txt` et Réglages › À propos le rappellent à
   l'entreprise et ne décrivent le passage de Gatekeeper ou SmartScreen que pour un paquet venu de cette page.
+- **Application Mac (`Living Business.app`)** : signée ad hoc seulement, par la CI (`signerApplicationMac` dans
+  `scripts/paquets.ts`, seul endroit où elle se signe) ; `Contents/MacOS/node` garde la signature des publieurs de
+  Node.js (Developer ID « Node.js Foundation »), jamais remplacée (pas de `--deep`). `spctl -a -vv` la refuse : c'est
+  l'avertissement unique que voit l'entreprise au premier lancement (« Ouvrir quand même »).
+- **Le jour où l'éditeur a un compte Apple Developer** (certificat « Developer ID Application ») : la signature Apple
+  se fait **sur le Mac de l'éditeur, à l'étape 3 de la publication**, jamais dans la CI (ni certificat, ni mot de passe
+  d'application, ni clé d'API App Store Connect dans GitHub). Pour chaque zip `darwin-arm64` et `darwin-x64` :
+  1. `ditto -x -k living-business-X.Y.Z-darwin-arm64.zip mac/` ;
+  2. `codesign --force --options runtime --timestamp --sign "Developer ID Application: <nom> (<équipe>)" "mac/Living Business.app"`
+     (environnement d'exécution renforcé et horodatage, toujours sans `--deep` : Node.js garde sa propre signature, déjà
+     renforcée et horodatée), puis `codesign --verify --deep --strict --verbose=2 "mac/Living Business.app"` ;
+  3. `ditto -c -k --keepParent "mac/Living Business.app" envoi.zip` puis
+     `xcrun notarytool submit envoi.zip --keychain-profile <profil> --wait` (profil créé une fois par
+     `xcrun notarytool store-credentials`, rangé dans le trousseau du Mac) ;
+  4. `xcrun stapler staple "mac/Living Business.app"`, puis `spctl -a -vv "mac/Living Business.app"` doit dire
+     « accepted, source=Notarized Developer ID » ;
+  5. refaire le zip au même nom (`ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent`, l'application seule
+     à la racine). Son empreinte change : `scripts/signer-publication.ts` vérifie aujourd'hui chaque zip contre le
+     `SHA256SUMS.txt` de la CI et devra, ce jour-là, accepter pour les seuls paquets Mac le zip re-signé (après avoir
+     contrôlé que son contenu, hors signature, est celui de la CI) et l'inscrire dans le `SHA256SUMS.txt` signé.
 - **Chaîne de fabrication (GitHub Actions)** : actions épinglées par empreinte de commit (`scripts/chaine-ci.test.ts`
   refuse une étiquette mobile). Avant de fusionner une mise à jour proposée par Dependabot, vérifier que l'empreinte
   correspond bien à l'étiquette annoncée (`git ls-remote https://github.com/<action> refs/tags/<version>`) et lire

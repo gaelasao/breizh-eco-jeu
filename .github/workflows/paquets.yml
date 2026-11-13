@@ -7,6 +7,10 @@
 # Chaîne : actions épinglées par empreinte de commit (Dependabot les tient à jour), dépendances installées sans
 # scripts, et la FABRICATION n'a qu'un droit de lecture : seul le job de publication, qui ne lance aucun code du
 # dépôt ni de npm, peut écrire (créer la version).
+# La fabrication tourne sur macOS : le paquet Mac est une application (applet compilée par osacompile, signature ad hoc
+# par codesign, zip par ditto) ; les paquets Windows et Linux s'y fabriquent aussi (zip, tar et unzip de macOS).
+# Aucune clé de signature Apple ici : signature Developer ID et notarisation, le jour venu, sur le Mac de l'éditeur
+# (docs/conformite/SECURITE.md).
 name: paquets
 on:
   push:
@@ -16,7 +20,7 @@ permissions:
   contents: read
 jobs:
   fabriquer:
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     permissions:
       contents: read
     steps:
@@ -37,6 +41,16 @@ jobs:
           LB_NEXUS_URL: ${{ vars.LB_NEXUS_URL }} # adresse de Breizhcosystem préréglée (variable du dépôt, facultative)
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then node scripts/paquets.ts; else node scripts/paquets.ts --essai; fi
+      - name: "Mac : le zip ne contient que Living Business.app, signature vérifiée une fois décompressée"
+        run: |
+          for z in dist/living-business-*-darwin-*.zip dist/essai/living-business-*-darwin-*.zip; do
+            [ -e "$z" ] || continue
+            test "$(zipinfo -1 "$z" | cut -d/ -f1 | sort -u)" = "Living Business.app"
+            d=$(mktemp -d)
+            ditto -x -k "$z" "$d"
+            codesign --verify --deep --strict "$d/Living Business.app"
+            rm -rf "$d"
+          done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: living-business-paquets

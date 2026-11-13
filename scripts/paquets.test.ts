@@ -49,7 +49,7 @@ test('paquet : lanceurs double-clic, notice, fichiers d’exécution seulement (
         assert.match(readFileSync(join(d, 'Secours mot de passe.cmd'), 'utf8'), /--secours/);
         assert.match(notice, /%APPDATA%\\Living Business/);
       } else {
-        const f = c.startsWith('darwin') ? 'Living Business.command' : 'living-business.sh';
+        const f = 'living-business.sh';
         assert.equal(statSync(join(d, f)).mode & 0o111, 0o111, 'exécutable');
         assert.match(readFileSync(join(d, f), 'utf8'), /^#!\/bin\/sh\n[\s\S]*exec \.\/node /);
       }
