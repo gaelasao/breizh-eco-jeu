@@ -84,6 +84,30 @@ test('courrier : boîte classique, urgence montrée seulement si haute, à trait
   assert.ok(K.apercu(long).length <= 141 && K.apercu(long).endsWith('…'), 'aperçu coupé sur un mot');
 });
 
+test('ajouter une personne : un nom, trois rôles dits en une phrase, le reste replié (G13)', () => {
+  const app = lire('web/app.js');
+  assert.match(app, /const ROLES_ACCES = Object\.freeze\(\[/);
+  for (const r of ['dirigeant', 'responsable', 'collaborateur']) assert.match(app, new RegExp(`id: '${r}', titre:`), `rôle ${r}`);
+  const roles = app.slice(app.indexOf('const ROLES_ACCES = Object.freeze(['), app.indexOf('const ACCES_PAR_DEFAUT ='));
+  for (const m of roles.match(/detail: '[^']*'/g) ?? []) assert.ok(m.length < 180, `une phrase courte : ${m}`);
+  assert.equal((roles.match(/detail: '/g) ?? []).length, 3, 'chaque rôle dit ce qu’il voit et ce qu’il peut faire');
+  // un rôle arrive avec un périmètre complet : plus de quarantaine de cases à cocher avant de pouvoir enregistrer
+  assert.match(app, /const ACCES_PAR_DEFAUT = \(role\) => \(\{\s*role, lieux: 'tous', departements: 'tous', types: 'tous', rolesTiers: 'tous',/);
+  assert.match(app, /const S = p \? structuredClone\(p\) : \{ nom: '', \.\.\.ACCES_PAR_DEFAUT\('collaborateur'\) \};/);
+  // le détail est replié, avec son résumé ; changer de rôle le remet à zéro, et c'est dit
+  const dialogue = app.slice(app.indexOf('function editerAcces(p, options)'), app.indexOf('function inviterPersonne(p)'));
+  assert.match(dialogue, /texte: 'Régler précisément ce qu’elle voit'/);
+  assert.match(dialogue, /texte: resumePerimetre\(S, options\)/);
+  assert.match(dialogue, /onchange: \(\) => \{ S\.role = r\.id; if \(!p\) Object\.assign\(S, ACCES_PAR_DEFAUT\(r\.id\)\); D\.rendre\(\); \}/);
+  assert.match(dialogue, /changer de rôle le remet à zéro/);
+  assert.ok(dialogue.indexOf("texte: 'Rôle'") < dialogue.indexOf('Régler précisément'), 'le rôle avant le détail');
+  // le bouton dit ce qui va se passer
+  assert.match(dialogue, /p \? 'Enregistrer' : E\.connexion\?\.connexion === 'comptes' \? 'Créer le lien d’invitation' : 'Créer l’accès'/);
+  // le motif d'absence (donnée de santé) n'est jamais donné par défaut
+  assert.match(app, /voitMotifsAbsence: false, \.\.\.\(ROLES_ACCES\.find/);
+  assert.doesNotMatch(roles, /voitMotifsAbsence: true/);
+});
+
 test('courrier : balayage au-delà du seuil seulement, doublé du menu ; dates courtes', () => {
   assert.equal(K.issueBalayage(50, 400), null, 'sous le seuil : rien ne se passe');
   assert.equal(K.issueBalayage(200, 400), 'traiter');

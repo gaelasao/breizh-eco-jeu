@@ -6213,9 +6213,49 @@ async function rendreAcces() {
         p.id !== moi ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', onclick: () => voirComme(p.id) }, icone('eye', { taille: 'sm' }), 'Voir comme') : null))))));
 }
 
+/**
+ * Les trois rôles, dits en deux phrases : ce que la personne voit, ce qu'elle peut faire. Chacun arrive avec un
+ * périmètre complet, qui se restreint ensuite dans « Régler précisément ce qu'elle voit » : ajouter quelqu'un demande
+ * un nom et un rôle, plus une quarantaine de cases à cocher (G13). Le motif d'absence, donnée de santé, reste à part.
+ */
+const ROLES_ACCES = Object.freeze([
+  {
+    id: 'dirigeant', titre: 'Dirigeant',
+    detail: 'Voit toute l’entreprise, y compris le score de santé. Peut tout faire, règle les accès et les données.',
+    defauts: { peutPreparer: true, peutApprouver: true, voitScore: true, peutAdministrer: true },
+  },
+  {
+    id: 'responsable', titre: 'Responsable',
+    detail: 'Voit toute l’entreprise, y compris le score de santé. Prépare et approuve ; ne touche ni aux accès ni aux branchements.',
+    defauts: { peutPreparer: true, peutApprouver: true, voitScore: true, peutAdministrer: false },
+  },
+  {
+    id: 'collaborateur', titre: 'Collaborateur',
+    detail: 'Voit les fiches et le planning, pas le score de santé. Prépare ce qu’une personne habilitée approuve ensuite.',
+    defauts: { peutPreparer: true, peutApprouver: false, voitScore: false, peutAdministrer: false },
+  },
+].map(Object.freeze));
+const ACCES_PAR_DEFAUT = (role) => ({
+  role, lieux: 'tous', departements: 'tous', types: 'tous', rolesTiers: 'tous',
+  voitMotifsAbsence: false, ...(ROLES_ACCES.find((r) => r.id === role)?.defauts ?? {}),
+});
+
+/** Résumé du périmètre, lisible sans ouvrir le repli : « Toute l’entreprise » ou ce qui a été restreint. */
+function resumePerimetre(S, options) {
+  const tout = (k) => S[k] === 'tous';
+  const restreint = [
+    tout('lieux') ? null : pluriel(S.lieux.length, 'lieu', 'lieux'),
+    !options.departements.length || tout('departements') ? null : pluriel(S.departements.length, 'département', 'départements'),
+    tout('rolesTiers') ? null : `${pluriel(S.rolesTiers.length, 'rôle de tiers', 'rôles de tiers')}`,
+    tout('types') ? null : pluriel(S.types.length, 'type de fiche', 'types de fiche'),
+  ].filter(Boolean);
+  return restreint.length ? restreint.join(' · ') : 'toute l’entreprise';
+}
+
 function editerAcces(p, options) {
-  const S = p ? structuredClone(p) : { nom: '', role: 'collaborateur', lieux: [], departements: [], types: [], rolesTiers: [], peutPreparer: false, peutApprouver: false, voitScore: false, peutAdministrer: false, voitMotifsAbsence: false };
+  const S = p ? structuredClone(p) : { nom: '', ...ACCES_PAR_DEFAUT('collaborateur') };
   const E2 = { erreur: null, envoi: false };
+  let detailOuvert = false;
   const famillesTypes = [...new Set(options.types.map((t) => t.famille))];
   const LIB_FAM = { organisation: 'Entreprise', departement: 'Départements', personne: 'Employés', tiers: 'Clients, fournisseurs…', lieu: 'Lieux', projet: 'Projets', ressource: 'Stock et matériel', commande: 'Commandes et factures', tache: 'Tâches', evenement: 'Courrier et documents', indicateur: 'Indicateurs' };
   const caseAcces = (libelle, coche, changer, fort = false) => h('label', { class: 'bz-case' }, h('input', { type: 'checkbox', checked: coche, onchange: (e) => changer(e.target.checked) }), fort ? h('strong', { texte: libelle }) : libelle);
@@ -6241,27 +6281,36 @@ function editerAcces(p, options) {
     contenu: () => ({
       corps: [
         messageEnLigne('critique', E2.erreur),
-        h('div', { class: 'bz-grille-champs' },
-          h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'acces-nom', texte: 'Nom' }),
-            h('input', { id: 'acces-nom', class: 'bz-champ__saisie', type: 'text', required: true, maxlength: '80', autocomplete: 'off', value: S.nom, 'aria-invalid': E2.erreur && !S.nom.trim() ? 'true' : null, oninput: (e) => (S.nom = e.target.value) })),
-          h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'acces-role', texte: 'Rôle' }),
-            h('div', { class: 'bz-select' }, h('select', { id: 'acces-role', class: 'bz-champ__saisie', onchange: (e) => (S.role = e.target.value) }, [['dirigeant', 'Dirigeant'], ['responsable', 'Responsable'], ['collaborateur', 'Collaborateur']].map(([k, l]) => h('option', { value: k, selected: S.role === k, texte: l }))), icone('chevron-down', { taille: 'sm' })))),
-        choix('lieux', options.lieux, 'Lieux visibles'),
-        options.departements.length ? choix('departements', options.departements, 'Départements visibles') : null,
-        choix('rolesTiers', options.roles, 'Tiers visibles (par rôle)'),
-        h('fieldset', { class: 'bz-champ bz-champ--large' }, h('legend', { class: 'bz-champ__libelle', texte: 'Informations visibles' }),
-          caseAcces('Toutes', S.types === 'tous', (v) => { S.types = v ? 'tous' : []; D.rendre(); }, true),
-          S.types !== 'tous' ? famillesTypes.map((f) => h('div', { class: 'bz-pile bz-pile--serre' }, h('p', { class: 'bz-t-surtitre bz-texte-2', texte: LIB_FAM[f] ?? f }),
-            h('div', { class: 'bz-cases' }, options.types.filter((t) => t.famille === f).map((t) => caseAcces(t.libelle, S.types.includes(t.id), (v) => { S.types = v ? [...S.types, t.id] : S.types.filter((y) => y !== t.id); }))))) : null),
-        h('fieldset', { class: 'bz-champ bz-champ--large' }, h('legend', { class: 'bz-champ__libelle', texte: 'Droits' }),
-          h('div', { class: 'bz-cases' }, [['peutPreparer', 'Préparer des actions'], ['peutApprouver', 'Approuver et exécuter'], ['voitScore', 'Voir le score de santé'], ['peutAdministrer', 'Administrer (données, accès)'], ['voitMotifsAbsence', 'Voir et saisir les motifs d’absence (RH)']].map(([k, l]) => caseAcces(l, S[k], (v) => (S[k] = v)))),
-          h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Sans ce droit, une absence s’affiche « Absence », sans motif : un arrêt maladie est une donnée de santé, que seules les personnes chargées des RH ont à connaître.' })),
+        h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'acces-nom', texte: 'Nom' }),
+          h('input', { id: 'acces-nom', class: 'bz-champ__saisie', type: 'text', required: true, maxlength: '80', autocomplete: 'off', value: S.nom, 'aria-invalid': E2.erreur && !S.nom.trim() ? 'true' : null, oninput: (e) => (S.nom = e.target.value) })),
+        h('fieldset', { class: 'bz-champ bz-champ--large' },
+          h('legend', { class: 'bz-champ__libelle', texte: 'Rôle' }),
+          h('div', { class: 'bz-grille-choix' }, ROLES_ACCES.map((r) => h('label', { class: 'bz-choix' },
+            h('input', { type: 'radio', name: 'acces-role', value: r.id, checked: S.role === r.id, onchange: () => { S.role = r.id; if (!p) Object.assign(S, ACCES_PAR_DEFAUT(r.id)); D.rendre(); } }),
+            h('span', { class: 'bz-choix__texte' }, h('span', { class: 'bz-choix__titre', texte: r.titre }), h('span', { class: 'bz-choix__detail', texte: r.detail }))))),
+          p ? null : h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Ce rôle donne accès à toute l’entreprise. Pour n’ouvrir qu’une partie, réglez le détail ci-dessous ; changer de rôle le remet à zéro.' })),
+        h('details', { class: 'bz-repli', open: detailOuvert || null, ontoggle: (e) => { detailOuvert = e.currentTarget.open; } },
+          h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Régler précisément ce qu’elle voit' }),
+            h('span', { class: 'bz-repli__note', texte: resumePerimetre(S, options) }), icone('chevron-down', { taille: 'sm' })),
+          h('div', { class: 'bz-repli__corps bz-pile' },
+            choix('lieux', options.lieux, 'Lieux visibles'),
+            options.departements.length ? choix('departements', options.departements, 'Départements visibles') : null,
+            choix('rolesTiers', options.roles, 'Tiers visibles (par rôle)'),
+            h('fieldset', { class: 'bz-champ bz-champ--large' }, h('legend', { class: 'bz-champ__libelle', texte: 'Informations visibles' }),
+              caseAcces('Toutes', S.types === 'tous', (v) => { S.types = v ? 'tous' : []; D.rendre(); }, true),
+              S.types !== 'tous' ? famillesTypes.map((f) => h('div', { class: 'bz-pile bz-pile--serre' }, h('p', { class: 'bz-t-surtitre bz-texte-2', texte: LIB_FAM[f] ?? f }),
+                h('div', { class: 'bz-cases' }, options.types.filter((t) => t.famille === f).map((t) => caseAcces(t.libelle, S.types.includes(t.id), (v) => { S.types = v ? [...S.types, t.id] : S.types.filter((y) => y !== t.id); }))))) : null),
+            h('fieldset', { class: 'bz-champ bz-champ--large' }, h('legend', { class: 'bz-champ__libelle', texte: 'Droits' }),
+              h('div', { class: 'bz-cases' }, [['peutPreparer', 'Préparer des actions'], ['peutApprouver', 'Approuver et exécuter'], ['voitScore', 'Voir le score de santé'], ['peutAdministrer', 'Administrer (données, accès)'], ['voitMotifsAbsence', 'Voir et saisir les motifs d’absence (RH)']].map(([k, l]) => caseAcces(l, S[k], (v) => (S[k] = v)))),
+              h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Sans ce droit, une absence s’affiche « Absence », sans motif : un arrêt maladie est une donnée de santé, que seules les personnes chargées des RH ont à connaître.' })))),
         p ? h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--critique', onclick: async () => {
           if (!(await confirmerDialogue({ titre: `Retirer l’accès de ${sansDemo(p.nom)} ?`, texte: 'Sa session est coupée tout de suite. Ses actions passées restent dans le journal.', confirmer: 'Retirer l’accès', annuler: 'Garder', danger: true }))) return;
           try { await api('DELETE', `/acces/${encodeURIComponent(p.id)}`); D.fermer(); informer('Accès retiré : la session de ce profil est coupée.', 'ok'); rendreReglages('acces'); } catch (err) { E2.erreur = err.message; D.rendre(); }
         } }, icone('trash-2'), 'Retirer cet accès')) : null,
       ],
-      pied: [h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => D.fermer() }, 'Annuler'), h('button', { type: 'submit', class: 'bz-bouton bz-bouton--principal', 'aria-busy': E2.envoi ? 'true' : null }, icone('check'), 'Enregistrer')],
+      pied: [h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => D.fermer() }, 'Annuler'),
+        h('button', { type: 'submit', class: 'bz-bouton bz-bouton--principal', 'aria-busy': E2.envoi ? 'true' : null }, icone(p ? 'check' : 'send'),
+          p ? 'Enregistrer' : E.connexion?.connexion === 'comptes' ? 'Créer le lien d’invitation' : 'Créer l’accès')],
     }),
   });
 }
