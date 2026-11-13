@@ -58,6 +58,22 @@ export function normaliser(s: string): string {
 const ALIAS_NOM = ['nom', 'name', 'libelle', 'designation', 'raisonsociale', 'intitule', 'titre'];
 const ALIAS_ROLES = ['role', 'roles', 'typedetiers', 'relation', 'categorie'];
 
+/**
+ * En-têtes courants d'un fichier client réel, par champ. Un export de logiciel écrit « Tél », « CP », « Mobile »…
+ * que la comparaison de libellés ne retrouve pas. « Adresse e-mail » est ici pour qu'il n'atterrisse pas sur « Adresse ».
+ */
+const ALIAS_CHAMPS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  telephone: ['tel', 'tel1', 'tels', 'telephone', 'telephone1', 'telephonefixe', 'telfixe', 'fixe', 'portable', 'telportable', 'mobile', 'telmobile', 'gsm', 'phone', 'phonenumber', 'numerodetelephone'],
+  code_postal: ['cp', 'codepostal', 'codepost', 'zip', 'zipcode', 'postalcode', 'postcode'],
+  adresse: ['adresse', 'adresse1', 'adresseligne1', 'adressepostale', 'adressefacturation', 'rue', 'voie', 'numeroetrue', 'address', 'address1', 'street', 'streetaddress'],
+  ville: ['ville', 'commune', 'localite', 'city', 'town'],
+  email: ['email', 'emails', 'mail', 'mel', 'courriel', 'adressemail', 'adresseemail', 'adressedemail', 'emailaddress', 'courrielprincipal'],
+  contact: ['contact', 'interlocuteur', 'referent', 'personnedecontact', 'contactprincipal'],
+  siret: ['siret', 'siren', 'numerosiret', 'numerosiren', 'numerodesiret'],
+  num_departement: ['departement', 'numdepartement', 'nodepartement', 'numerodedepartement'],
+  activite: ['activite', 'secteur', 'secteurdactivite', 'metier', 'naf', 'ape'],
+});
+
 /** Propose une correspondance ; l'utilisateur la valide ou la corrige avant import. */
 export function proposerMapping(entetes: readonly string[], t: DefType): Record<string, string | null> {
   const pris = new Set<string>();
@@ -70,6 +86,7 @@ export function proposerMapping(entetes: readonly string[], t: DefType): Record<
     else {
       const c =
         t.champs.find((x) => !pris.has(x.id) && (normaliser(x.libelle) === n || normaliser(x.id) === n)) ??
+        t.champs.find((x) => !pris.has(x.id) && (ALIAS_CHAMPS[x.id] ?? []).includes(n)) ??
         t.champs.find((x) => !pris.has(x.id) && n.length >= 4 && (normaliser(x.libelle).includes(n) || n.includes(normaliser(x.libelle))));
       cible = c?.id ?? null;
     }
@@ -77,6 +94,18 @@ export function proposerMapping(entetes: readonly string[], t: DefType): Record<
     res[e] = cible;
   }
   return res;
+}
+
+/**
+ * Nº de département déduit d'un code postal français (« 56000 » → « 56 », « 97400 » → « 974 », Corse « 20 » laissé tel
+ * quel faute de pouvoir trancher entre 2A et 2B). Renvoie null si le code postal n'a pas la bonne forme.
+ */
+export function departementDuCodePostal(codePostal: unknown): string | null {
+  const v = String(codePostal ?? '').trim();
+  if (!/^\d{5}$/.test(v)) return null;
+  const deux = v.slice(0, 2);
+  if (deux === '00') return null;
+  return deux === '97' || deux === '98' ? v.slice(0, 3) : deux;
 }
 
 export type Conversion = { ok: true; valeur: ValeurChamp } | { ok: false; erreur: string };

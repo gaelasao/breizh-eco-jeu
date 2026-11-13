@@ -198,6 +198,16 @@
           "type": "texte"
         },
         {
+          "id": "adresse",
+          "libelle": "Adresse",
+          "type": "texte"
+        },
+        {
+          "id": "code_postal",
+          "libelle": "Code postal",
+          "type": "texte"
+        },
+        {
           "id": "ville",
           "libelle": "Ville",
           "type": "texte"
@@ -225,6 +235,11 @@
           "type": "texte"
         },
         {
+          "id": "telephone",
+          "libelle": "Téléphone",
+          "type": "texte"
+        },
+        {
           "id": "email",
           "libelle": "E-mail",
           "type": "texte"
@@ -239,6 +254,16 @@
       "icone": "personne",
       "champs": [
         {
+          "id": "adresse",
+          "libelle": "Adresse",
+          "type": "texte"
+        },
+        {
+          "id": "code_postal",
+          "libelle": "Code postal",
+          "type": "texte"
+        },
+        {
           "id": "ville",
           "libelle": "Ville",
           "type": "texte"
@@ -246,6 +271,11 @@
         {
           "id": "contact",
           "libelle": "Contact",
+          "type": "texte"
+        },
+        {
+          "id": "telephone",
+          "libelle": "Téléphone",
           "type": "texte"
         },
         {
@@ -263,6 +293,16 @@
       "icone": "mairie",
       "champs": [
         {
+          "id": "adresse",
+          "libelle": "Adresse",
+          "type": "texte"
+        },
+        {
+          "id": "code_postal",
+          "libelle": "Code postal",
+          "type": "texte"
+        },
+        {
           "id": "ville",
           "libelle": "Ville",
           "type": "texte"
@@ -270,6 +310,11 @@
         {
           "id": "contact",
           "libelle": "Contact",
+          "type": "texte"
+        },
+        {
+          "id": "telephone",
+          "libelle": "Téléphone",
           "type": "texte"
         },
         {

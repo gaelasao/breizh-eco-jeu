@@ -3236,8 +3236,10 @@ function valeurFiche(c, o) {
     }
   }
   if (T && typeof c.valeur === 'string' && c.id === 'email') { const m = T.courrielDe(c.valeur); if (m) return h('a', { href: m.lien, texte: m.adresse }); }
-  if (T && typeof c.valeur === 'string' && (c.id === 'adresse' || (c.id === 'ville' && o.famille === 'tiers'))) {
-    const url = T.lienItineraire(c.id === 'ville' ? c.valeur : [c.valeur, o.champs.find((x) => x.id === 'ville')?.valeur].filter(Boolean).join(', '), { appli: lireLocal('lb-itineraire') ?? 'systeme', ios: estIos() });
+  // « Y aller » une seule fois par fiche : sur l'adresse si elle existe, sinon sur la ville d'un tiers.
+  const aAdresse = (o.champs ?? []).some((x) => x.id === 'adresse' && typeof x.valeur === 'string' && x.valeur.trim());
+  if (T && FICHES && typeof c.valeur === 'string' && (c.id === 'adresse' || (c.id === 'ville' && o.famille === 'tiers' && !aAdresse))) {
+    const url = T.lienItineraire(FICHES.adressePostale(o) ?? c.valeur, { appli: lireLocal('lb-itineraire') ?? 'systeme', ios: estIos() });
     return h('span', { class: 'bz-fiche__adresse' }, h('span', { texte: c.valeur }), url ? h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm' }, icone('navigation', { taille: 'sm' }), 'Y aller') : null);
   }
   if (o.type === 'courrier' && c.id === 'bac') return h('span', { class: 'bz-badge', texte: formatValeur(c) });

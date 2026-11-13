@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { convertir, detecterSeparateur, parserCsv, proposerMapping } from './csv.ts';
+import { convertir, departementDuCodePostal, detecterSeparateur, parserCsv, proposerMapping } from './csv.ts';
 import type { DefChamp, DefType } from '../core/univers.ts';
 
 test('CSV Excel français : « ; », BOM, guillemets, retours ligne dans un champ', () => {
@@ -36,6 +36,46 @@ test('correspondance proposée par libellé, sans doublon', () => {
     'Seuil d’alerte': 'seuil_alerte',
     Couleur: null,
   });
+});
+
+test('fichier client réel : « Tél », « Portable », « CP », « Adresse e-mail » tombent au bon endroit (G12)', () => {
+  const t: DefType = {
+    id: 'entreprise', famille: 'tiers', libelle: 'Entreprise', pluriel: 'Entreprises',
+    champs: [
+      champ('texte', { id: 'adresse', libelle: 'Adresse' }),
+      champ('texte', { id: 'code_postal', libelle: 'Code postal' }),
+      champ('texte', { id: 'ville', libelle: 'Ville' }),
+      champ('texte', { id: 'telephone', libelle: 'Téléphone' }),
+      champ('texte', { id: 'email', libelle: 'E-mail' }),
+      champ('texte', { id: 'siret', libelle: 'SIRET' }),
+    ],
+  };
+  assert.deepEqual(proposerMapping(['Raison sociale', 'Adresse', 'CP', 'Commune', 'Tél', 'Adresse e-mail', 'SIREN', 'Remise'], t), {
+    'Raison sociale': '__nom',
+    Adresse: 'adresse',
+    CP: 'code_postal',
+    Commune: 'ville',
+    'Tél': 'telephone',
+    'Adresse e-mail': 'email',
+    SIREN: 'siret',
+    Remise: null,
+  });
+  // « Portable » et « Mobile » valent aussi un téléphone ; la colonne déjà prise n'est pas volée
+  assert.equal(proposerMapping(['Portable'], t).Portable, 'telephone');
+  assert.equal(proposerMapping(['Mobile'], t).Mobile, 'telephone');
+  assert.deepEqual(proposerMapping(['Téléphone', 'Portable'], t), { 'Téléphone': 'telephone', Portable: null });
+});
+
+test('département déduit du code postal, Corse et outre-mer compris (G12)', () => {
+  assert.equal(departementDuCodePostal('56000'), '56');
+  assert.equal(departementDuCodePostal(' 29200 '), '29');
+  assert.equal(departementDuCodePostal('97400'), '974');
+  assert.equal(departementDuCodePostal('98800'), '988');
+  assert.equal(departementDuCodePostal('20000'), '20', 'la Corse reste « 20 » : 2A et 2B ne se devinent pas');
+  assert.equal(departementDuCodePostal('5600'), null);
+  assert.equal(departementDuCodePostal('00100'), null);
+  assert.equal(departementDuCodePostal(''), null);
+  assert.equal(departementDuCodePostal(undefined), null);
 });
 
 import { telechargerSheets, validerLienSheets } from './connecteurs.ts';
