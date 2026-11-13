@@ -624,6 +624,7 @@
         { "id": "kilometrage", "libelle": "Kilométrage", "type": "nombre", "unite": "km" },
         { "id": "kilometrage_le", "libelle": "Kilométrage relevé le", "type": "date" },
         { "id": "prevenir_jours", "libelle": "Prévenir avant une échéance", "type": "nombre", "unite": "jours" },
+        { "id": "prevenir_km", "libelle": "Prévenir avant une échéance au compteur", "type": "nombre", "unite": "km" },
         { "id": "ct_tous_les_mois", "libelle": "Contrôle technique tous les", "type": "nombre", "unite": "mois" },
         { "id": "revision_km", "libelle": "Révision au compteur", "type": "nombre", "unite": "km" },
         { "id": "revision_tous_les_mois", "libelle": "Révision tous les", "type": "nombre", "unite": "mois" },
@@ -1020,11 +1021,11 @@
     {
       "id": "entretien_vehicule",
       "famille": "evenement",
-      "libelle": "Entretien de véhicule",
-      "pluriel": "Entretiens de véhicule",
+      "libelle": "Entretien de matériel",
+      "pluriel": "Entretiens de matériel",
       "icone": "document",
       "champs": [
-        { "id": "concerne", "libelle": "Véhicule", "type": "reference", "cible": { "famille": "ressource" } },
+        { "id": "concerne", "libelle": "Véhicule ou engin", "type": "reference", "cible": { "famille": "ressource" } },
         { "id": "departement", "libelle": "Département", "type": "reference", "cible": { "famille": "departement" } },
         {
           "id": "echeance",
@@ -1036,11 +1037,14 @@
             "pneus",
             "assurance",
             "carte grise ou vignette",
+            "contrôle périodique",
+            "vérification générale",
             "autre échéance"
           ]
         },
         { "id": "fait_le", "libelle": "Fait le", "type": "date" },
         { "id": "kilometrage", "libelle": "Kilométrage", "type": "nombre", "unite": "km" },
+        { "id": "heures", "libelle": "Heures au compteur", "type": "nombre", "unite": "h" },
         { "id": "cout", "libelle": "Coût", "type": "montant", "unite": "€" },
         { "id": "note", "libelle": "Note", "type": "texte" }
       ]

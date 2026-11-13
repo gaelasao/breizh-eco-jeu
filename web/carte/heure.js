@@ -7,7 +7,7 @@
 export const ROLES_SCENE = Object.freeze([
   'ciel-zenith', 'ciel-horizon', 'brume', 'mer', 'mer-profonde', 'ecume', 'sable', 'lande', 'granit', 'ardoise', 'chaux',
   'bois', 'platre', 'soleil', 'hemi-ciel', 'hemi-sol', 'fenetres', 'surbrillance', 'phare', 'contour', 'encre', 'halo',
-  'quartier-clients', 'quartier-fournisseurs', 'quartier-equipe', 'quartier-stock', 'quartier-prospects',
+  'quartier-clients', 'quartier-fournisseurs', 'quartier-partenaires', 'quartier-equipe', 'quartier-stock', 'quartier-prospects',
 ]);
 
 export const REGLAGES_HEURE = Object.freeze({ reelle: 'Réelle', jour: 'Toujours le jour', theme: 'Suivre le thème' });

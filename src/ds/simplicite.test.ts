@@ -69,7 +69,7 @@ function monde(plus: Record<string, unknown> = {}, objets: unknown[] = []) {
 const tiers = (id: string, role: string) => ({ id, famille: 'tiers', type: 'entreprise', roles: [{ id: role, libelle: role }], champs: [] });
 const objet = (id: string, famille: string, type: string) => ({ id, famille, type, roles: [], champs: [] });
 /** Un véhicule, tel que la passerelle le rend : une ressource à qui elle a posé son suivi. */
-const vehicule = (id: string) => ({ ...objet(id, 'ressource', 'vehicule'), vehicule: { kilometrage: { km: null, le: null, jours: null, perime: true }, echeances: [], historique: [], annee: 2026, totalAnnee: null } });
+const vehicule = (id: string) => ({ ...objet(id, 'ressource', 'vehicule'), vehicule: { sorte: 'vehicule', unite: 'km', identifiant: null, compteur: { valeur: null, unite: 'km', libelle: 'Kilométrage', releve: 'Relever le kilométrage', le: null, jours: null, perime: true }, champs: { compteur: 'kilometrage', compteurLe: 'kilometrage_le' }, echeances: [], historique: [], annee: 2026, totalAnnee: null } });
 
 test('premier jour : une entreprise vide ne montre qu’Aujourd’hui, Connecter mes données et Réglages', () => {
   const m = monde();

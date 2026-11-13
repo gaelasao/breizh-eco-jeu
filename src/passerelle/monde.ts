@@ -16,8 +16,9 @@ import { lireReussites, nouvellesReussites, progression, type Progression, type 
 import { situationsPour, type Situation } from '../core/situation.ts';
 import { defType, libelleRole, validerObjet, type Univers } from '../core/univers.ts';
 import {
-  champsApresFait, defEcheance, echeancesDe, estVehicule, historiqueDe, kilometrageDe, situationsVehicules, totalAnnee,
-  TYPE_ENTRETIEN, type EcheanceVehicule, type KilometrageVehicule, type LigneEntretien,
+  champsApresFait, compteurDe, defEcheance, defMateriel, echeancesDe, estMaterielSuivi, historiqueDe,
+  situationsMateriels, totalAnnee, TYPE_ENTRETIEN,
+  type CompteurMateriel, type EcheanceMateriel, type LigneEntretien, type SorteMateriel, type UniteCompteur,
 } from '../core/vehicules.ts';
 import { calculerVitalite, type ResultatVitalite } from '../core/vitalite.ts';
 import { chargerUnivers } from '../config/univers.ts';
@@ -193,14 +194,21 @@ export interface ObjetVue {
   simule: boolean;
   /** Activité du jour d'un employé selon le planning (null si non planifié). */
   jour: { valeur: string; type: string; libelle: string; cible: string | null } | null;
-  /** Suivi d'un véhicule : son compteur et ses échéances, déjà calculés (null pour tout le reste). */
+  /** Suivi d'un matériel roulant : son compteur et ses échéances, déjà calculés (null pour tout le reste). */
   vehicule: VueVehicule | null;
 }
 
-/** Ce que l'écran d'un véhicule montre sans rien recalculer. */
+/** Ce que l'écran d'un véhicule ou d'un engin montre sans rien recalculer. */
 export interface VueVehicule {
-  kilometrage: KilometrageVehicule;
-  echeances: EcheanceVehicule[];
+  /** Véhicule (kilomètres) ou engin (heures de service) : l'écran écrit l'unité, il ne la devine pas. */
+  sorte: SorteMateriel;
+  unite: UniteCompteur;
+  /** Ce qui identifie l'exemplaire : immatriculation d'un véhicule, numéro de parc d'un engin. */
+  identifiant: string | null;
+  compteur: CompteurMateriel;
+  /** Champs à écrire pour relever le compteur : l'écran modifie la fiche sans connaître la table des sortes. */
+  champs: { compteur: string; compteurLe: string };
+  echeances: EcheanceMateriel[];
   /** Ce qui a été fait, le plus récent d'abord, et ce que cela a coûté cette année. */
   historique: LigneEntretien[];
   annee: number;
@@ -460,21 +468,27 @@ export class Monde {
       mode: o.mode,
       simule: e.simulation && e.modifies.has(o.id),
       jour: o.famille === 'personne' ? this.#jourDe(p, e, o.id, isoJour(this.#o.maintenant())) : null,
-      vehicule: estVehicule(o) ? this.#vueVehicule(o, e, p) : null,
+      vehicule: estMaterielSuivi(o) ? this.#vueVehicule(o, e, p) : null,
     };
   }
 
   /**
-   * Suivi d'un véhicule : le calcul est fait ici, une seule fois, pour que l'écran n'ait qu'à dessiner. L'historique
-   * ne retient que les interventions que ce profil peut voir (elles suivent le véhicule par « concerne »).
+   * Suivi d'un véhicule ou d'un engin : le calcul est fait ici, une seule fois, pour que l'écran n'ait qu'à dessiner.
+   * L'historique ne retient que les interventions que ce profil peut voir (elles suivent le matériel par « concerne »).
    */
   #vueVehicule(v: ObjetMetier, e: Espace, p: Profil): VueVehicule {
     const maintenant = this.#o.maintenant();
+    const m = defMateriel(v) as NonNullable<ReturnType<typeof defMateriel>>;
     const lisibles = [...e.objets.values()].filter((o) => o.type === TYPE_ENTRETIEN && this.#visible(p, o, e.objets));
-    const historique = historiqueDe(lisibles, v.id);
+    const historique = historiqueDe(lisibles, v);
     const annee = maintenant.getFullYear();
+    const identifiant = v.champs[m.champIdentifiant];
     return {
-      kilometrage: kilometrageDe(v, maintenant),
+      sorte: m.sorte,
+      unite: m.unite,
+      identifiant: typeof identifiant === 'string' && identifiant.trim() ? identifiant.trim() : null,
+      compteur: compteurDe(v, maintenant, m),
+      champs: { compteur: m.champCompteur, compteurLe: m.champCompteurLe },
       echeances: echeancesDe(v, maintenant, { toutes: true }),
       historique,
       annee,
@@ -792,7 +806,7 @@ export class Monde {
     return [
       ...objets.flatMap((o) => situationsPour(this.#univers, o, this.#responsable(o, e.objets), ctx)),
       // échéances AU KILOMÉTRAGE et compteur trop vieux : ce que les règles de date ne savent pas voir
-      ...situationsVehicules(objets, (o) => this.#responsable(o, e.objets), ctx),
+      ...situationsMateriels(objets, (o) => this.#responsable(o, e.objets), ctx),
     ];
   }
 
@@ -935,11 +949,12 @@ export class Monde {
       if (ech !== undefined && ech !== null && (typeof ech !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(ech))) throw new ErreurApi(400, 'echeance_invalide');
       return { titre, echeance: (ech as string | null | undefined) ?? null };
     }
-    // « C'est fait » sur une échéance de véhicule : la date, le compteur, le coût s'il est donné, et la suivante
+    // « C'est fait » sur une échéance de matériel : la date, le compteur, le coût s'il est donné, et la suivante
     if (capacite === 'vehicule.fait') {
-      if (!estVehicule(o)) throw new ErreurApi(400, 'pas_un_vehicule', 'Cette fiche n’est pas un véhicule.');
-      const d = typeof x.echeance === 'string' ? defEcheance(x.echeance) : undefined;
-      if (!d) throw new ErreurApi(400, 'echeance_inconnue', 'Échéance de véhicule inconnue.');
+      const m = defMateriel(o);
+      if (!m) throw new ErreurApi(400, 'pas_un_vehicule', 'Cette fiche n’est ni un véhicule ni un engin.');
+      const d = typeof x.echeance === 'string' ? defEcheance(m, x.echeance) : undefined;
+      if (!d) throw new ErreurApi(400, 'echeance_inconnue', 'Échéance inconnue pour ce matériel.');
       const date = x.date === undefined || x.date === null || x.date === '' ? isoJour(this.#o.maintenant()) : x.date;
       if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new ErreurApi(400, 'date_invalide');
       const lu = (v: unknown, nom: string, max: number): number | null => {
@@ -948,10 +963,10 @@ export class Monde {
         if (!Number.isFinite(n) || n < 0 || n > max) throw new ErreurApi(400, `${nom}_invalide`);
         return Math.round(n * 100) / 100;
       };
-      const km = lu(x.km, 'kilometrage', 5e6);
+      const compteur = lu(x.compteur, 'compteur', m.compteurMax);
       const cout = lu(x.cout, 'cout', 1e7);
       const note = typeof x.note === 'string' ? uneLigne(x.note).slice(0, 200) : '';
-      return { echeance: d.id, date, km: km === null ? null : Math.round(km), cout, note };
+      return { echeance: d.id, date, compteur: compteur === null ? null : Math.round(compteur), cout, note };
     }
     if (capacite === 'objet.modifier') {
       const t = defType(this.#univers, o.type);
@@ -1018,19 +1033,20 @@ export class Monde {
         return 'ok';
       }
       if (cmd.capacite === 'vehicule.fait') {
-        const d = defEcheance(cmd.parametres.echeance as string);
-        if (!d || !estVehicule(o)) { a.message = 'Échéance de véhicule inconnue.'; return 'echec'; }
+        const m = defMateriel(o);
+        const d = m ? defEcheance(m, cmd.parametres.echeance as string) : undefined;
+        if (!d || !m) { a.message = 'Échéance inconnue pour ce matériel.'; return 'echec'; }
         const date = cmd.parametres.date as string;
-        const km = cmd.parametres.km as number | null;
+        const compteur = cmd.parametres.compteur as number | null;
         const intitule = (typeof o.champs[d.champLibelle ?? ''] === 'string' ? String(o.champs[d.champLibelle ?? '']).trim() : '') || d.libelle;
-        // 1. ce qui a été fait, gardé tel quel (la visibilité suit le véhicule, par « concerne »)
+        // 1. ce qui a été fait, gardé tel quel (la visibilité suit le matériel, par « concerne »)
         const id = `ev-${randomUUID().slice(0, 12)}`;
         const ligne: ObjetMetier = {
           id, orgId: o.orgId, famille: 'evenement', type: TYPE_ENTRETIEN, roles: [],
           nom: `${intitule} — ${o.nom}`,
           champs: {
             concerne: o.id, echeance: d.nature, fait_le: date,
-            ...(km === null ? {} : { kilometrage: km }),
+            ...(compteur === null ? {} : { [m.champCompteur]: compteur }),
             ...(cmd.parametres.cout === null ? {} : { cout: cmd.parametres.cout as number }),
             ...(cmd.parametres.note ? { note: cmd.parametres.note as string } : {}),
             ...(typeof o.champs.departement === 'string' ? { departement: o.champs.departement } : {}),
@@ -1040,7 +1056,7 @@ export class Monde {
         };
         if (validerObjet(this.#univers, ligne).length) { a.message = 'Entretien invalide pour cet univers.'; return 'echec'; }
         // 2. la suivante, programmée toute seule, et le compteur relevé à cette occasion
-        const champs = champsApresFait(o, d, date, km);
+        const champs = champsApresFait(o, m, d, date, compteur);
         const nouveaux: Record<string, ValeurChamp> = { ...o.champs };
         for (const [k, v] of Object.entries(champs)) { if (v === null) delete nouveaux[k]; else nouveaux[k] = v; }
         const vehicule: ObjetMetier = { ...o, champs: nouveaux, majLe: maintenant, provenance: 'declare' };

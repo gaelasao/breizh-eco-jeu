@@ -169,17 +169,20 @@ const uLot = {
 // commun aux lots, à leur ombre et à la passe de normales de l'occlusion (GTAO) : calque masqué, mur abaissé
 const GLSL_LOT_TETE = `attribute vec4 aInfo; // objet, motif de sol, masque, orientation du mur (0 : aucun)
 attribute vec4 aDim; // pied et hauteur du mur, rugosité, métal
+attribute vec3 aDrap; // ombre portée, fenêtre qui s'allume la nuit, menuiserie du mur
 uniform float uMasque[${NB_MASQUES}];
-uniform float uBaisse[5];`;
+uniform float uBaisse[5];
+bool murBaisse() { return aInfo.w > 0.5 && uBaisse[int(aInfo.w + 0.5)] > 0.5; }`;
 const GLSL_LOT_MUR = `#include <begin_vertex>
-  if (aInfo.w > 0.5 && uBaisse[int(aInfo.w + 0.5)] > 0.5) transformed.y = aDim.x + (transformed.y - aDim.x) * (${ALLEGE.toFixed(3)} / max(aDim.y, 0.1));`;
+  if (murBaisse()) transformed.y = aDim.x + (transformed.y - aDim.x) * (${ALLEGE.toFixed(3)} / max(aDim.y, 0.1));`;
+/* Menuiseries et bandeau d'accent : écrasés au tiers, ils tombent sous le pixel et crénèlent le long de l'arête du
+   mur abaissé. Un mur en maison de poupée garde son allège, sa vitre et son linteau ; ses pièces fines s'effacent. */
 const GLSL_LOT_MASQUE = `#include <project_vertex>
-  if (uMasque[int(aInfo.z + 0.5)] < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);`;
+  if (uMasque[int(aInfo.z + 0.5)] < 0.5 || (aDrap.z > 0.5 && murBaisse())) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);`;
 const GLSL_LOT_V = `${GLSL_LOT_TETE}
 attribute vec3 aJour;
 attribute vec3 aNuit;
 attribute vec3 aEmis;
-attribute vec2 aDrap; // ombre portée, fenêtre qui s'allume la nuit
 uniform float uNuit;
 uniform sampler2D uEtats;
 uniform vec3 uPlatreJ;
@@ -220,7 +223,7 @@ const avecMursEtMasque = (sh, tete = GLSL_LOT_TETE) => {
 /** Ombre des lots : murs abaissés, calques masqués, pièces sans ombre portée retirées de la carte d'ombre. */
 const matOmbreLot = new THREE.MeshDepthMaterial();
 matOmbreLot.onBeforeCompile = (sh) => {
-  avecMursEtMasque(sh, `${GLSL_LOT_TETE}\nattribute vec2 aDrap;`);
+  avecMursEtMasque(sh);
   sh.vertexShader = sh.vertexShader.replace(GLSL_LOT_MASQUE, `${GLSL_LOT_MASQUE}\n  if (aDrap.x < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);`);
 };
 matOmbreLot.customProgramCacheKey = () => 'ombre-lot';
@@ -361,11 +364,11 @@ function cuireLots(sources, parent, ombres) {
     const emis = new Uint8Array(p.nv * 3);
     const info = new Float32Array(p.nv * 4);
     const dim = new Float32Array(p.nv * 4);
-    const drap = new Uint8Array(p.nv * 2);
+    const drap = new Uint8Array(p.nv * 3);
     const idx = p.nv > 65535 ? new Uint32Array(p.ni) : new Uint16Array(p.ni);
     let o = 0;
     let oi = 0;
-    for (const { mesh, d, ent, masque = 0, mur = null, allume = false } of p.liste) {
+    for (const { mesh, d, ent, masque = 0, mur = null, allume = false, menuiserie = false } of p.liste) {
       const g = mesh.geometry;
       const a = g.attributes;
       mat4.multiplyMatrices(inverse, mesh.matrixWorld);
@@ -397,8 +400,9 @@ function cuireLots(sources, parent, ombres) {
         emis[k] = e8[0]; emis[k + 1] = e8[1]; emis[k + 2] = e8[2];
         info[k4] = ent; info[k4 + 1] = d.sol; info[k4 + 2] = masque; info[k4 + 3] = mur?.orientation ?? 0;
         dim[k4] = mur?.pied ?? 0; dim[k4 + 1] = mur?.hauteur ?? 0; dim[k4 + 2] = d.rugo; dim[k4 + 3] = d.metal;
-        drap[(o + i) * 2] = d.ombre ? 1 : 0;
-        drap[(o + i) * 2 + 1] = allume ? 1 : 0;
+        drap[(o + i) * 3] = d.ombre ? 1 : 0;
+        drap[(o + i) * 3 + 1] = allume ? 1 : 0;
+        drap[(o + i) * 3 + 2] = menuiserie ? 1 : 0;
       }
       const ni = g.index ? g.index.count : n;
       for (let t = 0; t < ni; t += 3) {
@@ -422,7 +426,7 @@ function cuireLots(sources, parent, ombres) {
     geom.setAttribute('aEmis', new THREE.BufferAttribute(emis, 3, true));
     geom.setAttribute('aInfo', new THREE.BufferAttribute(info, 4));
     geom.setAttribute('aDim', new THREE.BufferAttribute(dim, 4));
-    geom.setAttribute('aDrap', new THREE.BufferAttribute(drap, 2));
+    geom.setAttribute('aDrap', new THREE.BufferAttribute(drap, 3));
     geom.setIndex(new THREE.BufferAttribute(idx, 1));
     geom.computeBoundingSphere();
     const me = new THREE.Mesh(geom, matLot(p.sorte));
@@ -1008,6 +1012,11 @@ const nomCourt = (nom) => nom.replace(/\s*\((fictive?s?|démo)\)/gi, '').replace
 
 // ---------------------------------------------------------------- bâtiments ouverts (maison de poupée), échelle réelle
 /**
+ * Pièce fine d'un mur (bandeau d'accent de 8 cm, montants de menuiserie) : elle disparaît quand le mur s'abaisse.
+ * Écrasée au tiers, elle ne fait plus qu'un ou deux centimètres et vient crénéler l'arête du mur (§5.11).
+ */
+const menuiserie = (me) => { me.userData.menuiserie = true; return me; };
+/**
  * Coque ouverte : dalle, sol texturé, 4 murs (fenêtres vitrées en bandeau pour les bureaux, bardage pour l'entrepôt),
  * toit masqué par défaut. Les murs tournés vers la caméra s'abaissent à hauteur d'allège.
  */
@@ -1033,9 +1042,9 @@ function coque(l, p, h, { sol = 'parquet', murs = 'bureau', accent = P.cadre } =
       const linteau = 2.55;
       mur.add(piece(B2(long, allege, e), mat(P.mur)));
       mur.add(piece(B2(long, h - linteau, e), mat(P.mur), ...at(0, linteau), false));
-      mur.add(piece(B2(long, 0.08, e + 0.04), mat(accent), ...at(0, h - 0.08), false));
+      mur.add(menuiserie(piece(B2(long, 0.08, e + 0.04), mat(accent), ...at(0, h - 0.08), false)));
       const nb = Math.max(2, Math.round(long / 1.6));
-      for (let i = 0; i <= nb; i++) mur.add(piece(B2(0.06, linteau - allege, 0.12), mat(P.cadre), ...at(-long / 2 + (i * long) / nb, allege), false));
+      for (let i = 0; i <= nb; i++) mur.add(menuiserie(piece(B2(0.06, linteau - allege, 0.12), mat(P.cadre), ...at(-long / 2 + (i * long) / nb, allege), false)));
       const vitre = piece(B2(long, linteau - allege, 0.02), matVerre, ...at(0, allege), false);
       vitre.castShadow = false;
       mur.add(vitre);
@@ -1671,10 +1680,20 @@ vec3 motifSol(int n, vec2 p) {
     float v = 0.9 + 0.14 * h21(vec2(l, floor((p.x + decal) / 4.0)));
     return vec3(v * (1.0 - 0.3 * max(step(0.88, f), bout)));
   }
+  if (n == 6) { // dalles d'ardoise, grand appareil : une rangée sur deux décalée d'une demi-dalle
+    float rangee = floor(p.y / 1.3);
+    float x = (p.x + mod(rangee, 2.0) * 1.3) / 2.6;
+    vec2 c = vec2(floor(x), rangee); vec2 f = vec2(fract(x), fract(p.y / 1.3));
+    float joint = max(step(0.965, f.x), step(0.93, f.y));
+    float v = mix(1.0, 0.93, step(0.5, h21(c + 7.0))) * (0.96 + 0.09 * h21(c));
+    return vec3(v * (1.0 - 0.2 * joint));
+  }
   float r = 0.97 + 0.05 * sin(p.x * 1.3 + sin(p.y * 0.5) * 2.0); // sable du marché
   return vec3(r * (0.96 + 0.06 * h21(floor(p * 3.0))));
 }`;
-const SOLS = Object.freeze({ clients: 1, fournisseurs: 2, equipe: 3, stock: 4, prospects: 5 });
+const SOLS = Object.freeze({ clients: 1, fournisseurs: 2, partenaires: 6, equipe: 3, stock: 4, prospects: 5 });
+/** Sol de chaque secteur de tiers (§5.5) : le quartier du nord est celui des partenaires ; « autres » reste sur la lande. */
+const SOL_SECTEUR = Object.freeze({ clients: 'clients', fournisseurs: 'fournisseurs', nord: 'partenaires', prospects: 'prospects' });
 function matSol(quartier) {
   const k = `sol|${quartier}`;
   if (!mats.has(k)) {
@@ -1703,8 +1722,10 @@ function fusionner(groupe, garder = () => false) {
     const g = o.geometry;
     const noms = Object.keys(g.attributes).filter((n) => ['position', 'normal', 'uv', 'color'].includes(n)).sort();
     if (!noms.includes('normal')) return;
-    const cle = `${o.material.uuid}|${noms.join(',')}|${g.index ? 'i' : 'n'}|${o.castShadow ? 'o' : ''}`;
-    if (!paquets.has(cle)) paquets.set(cle, { m: o.material, ombre: o.castShadow, liste: [] });
+    // les pièces fines d'un mur restent entre elles : elles disparaissent ensemble quand le mur s'abaisse
+    const fine = o.userData.menuiserie === true;
+    const cle = `${o.material.uuid}|${noms.join(',')}|${g.index ? 'i' : 'n'}|${o.castShadow ? 'o' : ''}|${fine ? 'f' : ''}`;
+    if (!paquets.has(cle)) paquets.set(cle, { m: o.material, ombre: o.castShadow, menuiserie: fine, liste: [] });
     const copie = new THREE.BufferGeometry();
     for (const n of noms) copie.setAttribute(n, g.attributes[n].clone()); // copie : la géométrie d’origine est souvent partagée (cache)
     if (g.index) copie.setIndex(g.index);
@@ -1713,7 +1734,7 @@ function fusionner(groupe, garder = () => false) {
     retires.push(o);
   });
   for (const o of retires) o.parent?.remove(o);
-  for (const { m, ombre, liste } of paquets.values()) {
+  for (const { m, ombre, menuiserie: fine, liste } of paquets.values()) {
     const fusion = liste.length === 1 ? liste[0] : mergeGeometries(liste, false);
     if (!fusion) continue;
     if (liste.length > 1) for (const l of liste) l.dispose();
@@ -1721,6 +1742,7 @@ function fusionner(groupe, garder = () => false) {
     me.castShadow = ombre;
     me.receiveShadow = PROFIL.ombres > 0;
     me.userData.jetable = 'geometrie';
+    if (fine) me.userData.menuiserie = true;
     groupe.add(me);
   }
 }
@@ -1941,12 +1963,14 @@ export async function creerScene(conteneur, options) {
   statique.add(piece(B(larg, 0.34, 4), mat(P.sable), 0, -0.3, zCote - 2, false));
   statique.add(piece(B(34, 0.8, 6), mat(P.beton), 0, -0.5, zCote + 2));
   statique.add(piece(B(3, 0.3, 11), matTex('parquet', 1, 4), 0, -0.25, zCote + 10));
-  // sols des quartiers (§5.5) : équipe en pelouse au centre, quais en planches, clients en pavés, fournisseurs en enrobé
+  // sols des quartiers (§5.5) : équipe en pelouse au centre, quais en planches, clients en pavés, fournisseurs en
+  // enrobé, partenaires en dalles d'ardoise (le quartier du nord : partenaires, et clients et fournisseurs à la fois)
   statique.add(piece(B(84, 0.1, 30), matSol('equipe'), 0, 0, 18.5, false));
   statique.add(piece(B(84, 0.1, 30), matSol('equipe'), 0, 0, -20, false));
   statique.add(piece(B(84, 0.08, 6), matSol('stock'), 0, 0, 44, false));
-  for (const [q, z] of [['clients', ZONES.clients], ['fournisseurs', ZONES.fournisseurs], ['prospects', ZONES.prospects]]) {
-    statique.add(piece(B(z.x1 - z.x0 + 2, 0.06, z.z1 - z.z0 + 2), matSol(q), (z.x0 + z.x1) / 2, 0, (z.z0 + z.z1) / 2, false));
+  for (const [secteur, quartier] of Object.entries(SOL_SECTEUR)) {
+    const z = ZONES[secteur];
+    statique.add(piece(B(z.x1 - z.x0 + 2, 0.06, z.z1 - z.z0 + 2), matSol(quartier), (z.x0 + z.x1) / 2, 0, (z.z0 + z.z1) / 2, false));
   }
   const centreVille = new THREE.Group();
   statique.add(centreVille);
@@ -2619,7 +2643,7 @@ export async function creerScene(conteneur, options) {
     const ajouter = (o, d, masque, mur = null) => {
       o.layers.set(CALQUE_ORIGINES);
       if (eco && (masque === MASQUE.personnes || masque === MASQUE.mobilier)) return; // Économie : coupe sans mobilier, pastilles
-      sources.push({ mesh: o, d, ent: d.sorte.type === 'verre' ? 0 : entDe(o), masque, mur, allume: allumables.has(o) });
+      sources.push({ mesh: o, d, ent: d.sorte.type === 'verre' ? 0 : entDe(o), masque, mur, allume: allumables.has(o), menuiserie: o.userData.menuiserie === true });
     };
     // murs : abaissés par le vertex shader selon leur orientation, à hauteur d'allège (maison de poupée)
     const pied = new THREE.Vector3();
@@ -2855,7 +2879,7 @@ export async function creerScene(conteneur, options) {
         const couleur = couleurTiers(t);
         const rndT = alea(hash(t.id));
         const g = new THREE.Group();
-        g.add(piece(B(15.5 * lot.echelle, 0.16, 15.5 * lot.echelle), ['clients', 'fournisseurs', 'prospects'].includes(s) ? matSol(s) : mat(P.herbe), 0, 0, 0, false));
+        g.add(piece(B(15.5 * lot.echelle, 0.16, 15.5 * lot.echelle), SOL_SECTEUR[s] ? matSol(SOL_SECTEUR[s]) : mat(P.herbe), 0, 0, 0, false));
         let bat;
         if (s === 'prospects') {
           // étal du marché, sur la plage : table, montants et auvent rayé chaux et ardoise (§5.5)
@@ -3156,6 +3180,8 @@ export async function creerScene(conteneur, options) {
         if (!x.isMesh || x.material.transparent || x.material === matVerre) continue;
         const c = new THREE.Mesh(x.geometry, matContour);
         c.userData.coque = true;
+        // le contour d'une menuiserie s'efface avec elle : sinon l'arête du mur abaissé crénellerait quand même
+        if (x.userData.menuiserie === true) c.userData.menuiserie = true;
         c.castShadow = false;
         x.add(c);
       }

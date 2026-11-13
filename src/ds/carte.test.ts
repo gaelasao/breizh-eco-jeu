@@ -299,6 +299,29 @@ test('carte : personnalisation — nom, couleur et place, sur l’appareil, et j
   assert.match(app, /function sectionPersonnaliser\(\)/, 'un seul endroit : le panneau de la carte');
 });
 
+test('carte : chaque quartier de tiers a son sol, partenaires compris (§5.5)', async () => {
+  const { ROLES_SCENE } = await charger<Heure>('web/carte/heure.js');
+  const scene = lire('web/scene.js');
+  // un motif par quartier, numéroté, et le numéro passe tel quel dans le shader des lots
+  const sols = /const SOLS = Object\.freeze\(\{([^}]+)\}\)/.exec(scene)?.[1] ?? '';
+  const numeros = Object.fromEntries([...sols.matchAll(/(\w+): (\d+)/g)].map((m) => [m[1] as string, Number(m[2])]));
+  assert.deepEqual(Object.keys(numeros).sort(), ['clients', 'equipe', 'fournisseurs', 'partenaires', 'prospects', 'stock']);
+  assert.equal(new Set(Object.values(numeros)).size, 6, 'aucun motif partagé entre deux quartiers');
+  for (const [q, n] of Object.entries(numeros)) {
+    assert.ok(ROLES_SCENE.includes(`quartier-${q}`), `couleur du quartier ${q}`);
+    // chaque motif a sa branche dans le shader ; celui des prospects (le sable) est le repli, sans condition
+    assert.ok(new RegExp(`n == ${n}\\b`).test(scene) || n === numeros.prospects, `motif ${n} (${q}) dessiné`);
+  }
+  // le quartier du nord (partenaires, et clients et fournisseurs à la fois) n'est plus posé sur la lande nue
+  assert.match(scene, /const SOL_SECTEUR = Object\.freeze\(\{[^}]*nord: 'partenaires'/);
+  assert.match(scene, /for \(const \[secteur, quartier\] of Object\.entries\(SOL_SECTEUR\)\)/, 'un sol par secteur, aucun oublié');
+  assert.match(scene, /SOL_SECTEUR\[s\] \? matSol\(SOL_SECTEUR\[s\]\) : mat\(P\.herbe\)/, 'le lot d’un tiers prend le sol de son quartier');
+  // dalles d'ardoise : même famille que les pavés des clients (maille, joint, deux tons), à une autre échelle
+  const motif = /if \(n == 6\) \{([\s\S]*?)\n  \}/.exec(scene)?.[1] ?? '';
+  assert.match(motif, /joint/, 'un joint, comme les autres sols appareillés');
+  assert.match(motif, /h21/, 'une variation par dalle, comme les pavés');
+});
+
 test('carte : aucune surface posée sur une autre — marquages en décalque, voirie à quatre niveaux, contours écartés', () => {
   const scene = lire('web/scene.js');
   // marquages au sol : une peinture (décalque), jamais une plaque posée à quelques centimètres
@@ -390,6 +413,24 @@ test('carte : murs de la maison de poupée, abaissés par orientation face à la
   assert.deepEqual(mursBaisses([0, -1]), [0, 0, 0, 0, 1]);
   assert.equal(echelleMur(0, 3.4), 1);
   assert.ok(Math.abs(echelleMur(1, 3.4) * 3.4 - ALLEGE) < 1e-9, 'abaissé à hauteur d’allège');
+
+  /* Pièces fines d'un mur abaissé (§5.11) : écrasées au tiers, le bandeau d'accent de 8 cm et les montants de
+     menuiserie tombent sous le pixel et crénèlent l'arête. Elles quittent l'image tant que le mur est abaissé ;
+     le mur garde ce qui se lit encore : son allège, sa vitre, son linteau. */
+  const scene = lire('web/scene.js');
+  assert.ok(0.08 * echelleMur(1, 3.4) < 0.025, 'le bandeau de 8 cm écrasé fait moins de 2,5 cm');
+  assert.match(scene, /const menuiserie = \(me\) => \{ me\.userData\.menuiserie = true; return me; \};/);
+  assert.match(scene, /menuiserie\(piece\(B2\(long, 0\.08, e \+ 0\.04\), mat\(accent\)/, 'le bandeau d’accent');
+  assert.match(scene, /menuiserie\(piece\(B2\(0\.06, linteau - allege, 0\.12\), mat\(P\.cadre\)/, 'les montants de menuiserie');
+  assert.doesNotMatch(scene, /menuiserie\(piece\(B2\(long, allege, e\)/, 'l’allège, elle, reste');
+  // portée jusqu'au shader : un drapeau par sommet, lu avec l'orientation du mur
+  assert.match(scene, /attribute vec3 aDrap; \/\/ ombre portée, fenêtre qui s'allume la nuit, menuiserie du mur/);
+  assert.match(scene, /bool murBaisse\(\) \{ return aInfo\.w > 0\.5 && uBaisse\[int\(aInfo\.w \+ 0\.5\)\] > 0\.5; \}/);
+  assert.match(scene, /aDrap\.z > 0\.5 && murBaisse\(\)/, 'la pièce fine quitte l’image quand le mur s’abaisse');
+  assert.match(scene, /drap\[\(o \+ i\) \* 3 \+ 2\] = menuiserie \? 1 : 0;/, 'drapeau cuit dans le lot');
+  // la fusion par matériau et le contour permanent gardent le drapeau, sinon l'arête crénellerait quand même
+  assert.match(scene, /if \(fine\) me\.userData\.menuiserie = true;/);
+  assert.match(scene, /if \(x\.userData\.menuiserie === true\) c\.userData\.menuiserie = true;/);
 });
 
 test('carte : atlas des enseignes, une page partagée (un seul appel de dessin)', async () => {

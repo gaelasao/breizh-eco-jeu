@@ -65,7 +65,7 @@
 | Scène 3D | texte sur étiquette 3D / pire cas (clair : nuit-ciel-zenith ; sombre : jour-chaux) | 4,5:1 | 13,46 | 10,68 |
 | Scène 3D | texte-2 sur étiquette 3D / pire cas (clair : nuit-ciel-zenith ; sombre : jour-chaux) | 4,5:1 | 7,43 | 7,19 |
 
-**342 paires vérifiées** par le générateur (toutes les combinaisons texte × fond, bordure × fond, statut × fond, donnée × fond, sur les fonds `fond`, `fond-2`, `surface`, `surface-elevee`, `composant` et `composant-survol`), **0 échec**. Le tableau en publie une sélection.
+**344 paires vérifiées** par le générateur (toutes les combinaisons texte × fond, bordure × fond, statut × fond, donnée × fond, sur les fonds `fond`, `fond-2`, `surface`, `surface-elevee`, `composant` et `composant-survol`), **0 échec**. Le tableau en publie une sélection.
 
 **Scène 3D** (sans thème : encre des noms de quartier écrits au sol, sur chaque sol et sur leur halo de 3 px)
 
@@ -73,18 +73,20 @@
 |---|---|---|
 | encre jour / quartier clients jour | 4,5:1 | 9,39 |
 | encre jour / quartier fournisseurs jour | 4,5:1 | 7,76 |
+| encre jour / quartier partenaires jour | 4,5:1 | 5,83 |
 | encre jour / quartier equipe jour | 4,5:1 | 9,12 |
 | encre jour / quartier stock jour | 4,5:1 | 7,15 |
 | encre jour / quartier prospects jour | 4,5:1 | 11,21 |
 | encre jour / halo jour | 4,5:1 | 14,64 |
 | encre nuit / quartier clients nuit | 4,5:1 | 10,14 |
 | encre nuit / quartier fournisseurs nuit | 4,5:1 | 12,82 |
+| encre nuit / quartier partenaires nuit | 4,5:1 | 10,38 |
 | encre nuit / quartier equipe nuit | 4,5:1 | 10,58 |
 | encre nuit / quartier stock nuit | 4,5:1 | 12,50 |
 | encre nuit / quartier prospects nuit | 4,5:1 | 8,95 |
 | encre nuit / halo nuit | 4,5:1 | 13,96 |
 
-Verre et étiquettes : pire cas calculé sans flou, sur les 42 couleurs de la scène qui peuvent se trouver derrière (jour et nuit, quel que soit le thème de l'interface). `--bz-texte-3` et le texte désactivé sont interdits sur le verre : ils y descendent sous 4,5:1.
+Verre et étiquettes : pire cas calculé sans flou, sur les 44 couleurs de la scène qui peuvent se trouver derrière (jour et nuit, quel que soit le thème de l'interface). `--bz-texte-3` et le texte désactivé sont interdits sur le verre : ils y descendent sous 4,5:1.
 
 Rampe séquentielle `--bz-dv-seq-1…5` sur `--bz-surface` : clair 1,18 · 1,43 · 2,12 · 3,06 · 7,40 ; sombre 1,14 · 1,46 · 2,42 · 3,74 · 9,08. Les trois premiers paliers sont sous 3:1 : une case colorée affiche toujours sa valeur (ou la vue Tableau), la couleur n'est jamais seule porteuse de l'information (1.4.1, 1.4.11).
 
@@ -96,7 +98,7 @@ Monotonie de la luminosité : granit, iroise et ajonc vont dans un seul sens dan
 
 P3 : tous les aplats renforcés gardent leurs seuils.
 
-Poids de `tokens.css` : 32,4 Ko brut ; version servie `dist/tokens.min.css` : 17,6 Ko brut, 4,5 Ko en gzip, 3,9 Ko en brotli.
+Poids de `tokens.css` : 32,5 Ko brut ; version servie `dist/tokens.min.css` : 17,7 Ko brut, 4,5 Ko en gzip, 3,9 Ko en brotli.
 
 | Primitive | Clair (OKLCH → sRGB) | Sombre (OKLCH → sRGB) |
 |---|---|---|

@@ -1,24 +1,31 @@
 /**
- * Suivi des véhicules (LB-03, R02) : contrôle technique, révision, pneus, assurance, carte grise, et une échéance
- * que l'entreprise nomme elle-même. Rien n'est obligatoire : un véhicule sans aucune date ne produit rien.
+ * Suivi du matériel roulant (LB-03, R02) : les VÉHICULES, comptés en kilomètres, et les ENGINS de chantier, comptés
+ * en heures de service. Contrôle technique, révision, pneus, assurance, carte grise pour les uns ; révision, contrôle
+ * périodique, vérification générale pour les autres ; et, pour tous, une échéance que l'entreprise nomme elle-même.
+ * Rien n'est obligatoire : un matériel sans aucune date ne produit rien.
  *
- * Tout tient sur la fiche du véhicule, en champs déclarés par l'univers : la DATE de la prochaine fois, le
- * KILOMÉTRAGE de la prochaine fois, et la répétition (tous les N mois, tous les N kilomètres). Les échéances par
- * DATE sont évaluées par le mécanisme d'échéance déjà en place (univers → `evaluerEcheance`) ; ce module ajoute ce
- * que ce mécanisme ne sait pas faire : les échéances au KILOMÉTRAGE, et le rappel d'un compteur trop vieux pour
- * qu'elles veuillent encore dire quelque chose.
+ * Tout tient sur sa fiche, en champs déclarés par l'univers : la DATE de la prochaine fois, le COMPTEUR de la
+ * prochaine fois, et la répétition (tous les N mois, tous les N kilomètres ou heures). Les échéances par DATE sont
+ * évaluées par le mécanisme d'échéance déjà en place (univers → `evaluerEcheance`) ; ce module ajoute ce que ce
+ * mécanisme ne sait pas faire : les échéances au COMPTEUR, et le rappel d'un compteur trop vieux pour qu'elles
+ * veuillent encore dire quelque chose.
  *
- * Les périodicités et les délais de prévenance écrits ici sont des VALEURS DE DÉPART INDICATIVES, modifiables
- * véhicule par véhicule. Le jeu n'énonce aucune obligation légale : ce qui s'applique à un véhicule se vérifie
- * auprès de son constructeur, de son assureur et des textes en vigueur.
+ * Les périodicités et les délais de prévenance écrits ici sont des VALEURS DE DÉPART INDICATIVES, modifiables fiche
+ * par fiche — en jours comme au compteur. Le jeu n'énonce aucune obligation légale : ce qui s'applique à un matériel
+ * se vérifie auprès de son constructeur, de son assureur et des textes en vigueur.
  */
 import type { ObjetMetier } from './model.ts';
 import { fraicheur } from './model.ts';
 import type { ContexteRegle, Situation } from './situation.ts';
 import { pluriel } from './texte.ts';
 
-/** Une nature d'échéance et les champs du véhicule qui la portent. */
-export interface DefEcheanceVehicule {
+/** Ce que compte le compteur : des kilomètres (véhicule) ou des heures de service (engin). */
+export type UniteCompteur = 'km' | 'h';
+/** Sorte de matériel suivi : les deux se suivent pareil, seule l'unité du compteur change. */
+export type SorteMateriel = 'vehicule' | 'engin';
+
+/** Une nature d'échéance et les champs du matériel qui la portent. */
+export interface DefEcheanceMateriel {
   id: string;
   /** Intitulé par défaut (l'échéance libre prend celui que l'entreprise écrit dans `champLibelle`). */
   libelle: string;
@@ -26,78 +33,167 @@ export interface DefEcheanceVehicule {
   nature: string;
   /** Champ date : la prochaine fois. */
   champDate: string;
-  /** Champ nombre : la prochaine fois, en kilomètres au compteur (absent = cette échéance n'est pas kilométrique). */
-  champKm?: string;
+  /** Champ nombre : la prochaine fois, au compteur (absent = cette échéance n'est pas au compteur). */
+  champCompteur?: string;
   /** Champ nombre : répétition, en mois. */
   champMois: string;
-  /** Champ nombre : répétition, en kilomètres. */
-  champKmPeriode?: string;
+  /** Champ nombre : répétition, au compteur. */
+  champCompteurPeriode?: string;
   /** Champ texte : l'intitulé choisi par l'entreprise (échéance libre). */
   champLibelle?: string;
   /** Champ qui dit l'état d'usure du moment (pneus). */
   champEtat?: string;
   /** Répétition proposée tant que l'entreprise n'a pas donné la sienne — indicative. */
   moisSuggere: number | null;
-  kmSuggere: number | null;
-  /** Délai de prévenance habituel : on en parle N jours avant — indicatif, surchargé par `prevenir_jours`. */
+  compteurSuggere: number | null;
+  /** Délai de prévenance habituel : on en parle N jours avant — indicatif, surchargé sur la fiche. */
   prevenirJours: number;
-  /** On en parle N kilomètres avant — indicatif. */
-  prevenirKm: number | null;
+  /** On en parle N kilomètres (ou heures) avant — indicatif, surchargé sur la fiche. */
+  prevenirCompteur: number | null;
 }
 
-export const ECHEANCES_VEHICULE: readonly DefEcheanceVehicule[] = Object.freeze([
+/** Une sorte de matériel : son compteur, ses préavis, ses échéances. */
+export interface DefMateriel {
+  sorte: SorteMateriel;
+  unite: UniteCompteur;
+  /** Le compteur : son intitulé, l'action qui le relève (écrite d'avance : l'article et l'accord changent), ses champs. */
+  libelleCompteur: string;
+  libelleReleve: string;
+  champCompteur: string;
+  champCompteurLe: string;
+  /** Ce qui identifie l'exemplaire sur sa fiche (immatriculation, numéro de parc). */
+  champIdentifiant: string;
+  /** Préavis choisis par l'entreprise ; au-delà de la borne, la valeur de départ reprend la main. */
+  champPrevenirJours: string;
+  champPrevenirCompteur: string;
+  prevenirJoursMax: number;
+  prevenirCompteurMax: number;
+  /** Au-delà, ce n'est plus un relevé de compteur mais une faute de frappe. */
+  compteurMax: number;
+  echeances: readonly DefEcheanceMateriel[];
+}
+
+const ECHEANCES_VEHICULE: readonly DefEcheanceMateriel[] = Object.freeze([
   {
     id: 'controle_technique', libelle: 'Contrôle technique', nature: 'contrôle technique',
     champDate: 'controle_technique', champMois: 'ct_tous_les_mois',
-    moisSuggere: 24, kmSuggere: null, prevenirJours: 30, prevenirKm: null,
+    moisSuggere: 24, compteurSuggere: null, prevenirJours: 30, prevenirCompteur: null,
   },
   {
     id: 'revision', libelle: 'Révision ou entretien', nature: 'révision ou entretien',
-    champDate: 'prochaine_revision', champKm: 'revision_km',
-    champMois: 'revision_tous_les_mois', champKmPeriode: 'revision_tous_les_km',
-    moisSuggere: 12, kmSuggere: 20_000, prevenirJours: 21, prevenirKm: 1_000,
+    champDate: 'prochaine_revision', champCompteur: 'revision_km',
+    champMois: 'revision_tous_les_mois', champCompteurPeriode: 'revision_tous_les_km',
+    moisSuggere: 12, compteurSuggere: 20_000, prevenirJours: 21, prevenirCompteur: 1_000,
   },
   {
     id: 'pneus', libelle: 'Pneus', nature: 'pneus',
-    champDate: 'pneus_le', champKm: 'pneus_km',
-    champMois: 'pneus_tous_les_mois', champKmPeriode: 'pneus_tous_les_km', champEtat: 'etat_pneus',
-    moisSuggere: 6, kmSuggere: 30_000, prevenirJours: 21, prevenirKm: 1_500,
+    champDate: 'pneus_le', champCompteur: 'pneus_km',
+    champMois: 'pneus_tous_les_mois', champCompteurPeriode: 'pneus_tous_les_km', champEtat: 'etat_pneus',
+    moisSuggere: 6, compteurSuggere: 30_000, prevenirJours: 21, prevenirCompteur: 1_500,
   },
   {
     id: 'assurance', libelle: 'Assurance', nature: 'assurance',
     champDate: 'assurance_le', champMois: 'assurance_tous_les_mois',
-    moisSuggere: 12, kmSuggere: null, prevenirJours: 30, prevenirKm: null,
+    moisSuggere: 12, compteurSuggere: null, prevenirJours: 30, prevenirCompteur: null,
   },
   {
     id: 'carte_grise', libelle: 'Carte grise ou vignette', nature: 'carte grise ou vignette',
     champDate: 'carte_grise_le', champMois: 'carte_grise_tous_les_mois',
-    moisSuggere: 12, kmSuggere: null, prevenirJours: 30, prevenirKm: null,
+    moisSuggere: 12, compteurSuggere: null, prevenirJours: 30, prevenirCompteur: null,
   },
   {
     id: 'libre', libelle: 'Autre échéance', nature: 'autre échéance',
-    champDate: 'autre_le', champKm: 'autre_km',
-    champMois: 'autre_tous_les_mois', champKmPeriode: 'autre_tous_les_km', champLibelle: 'autre_libelle',
-    moisSuggere: null, kmSuggere: null, prevenirJours: 21, prevenirKm: 1_000,
+    champDate: 'autre_le', champCompteur: 'autre_km',
+    champMois: 'autre_tous_les_mois', champCompteurPeriode: 'autre_tous_les_km', champLibelle: 'autre_libelle',
+    moisSuggere: null, compteurSuggere: null, prevenirJours: 21, prevenirCompteur: 1_000,
   },
-] as const satisfies readonly DefEcheanceVehicule[]);
+] as const satisfies readonly DefEcheanceMateriel[]);
 
-export const defEcheance = (id: string): DefEcheanceVehicule | undefined => ECHEANCES_VEHICULE.find((d) => d.id === id);
-export const defParNature = (nature: string): DefEcheanceVehicule | undefined => ECHEANCES_VEHICULE.find((d) => d.nature === nature);
+/* Engins : ce qui revient dans leur vie d'atelier, compté en heures de service. Aucune de ces échéances n'affirme
+   une obligation : ce sont des repères de départ, à vérifier pour chaque engin et à changer sur sa fiche. */
+const ECHEANCES_ENGIN: readonly DefEcheanceMateriel[] = Object.freeze([
+  {
+    id: 'revision', libelle: 'Révision ou entretien', nature: 'révision ou entretien',
+    champDate: 'prochaine_revision', champCompteur: 'revision_heures',
+    champMois: 'revision_tous_les_mois', champCompteurPeriode: 'revision_toutes_les_heures',
+    moisSuggere: 12, compteurSuggere: 500, prevenirJours: 21, prevenirCompteur: 50,
+  },
+  {
+    id: 'controle_periodique', libelle: 'Contrôle périodique', nature: 'contrôle périodique',
+    champDate: 'controle_periodique_le', champCompteur: 'controle_periodique_heures',
+    champMois: 'controle_periodique_tous_les_mois', champCompteurPeriode: 'controle_periodique_toutes_les_heures',
+    moisSuggere: 6, compteurSuggere: 1_000, prevenirJours: 30, prevenirCompteur: 100,
+  },
+  {
+    id: 'verification_generale', libelle: 'Vérification générale', nature: 'vérification générale',
+    champDate: 'verification_generale_le', champMois: 'verification_generale_tous_les_mois',
+    moisSuggere: 12, compteurSuggere: null, prevenirJours: 30, prevenirCompteur: null,
+  },
+  {
+    id: 'libre', libelle: 'Autre échéance', nature: 'autre échéance',
+    champDate: 'autre_le', champCompteur: 'autre_heures',
+    champMois: 'autre_tous_les_mois', champCompteurPeriode: 'autre_toutes_les_heures', champLibelle: 'autre_libelle',
+    moisSuggere: null, compteurSuggere: null, prevenirJours: 21, prevenirCompteur: 50,
+  },
+] as const satisfies readonly DefEcheanceMateriel[]);
 
-/** Type d'objet qui garde ce qui a été fait sur un véhicule (famille « evenement »). */
+export const MATERIELS: readonly DefMateriel[] = Object.freeze([
+  {
+    sorte: 'vehicule', unite: 'km',
+    libelleCompteur: 'Kilométrage', libelleReleve: 'Relever le kilométrage', champCompteur: 'kilometrage', champCompteurLe: 'kilometrage_le',
+    champIdentifiant: 'immatriculation',
+    champPrevenirJours: 'prevenir_jours', champPrevenirCompteur: 'prevenir_km',
+    prevenirJoursMax: 365, prevenirCompteurMax: 50_000, compteurMax: 5_000_000,
+    echeances: ECHEANCES_VEHICULE,
+  },
+  {
+    sorte: 'engin', unite: 'h',
+    libelleCompteur: 'Heures de service', libelleReleve: 'Relever les heures de service', champCompteur: 'heures', champCompteurLe: 'heures_le',
+    champIdentifiant: 'numero_parc',
+    champPrevenirJours: 'prevenir_jours', champPrevenirCompteur: 'prevenir_heures',
+    prevenirJoursMax: 365, prevenirCompteurMax: 5_000, compteurMax: 200_000,
+    echeances: ECHEANCES_ENGIN,
+  },
+] as const satisfies readonly DefMateriel[]);
+
+export const defSorte = (sorte: SorteMateriel): DefMateriel => MATERIELS.find((m) => m.sorte === sorte) as DefMateriel;
+
+/**
+ * La sorte d'un objet, lue sur l'IDENTIFIANT de son type : un type qui parle d'engin se compte en heures de service,
+ * un type qui parle de véhicule se compte en kilomètres. Le libellé, lui, reste libre (« Camion », « Mini-pelle »…).
+ */
+export function sorteMateriel(o: ObjetMetier): SorteMateriel | null {
+  if (o.famille !== 'ressource') return null;
+  if (/engin/i.test(o.type)) return 'engin';
+  return /v[eé]hicule/i.test(o.type) ? 'vehicule' : null;
+}
+
+/** La sorte de matériel d'un objet, avec son compteur et ses échéances ; null s'il n'est pas suivi. */
+export function defMateriel(o: ObjetMetier): DefMateriel | null {
+  const sorte = sorteMateriel(o);
+  return sorte === null ? null : defSorte(sorte);
+}
+
+/** Vrai pour un matériel que ce module suit : un véhicule ou un engin. */
+export const estMaterielSuivi = (o: ObjetMetier): boolean => sorteMateriel(o) !== null;
+
+export const defEcheance = (m: DefMateriel, id: string): DefEcheanceMateriel | undefined => m.echeances.find((d) => d.id === id);
+export const defParNature = (m: DefMateriel, nature: string): DefEcheanceMateriel | undefined => m.echeances.find((d) => d.nature === nature);
+
+/** Toutes les natures d'échéance, toutes sortes confondues : ce que le champ « Nature » d'un historique accepte. */
+export const NATURES = Object.freeze([...new Set(MATERIELS.flatMap((m) => m.echeances.map((d) => d.nature)))]);
+
+/** Type d'objet qui garde ce qui a été fait sur un matériel (famille « evenement »). */
 export const TYPE_ENTRETIEN = 'entretien_vehicule';
 
-/** Au-delà, un kilométrage saisi à la main ne dit plus grand-chose : on le redemande (indicatif). */
-export const JOURS_KM_PERIME = 90;
+/** Au-delà, un compteur saisi à la main ne dit plus grand-chose : on le redemande (indicatif). */
+export const JOURS_COMPTEUR_PERIME = 90;
 
 const JOUR = 86_400_000;
 
 const nombre = (x: unknown): number | null => (typeof x === 'number' && Number.isFinite(x) ? x : null);
 const entierPositif = (x: unknown): number | null => { const n = nombre(x); return n !== null && n > 0 ? Math.round(n) : null; };
 const jourDe = (x: unknown): string | null => (typeof x === 'string' && /^\d{4}-\d{2}-\d{2}/.test(x) ? x.slice(0, 10) : null);
-
-/** Un véhicule, quel que soit le nom que l'univers lui donne (« Véhicule », « Camion »…). */
-export const estVehicule = (o: ObjetMetier): boolean => o.famille === 'ressource' && /v[eé]hicule/i.test(o.type);
 
 /** Jour local au format AAAA-MM-JJ. */
 export function jourIso(d: Date): string {
@@ -128,54 +224,69 @@ export function ajouterMois(jour: string, mois: number): string | null {
 
 export type EtatEcheance = 'absente' | 'ok' | 'bientot' | 'aujourdhui' | 'depassee';
 const RANG_ETAT: Readonly<Record<EtatEcheance, number>> = { depassee: 0, aujourdhui: 1, bientot: 2, ok: 3, absente: 4 };
-/** Le plus pressant des deux états (date et kilométrage). */
+/** Le plus pressant des deux états (date et compteur). */
 export const pireEtat = (a: EtatEcheance, b: EtatEcheance): EtatEcheance => (RANG_ETAT[a] <= RANG_ETAT[b] ? a : b);
 
-export interface EcheanceVehicule {
+export interface EcheanceMateriel {
   id: string;
   /** Intitulé affiché : celui de l'entreprise pour l'échéance libre, sinon celui par défaut. */
   libelle: string;
   date: string | null;
-  km: number | null;
+  /** La prochaine fois, au compteur (dans l'unité du matériel). */
+  compteur: number | null;
   joursRestants: number | null;
-  kmRestants: number | null;
+  compteurRestant: number | null;
   prevenirJours: number;
-  prevenirKm: number | null;
+  prevenirCompteur: number | null;
   /** Répétition enregistrée sur la fiche (null : rien n'a été dit). */
   periodeMois: number | null;
-  periodeKm: number | null;
+  periodeCompteur: number | null;
   /** Répétition proposée à défaut, indicative. */
   moisSuggere: number | null;
-  kmSuggere: number | null;
+  compteurSuggere: number | null;
   /** État d'usure du moment, quand le champ existe (pneus). */
   etat: string | null;
   statut: EtatEcheance;
-  /** Ce qui sera programmé par « C'est fait » aujourd'hui, au kilométrage connu. */
-  suivante: { date: string | null; km: number | null };
-  /** Champs du véhicule à écrire pour la renseigner : l'écran modifie la fiche sans connaître cette table. */
-  champs: { date: string; km: string | null; mois: string; kmPeriode: string | null; libelle: string | null };
+  /** Ce qui sera programmé par « C'est fait » aujourd'hui, au compteur connu. */
+  suivante: { date: string | null; compteur: number | null };
+  /** Champs du matériel à écrire pour la renseigner : l'écran modifie la fiche sans connaître cette table. */
+  champs: { date: string; compteur: string | null; mois: string; compteurPeriode: string | null; libelle: string | null };
 }
 
-/** Kilométrage d'un véhicule, et depuis quand on le sait. */
-export interface KilometrageVehicule {
-  km: number | null;
+/** Compteur d'un matériel, son unité, et depuis quand on le sait. */
+export interface CompteurMateriel {
+  valeur: number | null;
+  unite: UniteCompteur;
+  /** Intitulé du compteur sur cette sorte de matériel (« Kilométrage », « Heures de service »). */
+  libelle: string;
+  /** L'action qui le relève, écrite d'avance : « Relever le kilométrage », « Relever les heures de service ». */
+  releve: string;
   le: string | null;
   jours: number | null;
-  /** Trop vieux pour qu'une échéance au kilométrage veuille dire quelque chose. */
+  /** Trop vieux pour qu'une échéance au compteur veuille dire quelque chose. */
   perime: boolean;
 }
 
-export function kilometrageDe(v: ObjetMetier, maintenant: Date): KilometrageVehicule {
-  const km = nombre(v.champs.kilometrage);
-  const le = jourDe(v.champs.kilometrage_le);
+export function compteurDe(v: ObjetMetier, maintenant: Date, m = defMateriel(v) ?? defSorte('vehicule')): CompteurMateriel {
+  const valeur = nombre(v.champs[m.champCompteur]);
+  const le = jourDe(v.champs[m.champCompteurLe]);
   const jours = le ? joursEntre(le, jourIso(maintenant)) : null;
-  return { km, le, jours, perime: km === null || jours === null || jours > JOURS_KM_PERIME };
+  return { valeur, unite: m.unite, libelle: m.libelleCompteur, releve: m.libelleReleve, le, jours, perime: valeur === null || jours === null || jours > JOURS_COMPTEUR_PERIME };
 }
 
-/** Délai de prévenance du véhicule (`prevenir_jours`), sinon celui de la nature d'échéance. */
-export const prevenanceDe = (v: ObjetMetier, d: DefEcheanceVehicule): number => {
-  const propre = entierPositif(v.champs.prevenir_jours);
-  return propre !== null && propre <= 365 ? propre : d.prevenirJours;
+/** Préavis en jours choisi sur la fiche, sinon celui de la nature d'échéance. */
+export const prevenanceDe = (v: ObjetMetier, m: DefMateriel, d: DefEcheanceMateriel): number => {
+  const propre = entierPositif(v.champs[m.champPrevenirJours]);
+  return propre !== null && propre <= m.prevenirJoursMax ? propre : d.prevenirJours;
+};
+
+/**
+ * Préavis au compteur choisi sur la fiche, sinon celui de la nature d'échéance — du même geste que le préavis en
+ * jours : un seul nombre sur la fiche vaut pour toutes ses échéances au compteur.
+ */
+export const prevenanceCompteurDe = (v: ObjetMetier, m: DefMateriel, d: DefEcheanceMateriel): number | null => {
+  const propre = entierPositif(v.champs[m.champPrevenirCompteur]);
+  return propre !== null && propre <= m.prevenirCompteurMax ? propre : d.prevenirCompteur;
 };
 
 function statutDate(date: string | null, jours: number | null, prevenir: number): EtatEcheance {
@@ -185,105 +296,113 @@ function statutDate(date: string | null, jours: number | null, prevenir: number)
   return jours <= prevenir ? 'bientot' : 'ok';
 }
 
-function statutKm(km: number | null, restants: number | null, prevenir: number | null): EtatEcheance {
-  if (km === null || restants === null) return 'absente';
-  if (restants <= 0) return 'depassee';
-  return prevenir !== null && restants <= prevenir ? 'bientot' : 'ok';
+function statutCompteur(compteur: number | null, restant: number | null, prevenir: number | null): EtatEcheance {
+  if (compteur === null || restant === null) return 'absente';
+  if (restant <= 0) return 'depassee';
+  return prevenir !== null && restant <= prevenir ? 'bientot' : 'ok';
 }
 
 /**
- * Les échéances d'un véhicule, dans l'ordre de la table, avec leur état du jour. `toutes: true` garde aussi celles
- * qui n'ont ni date ni kilométrage (l'écran les propose à remplir) ; sinon on ne rend que ce qui est renseigné.
+ * Les échéances d'un matériel, dans l'ordre de sa table, avec leur état du jour. `toutes: true` garde aussi celles
+ * qui n'ont ni date ni compteur (l'écran les propose à remplir) ; sinon on ne rend que ce qui est renseigné.
  */
-export function echeancesDe(v: ObjetMetier, maintenant: Date, { toutes = false } = {}): EcheanceVehicule[] {
+export function echeancesDe(v: ObjetMetier, maintenant: Date, { toutes = false } = {}): EcheanceMateriel[] {
+  const m = defMateriel(v);
+  if (!m) return [];
   const aujourdhui = jourIso(maintenant);
-  const kmCourant = kilometrageDe(v, maintenant);
-  const res: EcheanceVehicule[] = [];
-  for (const d of ECHEANCES_VEHICULE) {
+  const courant = compteurDe(v, maintenant, m);
+  const res: EcheanceMateriel[] = [];
+  for (const d of m.echeances) {
     const date = jourDe(v.champs[d.champDate]);
-    const km = d.champKm ? nombre(v.champs[d.champKm]) : null;
+    const compteur = d.champCompteur ? nombre(v.champs[d.champCompteur]) : null;
     const nomLibre = d.champLibelle && typeof v.champs[d.champLibelle] === 'string' ? String(v.champs[d.champLibelle]).trim() : '';
-    if (!toutes && date === null && km === null && !nomLibre) continue;
+    if (!toutes && date === null && compteur === null && !nomLibre) continue;
     const periodeMois = entierPositif(v.champs[d.champMois]);
-    const periodeKm = d.champKmPeriode ? entierPositif(v.champs[d.champKmPeriode]) : null;
-    const prevenirJours = prevenanceDe(v, d);
+    const periodeCompteur = d.champCompteurPeriode ? entierPositif(v.champs[d.champCompteurPeriode]) : null;
+    const prevenirJours = prevenanceDe(v, m, d);
+    const prevenirCompteur = prevenanceCompteurDe(v, m, d);
     const joursRestants = date ? joursEntre(aujourdhui, date) : null;
-    const kmRestants = km !== null && kmCourant.km !== null ? km - kmCourant.km : null;
+    const compteurRestant = compteur !== null && courant.valeur !== null ? compteur - courant.valeur : null;
     const mois = periodeMois ?? d.moisSuggere;
-    const pas = periodeKm ?? d.kmSuggere;
+    const pas = periodeCompteur ?? d.compteurSuggere;
     res.push({
       id: d.id,
       libelle: nomLibre || d.libelle,
-      date, km, joursRestants, kmRestants, prevenirJours, prevenirKm: d.prevenirKm,
-      periodeMois, periodeKm, moisSuggere: d.moisSuggere, kmSuggere: d.kmSuggere,
+      date, compteur, joursRestants, compteurRestant, prevenirJours, prevenirCompteur,
+      periodeMois, periodeCompteur, moisSuggere: d.moisSuggere, compteurSuggere: d.compteurSuggere,
       etat: d.champEtat && typeof v.champs[d.champEtat] === 'string' ? String(v.champs[d.champEtat]) : null,
-      statut: pireEtat(statutDate(date, joursRestants, prevenirJours), statutKm(km, kmRestants, d.prevenirKm)),
+      statut: pireEtat(statutDate(date, joursRestants, prevenirJours), statutCompteur(compteur, compteurRestant, prevenirCompteur)),
       suivante: {
         date: mois !== null ? ajouterMois(aujourdhui, mois) : null,
-        km: pas !== null && kmCourant.km !== null ? kmCourant.km + pas : null,
+        compteur: pas !== null && courant.valeur !== null ? courant.valeur + pas : null,
       },
-      champs: { date: d.champDate, km: d.champKm ?? null, mois: d.champMois, kmPeriode: d.champKmPeriode ?? null, libelle: d.champLibelle ?? null },
+      champs: { date: d.champDate, compteur: d.champCompteur ?? null, mois: d.champMois, compteurPeriode: d.champCompteurPeriode ?? null, libelle: d.champLibelle ?? null },
     });
   }
   return res;
 }
 
-/** La prochaine fois, après une intervention faite le `faitLe` à `faitKm` au compteur. */
+/** La prochaine fois, après une intervention faite le `faitLe` à `faitCompteur` au compteur. */
 export function prochaineOccurrence(
   v: ObjetMetier,
-  d: DefEcheanceVehicule,
+  m: DefMateriel,
+  d: DefEcheanceMateriel,
   faitLe: string,
-  faitKm: number | null,
-): { date: string | null; km: number | null } {
+  faitCompteur: number | null,
+): { date: string | null; compteur: number | null } {
   const mois = entierPositif(v.champs[d.champMois]) ?? d.moisSuggere;
-  const pas = d.champKmPeriode ? entierPositif(v.champs[d.champKmPeriode]) ?? d.kmSuggere : null;
+  const pas = d.champCompteurPeriode ? entierPositif(v.champs[d.champCompteurPeriode]) ?? d.compteurSuggere : null;
   return {
     date: mois !== null ? ajouterMois(faitLe, mois) : null,
-    km: pas !== null && faitKm !== null ? Math.round(faitKm + pas) : null,
+    compteur: pas !== null && faitCompteur !== null ? Math.round(faitCompteur + pas) : null,
   };
 }
 
 /**
- * Ce que « C'est fait » écrit sur la fiche du véhicule : la prochaine fois (date et kilométrage), et le compteur
- * relevé à cette occasion. Rend les champs à changer ; `null` efface une date qu'on ne sait pas reprogrammer.
+ * Ce que « C'est fait » écrit sur la fiche du matériel : la prochaine fois (date et compteur), et le compteur relevé
+ * à cette occasion. Rend les champs à changer ; `null` efface une date qu'on ne sait pas reprogrammer.
  */
 export function champsApresFait(
   v: ObjetMetier,
-  d: DefEcheanceVehicule,
+  m: DefMateriel,
+  d: DefEcheanceMateriel,
   faitLe: string,
-  faitKm: number | null,
+  faitCompteur: number | null,
 ): Record<string, string | number | null> {
-  const suite = prochaineOccurrence(v, d, faitLe, faitKm);
+  const suite = prochaineOccurrence(v, m, d, faitLe, faitCompteur);
   const champs: Record<string, string | number | null> = { [d.champDate]: suite.date };
-  if (d.champKm) champs[d.champKm] = suite.km;
-  if (faitKm !== null) {
-    const actuel = nombre(v.champs.kilometrage);
-    if (actuel === null || faitKm >= actuel) { champs.kilometrage = Math.round(faitKm); champs.kilometrage_le = faitLe; }
+  if (d.champCompteur) champs[d.champCompteur] = suite.compteur;
+  if (faitCompteur !== null) {
+    const actuel = nombre(v.champs[m.champCompteur]);
+    if (actuel === null || faitCompteur >= actuel) { champs[m.champCompteur] = Math.round(faitCompteur); champs[m.champCompteurLe] = faitLe; }
   }
   return champs;
 }
 
-/** Une ligne d'historique : ce qui a été fait sur ce véhicule. */
+/** Une ligne d'historique : ce qui a été fait sur ce matériel. */
 export interface LigneEntretien {
   id: string;
   nom: string;
   echeance: string | null;
   libelle: string;
   faitLe: string | null;
-  km: number | null;
+  /** Le compteur relevé ce jour-là, dans l'unité du matériel. */
+  compteur: number | null;
   cout: number | null;
 }
 
-/** L'historique d'un véhicule, le plus récent d'abord. */
-export function historiqueDe(objets: readonly ObjetMetier[], vehiculeId: string): LigneEntretien[] {
+/** L'historique d'un matériel, le plus récent d'abord. */
+export function historiqueDe(objets: readonly ObjetMetier[], materiel: ObjetMetier): LigneEntretien[] {
+  const m = defMateriel(materiel);
+  if (!m) return [];
   return objets
-    .filter((o) => o.type === TYPE_ENTRETIEN && o.champs.concerne === vehiculeId)
+    .filter((o) => o.type === TYPE_ENTRETIEN && o.champs.concerne === materiel.id)
     .map((o) => {
       const nature = typeof o.champs.echeance === 'string' ? o.champs.echeance : null;
       return {
-        id: o.id, nom: o.nom, echeance: nature === null ? null : defParNature(nature)?.id ?? null,
+        id: o.id, nom: o.nom, echeance: nature === null ? null : defParNature(m, nature)?.id ?? null,
         libelle: o.nom,
-        faitLe: jourDe(o.champs.fait_le), km: nombre(o.champs.kilometrage), cout: nombre(o.champs.cout),
+        faitLe: jourDe(o.champs.fait_le), compteur: nombre(o.champs[m.champCompteur]), cout: nombre(o.champs.cout),
       };
     })
     .sort((a, b) => String(b.faitLe ?? '').localeCompare(String(a.faitLe ?? '')));
@@ -298,60 +417,63 @@ export function totalAnnee(lignes: readonly LigneEntretien[], annee: number): nu
 
 // ------------------------------------------------------------------ situations (ce qui remonte dans « Aujourd'hui »)
 
-const kilometres = (n: number): string => `${pluriel(n, 'kilomètre', 'kilomètres')}`;
+/** « 1 200 kilomètres », « 50 heures » : jamais un chiffre tout seul, jamais une unité abrégée dans une phrase. */
+export const quantiteCompteur = (n: number, unite: UniteCompteur): string => (unite === 'h' ? pluriel(n, 'heure', 'heures') : pluriel(n, 'kilomètre', 'kilomètres'));
 
 /**
- * Situations d'un véhicule que les règles d'échéance de l'univers ne couvrent pas :
- * - une échéance au KILOMÉTRAGE atteinte ou proche ;
- * - un compteur trop vieux alors que le véhicule a au moins une échéance au kilométrage.
+ * Situations d'un matériel que les règles d'échéance de l'univers ne couvrent pas :
+ * - une échéance au COMPTEUR atteinte ou proche ;
+ * - un compteur trop vieux alors que le matériel a au moins une échéance au compteur.
  * Les échéances par DATE restent évaluées par `evaluerEcheance` (règles déclarées dans l'univers).
  */
-export function situationsVehicule(v: ObjetMetier, responsable: string | null, ctx: ContexteRegle): Situation[] {
-  if (!estVehicule(v)) return [];
+export function situationsMateriel(v: ObjetMetier, responsable: string | null, ctx: ContexteRegle): Situation[] {
+  const m = defMateriel(v);
+  if (!m) return [];
   const res: Situation[] = [];
-  const km = kilometrageDe(v, ctx.maintenant);
-  const f = fraicheur(km.le, ctx.maintenant, ctx.ageMaxMs);
+  const compteur = compteurDe(v, ctx.maintenant, m);
+  const f = fraicheur(compteur.le, ctx.maintenant, ctx.ageMaxMs);
   const preuve = (valeur: number | null, seuil: number | null) => ({
-    valeur, seuil, source: v.source, observeLe: km.le, provenance: v.provenance, fraicheur: f,
+    valeur, seuil, source: v.source, observeLe: compteur.le, provenance: v.provenance, fraicheur: f,
   });
-  const echeances = echeancesDe(v, ctx.maintenant).filter((x) => x.km !== null);
+  const echeances = echeancesDe(v, ctx.maintenant).filter((x) => x.compteur !== null);
   for (const x of echeances) {
-    if (km.km === null || x.kmRestants === null) continue;
-    const base = { objetId: v.id, regle: `vehicule_km_${x.id}`, responsable };
-    if (x.kmRestants <= 0) {
+    if (compteur.valeur === null || x.compteurRestant === null) continue;
+    const base = { objetId: v.id, regle: `materiel_compteur_${x.id}`, responsable };
+    if (x.compteurRestant <= 0) {
       res.push({
-        ...base, gravite: 'critique', statut: km.perime ? 'a_verifier' : 'ouverte',
-        description: `${x.libelle} : seuil de kilométrage dépassé de ${kilometres(-x.kmRestants)}`,
-        preuve: preuve(-x.kmRestants, 0),
+        ...base, gravite: 'critique', statut: compteur.perime ? 'a_verifier' : 'ouverte',
+        description: `${x.libelle} : seuil du compteur dépassé de ${quantiteCompteur(-x.compteurRestant, m.unite)}`,
+        preuve: preuve(-x.compteurRestant, 0),
       });
       continue;
     }
-    if (x.prevenirKm !== null && x.kmRestants <= x.prevenirKm) {
+    if (x.prevenirCompteur !== null && x.compteurRestant <= x.prevenirCompteur) {
       res.push({
-        ...base, gravite: 'attention', statut: km.perime ? 'a_verifier' : 'ouverte',
-        description: `${x.libelle} : dans ${kilometres(x.kmRestants)}`,
-        preuve: preuve(-x.kmRestants, 0),
+        ...base, gravite: 'attention', statut: compteur.perime ? 'a_verifier' : 'ouverte',
+        description: `${x.libelle} : dans ${quantiteCompteur(x.compteurRestant, m.unite)}`,
+        preuve: preuve(-x.compteurRestant, 0),
       });
     }
   }
-  // un compteur trop vieux : les échéances au kilométrage ne veulent plus rien dire tant qu'il n'est pas relevé
-  if (echeances.length && km.perime) {
+  // un compteur trop vieux : les échéances au compteur ne veulent plus rien dire tant qu'il n'est pas relevé
+  if (echeances.length && compteur.perime) {
     res.push({
-      objetId: v.id, regle: 'vehicule_kilometrage', responsable, gravite: 'attention', statut: 'a_verifier',
-      description: km.km === null
-        ? 'Kilométrage : jamais relevé, les échéances au kilométrage ne peuvent pas être suivies'
-        : `Kilométrage : relevé il y a ${pluriel(km.jours ?? 0, 'jour', 'jours')}, à mettre à jour`,
-      preuve: preuve(km.jours, JOURS_KM_PERIME),
+      objetId: v.id, regle: 'materiel_compteur', responsable, gravite: 'attention', statut: 'a_verifier',
+      // tourné avec des noms : « Kilométrage » est masculin, « Heures de service » féminin pluriel, rien ne s'accorde
+      description: compteur.valeur === null
+        ? `${m.libelleCompteur} : aucun relevé, les échéances au compteur ne peuvent pas être suivies`
+        : `${m.libelleCompteur} : dernier relevé il y a ${pluriel(compteur.jours ?? 0, 'jour', 'jours')}, à mettre à jour`,
+      preuve: preuve(compteur.jours, JOURS_COMPTEUR_PERIME),
     });
   }
   return res;
 }
 
-/** Toutes les situations de kilométrage d'un ensemble d'objets. */
-export function situationsVehicules(
+/** Toutes les situations de compteur d'un ensemble d'objets. */
+export function situationsMateriels(
   objets: readonly ObjetMetier[],
   responsableDe: (o: ObjetMetier) => string | null,
   ctx: ContexteRegle,
 ): Situation[] {
-  return objets.filter(estVehicule).flatMap((v) => situationsVehicule(v, responsableDe(v), ctx));
+  return objets.filter(estMaterielSuivi).flatMap((v) => situationsMateriel(v, responsableDe(v), ctx));
 }

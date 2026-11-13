@@ -18,6 +18,7 @@ const V = (await import(new URL('../../web/vehicules.js', import.meta.url).href)
 const N = (await import(new URL('../../web/navigation.js', import.meta.url).href)) as Quelconque;
 const S = (await import(new URL('../../web/simplicite.js', import.meta.url).href)) as Quelconque;
 const A = (await import(new URL('../../web/aujourdhui.js', import.meta.url).href)) as Quelconque;
+const FI = (await import(new URL('../../web/fiches.js', import.meta.url).href)) as Quelconque;
 
 const jour = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 
@@ -53,14 +54,14 @@ const vehiculesDuMonde = (m: Quelconque) => m.objets.filter((o: Quelconque) => o
 const echeance = (m: Quelconque, id: string, ech: string) => vehiculesDuMonde(m).find((o: Quelconque) => o.id === id).vehicule.echeances.find((e: Quelconque) => e.id === ech);
 
 test('le délai se lit sans accord : l’intitulé qui précède peut être masculin comme féminin', () => {
-  const e = (x: Record<string, unknown>) => ({ joursRestants: null, kmRestants: null, km: null, ...x });
+  const e = (x: Record<string, unknown>) => ({ joursRestants: null, compteurRestant: null, compteur: null, ...x });
   assert.equal(V.delaiEcheance(e({ joursRestants: -12 })), 'en retard de 12 jours');
   assert.equal(V.delaiEcheance(e({ joursRestants: 0 })), 'aujourd’hui');
   assert.equal(V.delaiEcheance(e({ joursRestants: 1 })), 'demain');
   assert.equal(V.delaiEcheance(e({ joursRestants: 9 })), 'dans 9 jours');
-  assert.equal(V.delaiEcheance(e({ kmRestants: 500 })), 'dans 500 km');
-  assert.equal(V.delaiEcheance(e({ kmRestants: -1400 })), 'compteur dépassé de 1 400 km');
-  assert.equal(V.delaiEcheance(e({ joursRestants: -2, kmRestants: -50 })), 'en retard de 2 jours · compteur dépassé de 50 km');
+  assert.equal(V.delaiEcheance(e({ compteurRestant: 500 })), 'dans 500 km');
+  assert.equal(V.delaiEcheance(e({ compteurRestant: -1400 })), 'compteur dépassé de 1 400 km');
+  assert.equal(V.delaiEcheance(e({ joursRestants: -2, compteurRestant: -50 })), 'en retard de 2 jours · compteur dépassé de 50 km');
   // aucun texte n'accorde d'adjectif sur l'intitulé : ni « dépassée », ni « prévue »
   for (const t of [V.delaiEcheance(e({ joursRestants: -1 })), V.delaiEcheance(e({ joursRestants: 30 }))]) {
     assert.doesNotMatch(t, /dépassée|prévue|prévu\b/, t);
@@ -68,39 +69,46 @@ test('le délai se lit sans accord : l’intitulé qui précède peut être masc
 });
 
 test('la répétition et la fois suivante se disent en clair, et le proposé est annoncé comme indicatif', () => {
-  assert.equal(V.texteRepetition({ periodeMois: 12, periodeKm: 20_000 }), 'Tous les 12 mois ou 20 000 km.');
-  assert.equal(V.texteRepetition({ periodeMois: 24, periodeKm: null }), 'Tous les 24 mois.');
-  assert.equal(V.texteRepetition({ periodeMois: null, periodeKm: null }), '', 'rien tant que l’entreprise n’a rien dit');
-  assert.match(V.texteSuivante({ periodeMois: 12, periodeKm: null, suivante: { date: '2027-11-13', km: null } }), /^La suivante sera programmée le /);
-  assert.match(V.texteSuivante({ periodeMois: null, periodeKm: null, suivante: { date: '2028-11-13', km: null } }), /indicative|proposée/);
-  assert.equal(V.texteSuivante({ periodeMois: null, periodeKm: null, suivante: { date: null, km: null } }), 'La suivante sera à programmer à la main.');
+  assert.equal(V.texteRepetition({ periodeMois: 12, periodeCompteur: 20_000 }), 'Tous les 12 mois ou 20 000 km.');
+  assert.equal(V.texteRepetition({ periodeMois: 24, periodeCompteur: null }), 'Tous les 24 mois.');
+  assert.equal(V.texteRepetition({ periodeMois: null, periodeCompteur: null }), '', 'rien tant que l’entreprise n’a rien dit');
+  assert.match(V.texteSuivante({ periodeMois: 12, periodeCompteur: null, suivante: { date: '2027-11-13', compteur: null } }), /^La suivante sera programmée le /);
+  assert.match(V.texteSuivante({ periodeMois: null, periodeCompteur: null, suivante: { date: '2028-11-13', compteur: null } }), /indicative|proposée/);
+  assert.equal(V.texteSuivante({ periodeMois: null, periodeCompteur: null, suivante: { date: null, compteur: null } }), 'La suivante sera à programmer à la main.');
 });
 
 test('le compteur se lit avec son âge, et son relevé n’est réclamé que s’il sert à quelque chose', () => {
-  assert.equal(V.texteKilometrage({ km: null, jours: null }), 'Kilométrage jamais relevé.');
-  assert.equal(V.texteKilometrage({ km: 128_400, jours: 0 }), '128 400 km, relevé aujourd’hui.');
-  assert.equal(V.texteKilometrage({ km: 128_400, jours: 1 }), '128 400 km, relevé hier.');
-  assert.equal(V.texteKilometrage({ km: 128_400, jours: 10 }), '128 400 km, relevé il y a 10 jours.');
-  const v = (perime: boolean, km: number | null) => ({ vehicule: { kilometrage: { perime }, echeances: [{ km }] } });
-  assert.equal(V.kilometrageARelever(v(true, 90_000)), true);
-  assert.equal(V.kilometrageARelever(v(true, null)), false, 'aucune échéance au kilométrage : on ne réclame rien');
-  assert.equal(V.kilometrageARelever(v(false, 90_000)), false);
+  const kmv = (x: Record<string, unknown>) => ({ unite: 'km', libelle: 'Kilométrage', ...x });
+  assert.equal(V.texteCompteur(kmv({ valeur: null, jours: null })), 'Kilométrage : aucun relevé.');
+  assert.equal(V.texteCompteur(kmv({ valeur: 128_400, jours: 0 })), '128 400 km, dernier relevé aujourd’hui.');
+  assert.equal(V.texteCompteur(kmv({ valeur: 128_400, jours: 1 })), '128 400 km, dernier relevé hier.');
+  // un engin dit ses heures de service, et rien ne s’accorde sur un intitulé féminin pluriel
+  const heures = (x: Record<string, unknown>) => ({ unite: 'h', libelle: 'Heures de service', ...x });
+  assert.equal(V.texteCompteur(heures({ valeur: 1_180, jours: 2 })), '1 180 h, dernier relevé il y a 2 jours.');
+  assert.equal(V.texteCompteur(heures({ valeur: null, jours: null })), 'Heures de service : aucun relevé.');
+  assert.equal(V.delaiEcheance({ joursRestants: null, compteurRestant: 20, compteur: 1_200 }, 'h'), 'dans 20 h');
+  assert.equal(V.texteRepetition({ periodeMois: 12, periodeCompteur: 500 }, 'h'), 'Tous les 12 mois ou 500 h.');
+  assert.equal(V.texteCompteur(kmv({ valeur: 128_400, jours: 10 })), '128 400 km, dernier relevé il y a 10 jours.');
+  const v = (perime: boolean, compteur: number | null) => ({ vehicule: { compteur: { perime }, echeances: [{ compteur }] } });
+  assert.equal(V.compteurARelever(v(true, 90_000)), true);
+  assert.equal(V.compteurARelever(v(true, null)), false, 'aucune échéance au compteur : on ne réclame rien');
+  assert.equal(V.compteurARelever(v(false, 90_000)), false);
 });
 
 test('ajouter un véhicule : un nom, un type, et c’est tout', () => {
-  assert.deepEqual(V.nouveauVehicule('  Le Kangoo ', 'camionnette'), { ok: true, valeur: { type: 'vehicule', nom: 'Le Kangoo', champs: { genre: 'camionnette' } } });
-  assert.deepEqual(V.nouveauVehicule('Le Kangoo', ''), { ok: true, valeur: { type: 'vehicule', nom: 'Le Kangoo', champs: {} } }, 'le type est facultatif');
-  assert.equal(V.nouveauVehicule('   ', 'camion').ok, false);
-  assert.equal(V.nouveauVehicule(null, null).ok, false);
+  assert.deepEqual(V.nouveauMateriel('  Le Kangoo ', 'camionnette'), { ok: true, valeur: { type: 'vehicule', nom: 'Le Kangoo', champs: { genre: 'camionnette' } } });
+  assert.deepEqual(V.nouveauMateriel('Le Kangoo', ''), { ok: true, valeur: { type: 'vehicule', nom: 'Le Kangoo', champs: {} } }, 'le type est facultatif');
+  assert.equal(V.nouveauMateriel('   ', 'camion').ok, false);
+  assert.equal(V.nouveauMateriel(null, null).ok, false);
 });
 
 test('« C’est fait » : le coût et le kilométrage sont facultatifs, une saisie abîmée est refusée en clair', () => {
   const e = { id: 'revision' };
-  assert.deepEqual(V.faitPour(e, { km: 101_000, cout: '248,50' }).valeur, { echeance: 'revision', date: null, km: 101_000, cout: 248.5, note: null });
-  assert.deepEqual(V.faitPour(e, {}).valeur, { echeance: 'revision', date: null, km: null, cout: null, note: null });
-  assert.deepEqual(V.faitPour(e, { km: '128 400' }).valeur.km, 128_400, 'un kilométrage écrit avec ses espaces reste lisible');
+  assert.deepEqual(V.faitPour(e, { compteur: 101_000, cout: '248,50' }).valeur, { echeance: 'revision', date: null, compteur: 101_000, cout: 248.5, note: null });
+  assert.deepEqual(V.faitPour(e, {}).valeur, { echeance: 'revision', date: null, compteur: null, cout: null, note: null });
+  assert.deepEqual(V.faitPour(e, { compteur: '128 400' }).valeur.compteur, 128_400, 'un relevé écrit avec ses espaces reste lisible');
   assert.equal(V.faitPour(e, { cout: 'cher' }).ok, false);
-  assert.match(V.faitPour(e, { km: 'beaucoup' }).erreur, /kilométrage/);
+  assert.match(V.faitPour(e, { compteur: 'beaucoup' }).erreur, /compteur/);
   assert.equal(V.faitPour(null, {}).ok, false);
 });
 
@@ -123,7 +131,7 @@ test('une entreprise sans véhicule ne voit ni rubrique, ni écran, ni réglage'
     assert.equal(A.planAujourdhui(m).aFaire, 0);
 
     // un premier véhicule, avec son seul nom : la rubrique apparaît, et rien n'est réclamé
-    const ajout = V.nouveauVehicule('Le Kangoo', 'camionnette');
+    const ajout = V.nouveauMateriel('Le Kangoo', 'camionnette');
     const o = await appel('POST', '/objets', { ...ajout.valeur, roles: [] });
     const m2 = await appel('GET', '/monde');
     assert.equal(S.deblocages(m2).vehicules, true);
@@ -196,10 +204,10 @@ test('échéance au kilométrage : prévenue avant, urgente après, et le compte
 
     await modifier({ revision_km: 100_500 });
     m = await appel('GET', '/monde');
-    assert.equal(m.situations[0].regle, 'vehicule_km_revision');
+    assert.equal(m.situations[0].regle, 'materiel_compteur_revision');
     assert.equal(m.situations[0].gravite, 'attention');
     assert.match(m.situations[0].description, /dans 500 kilomètres/);
-    assert.equal(echeance(m, o.id, 'revision').kmRestants, 500);
+    assert.equal(echeance(m, o.id, 'revision').compteurRestant, 500);
     assert.equal(A.planAujourdhui(m).aFaire, 1, 'une échéance au kilométrage est une action comme une autre');
 
     await modifier({ kilometrage: 101_900 });
@@ -210,11 +218,11 @@ test('échéance au kilométrage : prévenue avant, urgente après, et le compte
     // compteur trop vieux : on le redemande, en « à vérifier » — pas en urgence
     await modifier({ kilometrage_le: jour(-120), revision_km: 150_000 });
     m = await appel('GET', '/monde');
-    const rappel = m.situations.find((s: Quelconque) => s.regle === 'vehicule_kilometrage');
+    const rappel = m.situations.find((s: Quelconque) => s.regle === 'materiel_compteur');
     assert.ok(rappel, JSON.stringify(m.situations));
     assert.equal(rappel.statut, 'a_verifier');
-    assert.match(rappel.description, /^Kilométrage : relevé il y a 120/);
-    assert.equal(V.kilometrageARelever(vehiculesDuMonde(m)[0]), true);
+    assert.match(rappel.description, /^Kilométrage : dernier relevé il y a 120/);
+    assert.equal(V.compteurARelever(vehiculesDuMonde(m)[0]), true);
     assert.equal(V.planListe(m).aRelever, 1);
   });
 });
@@ -227,7 +235,7 @@ test('« C’est fait » : la date, le kilométrage, le coût, et la suivante pr
       champs: { kilometrage: 100_000, kilometrage_le: jour(-30), prochaine_revision: jour(-2), revision_km: 100_500, revision_tous_les_mois: 12, revision_tous_les_km: 25_000 },
     });
     const auj = new Date().toISOString().slice(0, 10);
-    const r = await appel('POST', '/actions', { cle: 'fait-revision-1', capacite: 'vehicule.fait', cible: o.id, parametres: { echeance: 'revision', km: 100_600, cout: 248.5 }, executer: true });
+    const r = await appel('POST', '/actions', { cle: 'fait-revision-1', capacite: 'vehicule.fait', cible: o.id, parametres: { echeance: 'revision', compteur: 100_600, cout: 248.5 }, executer: true });
     assert.equal(r.etat, 'reussie_technique', r.message);
     assert.match(r.message, /Révision ou entretien : fait le /);
 
@@ -236,10 +244,10 @@ test('« C’est fait » : la date, le kilométrage, le coût, et la suivante pr
     // la suivante est programmée, le compteur relevé à cette occasion
     const suite = v.vehicule.echeances.find((e: Quelconque) => e.id === 'revision');
     assert.equal(suite.statut, 'ok', 'plus rien d’urgent');
-    assert.equal(suite.km, 125_600);
+    assert.equal(suite.compteur, 125_600);
     assert.equal(suite.date.slice(0, 4), String(new Date().getFullYear() + 1));
-    assert.equal(v.vehicule.kilometrage.km, 100_600);
-    assert.equal(v.vehicule.kilometrage.le, auj);
+    assert.equal(v.vehicule.compteur.valeur, 100_600);
+    assert.equal(v.vehicule.compteur.le, auj);
     assert.deepEqual(m.situations, [], 'l’alerte a disparu, sans rien faire de plus');
 
     // l'historique garde ce qui a été fait, avec son coût, et le total de l'année suit
@@ -248,12 +256,12 @@ test('« C’est fait » : la date, le kilométrage, le coût, et la suivante pr
     assert.equal(l.libelle, 'Révision ou entretien — Le Kangoo');
     assert.equal(l.echeance, 'revision');
     assert.equal(l.faitLe, auj);
-    assert.deepEqual([l.km, l.cout], [100_600, 248.5]);
+    assert.deepEqual([l.compteur, l.cout], [100_600, 248.5]);
     assert.equal(v.vehicule.totalAnnee, 248.5);
     assert.equal(V.planFiche(v, m).texteTotal, `248,50 € en ${new Date().getFullYear()}, sur 1 ligne.`);
 
     // une même clé rejouée (double clic) ne fait pas deux fois l'opération
-    await appel('POST', '/actions', { cle: 'fait-revision-1', capacite: 'vehicule.fait', cible: o.id, parametres: { echeance: 'revision', km: 100_600, cout: 248.5 }, executer: true });
+    await appel('POST', '/actions', { cle: 'fait-revision-1', capacite: 'vehicule.fait', cible: o.id, parametres: { echeance: 'revision', compteur: 100_600, cout: 248.5 }, executer: true });
     const m2 = await appel('GET', '/monde');
     assert.equal(vehiculesDuMonde(m2)[0].vehicule.historique.length, 1);
 
@@ -306,5 +314,100 @@ test('la démonstration montre une flotte renseignée : des échéances proches,
     // les échéances des véhicules arrivent bien dans « Aujourd'hui »
     const actions = [A.planAujourdhui(m).heros, ...A.planAujourdhui(m).pile, ...A.planAujourdhui(m).autres];
     assert.ok(actions.some((a: Quelconque) => /Contrôle technique|Révision|Assurance|Pneus/.test(a.texte ?? '')), 'une échéance de véhicule dans la pile du jour');
+  });
+});
+
+test('le préavis au compteur se change sur la fiche, comme le préavis en jours', async () => {
+  const { app, proprietaire } = await entrepriseVide();
+  await avecServeur(app, proprietaire.id, async (appel) => {
+    const o = await appel('POST', '/objets', { type: 'vehicule', nom: 'Le Kangoo', roles: [], champs: { kilometrage: 119_500, kilometrage_le: jour(-2), revision_km: 120_000 } });
+    const modifier = (champs: Record<string, unknown>) => appel('POST', '/actions', { cle: `k-${Math.random().toString(36).slice(2, 12)}-x`, capacite: 'objet.modifier', cible: o.id, parametres: { champs }, executer: true });
+
+    // valeur de départ : 1 000 km avant une révision
+    let m = await appel('GET', '/monde');
+    assert.equal(m.situations.length, 1);
+    assert.match(m.situations[0].description, /dans 500 kilomètres/);
+    assert.equal(echeance(m, o.id, 'revision').prevenirCompteur, 1_000);
+
+    // prévenir plus tard : le chiffre de la fiche l'emporte, et l'alerte se tait
+    await modifier({ prevenir_km: 200 });
+    m = await appel('GET', '/monde');
+    assert.deepEqual(m.situations, [], 'prévenue 200 km avant seulement');
+    assert.equal(echeance(m, o.id, 'revision').prevenirCompteur, 200);
+    assert.equal(echeance(m, o.id, 'revision').statut, 'ok');
+
+    // prévenir plus tôt : l'alerte revient, sans toucher à l'échéance elle-même
+    await modifier({ prevenir_km: 5_000 });
+    m = await appel('GET', '/monde');
+    assert.equal(m.situations.length, 1, 'prévenue 5 000 km avant');
+    assert.equal(echeance(m, o.id, 'revision').statut, 'bientot');
+
+    // valeur abîmée : la valeur de départ reprend la main, l'alerte ne disparaît jamais
+    await modifier({ prevenir_km: -3 });
+    m = await appel('GET', '/monde');
+    assert.equal(echeance(m, o.id, 'revision').prevenirCompteur, 1_000);
+
+    // il se saisit là où se saisit le préavis en jours : dans les chiffres de la fiche
+    await modifier({ prevenir_jours: 30, prevenir_km: 800 });
+    m = await appel('GET', '/monde');
+    const chiffres = FI.groupesFiche(vehiculesDuMonde(m)[0]).find((g: Quelconque) => g.id === 'chiffres');
+    const ids = chiffres.champs.map((c: Quelconque) => c.id);
+    assert.ok(ids.includes('prevenir_jours') && ids.includes('prevenir_km'), ids.join(', '));
+  });
+});
+
+test('un engin de chantier se suit comme un véhicule, mais en heures de service', async () => {
+  const { app, proprietaire } = await entrepriseVide();
+  await avecServeur(app, proprietaire.id, async (appel) => {
+    await appel('POST', '/univers', { id: 'btp' });
+    const o = await appel('POST', '/objets', { type: 'engin', nom: 'La mini-pelle', roles: [], champs: { genre: 'mini-pelle', numero_parc: 'P-12' } });
+    const modifier = (champs: Record<string, unknown>) => appel('POST', '/actions', { cle: `k-${Math.random().toString(36).slice(2, 12)}-x`, capacite: 'objet.modifier', cible: o.id, parametres: { champs }, executer: true });
+    let m = await appel('GET', '/monde');
+    const engin = () => vehiculesDuMonde(m).find((x: Quelconque) => x.id === o.id);
+    const suivi = () => engin().vehicule;
+
+    // la rubrique s'ouvre pour un engin comme pour un véhicule, et le compteur se compte en heures
+    assert.equal(S.deblocages(m).vehicules, true);
+    assert.equal(suivi().sorte, 'engin');
+    assert.equal(suivi().unite, 'h');
+    assert.equal(suivi().compteur.libelle, 'Heures de service');
+    assert.equal(suivi().compteur.releve, 'Relever les heures de service', 'l’article et l’accord sont écrits d’avance');
+    assert.deepEqual(suivi().echeances.map((e: Quelconque) => e.id), ['revision', 'controle_periodique', 'verification_generale', 'libre'], 'des échéances qui lui ressemblent');
+    assert.equal(V.planListe(m).resume, '1 engin, rien à prévoir pour l’instant.');
+    assert.equal(V.planFiche(engin(), m).identite, 'Mini-pelle · P-12');
+    assert.deepEqual(m.situations, [], 'un engin sans rien ne produit aucune alerte');
+
+    // échéance au compteur : prévenue en heures, jamais en kilomètres
+    await modifier({ heures: 1_180, heures_le: jour(-2), revision_heures: 1_200, revision_toutes_les_heures: 500 });
+    m = await appel('GET', '/monde');
+    assert.equal(m.situations[0].regle, 'materiel_compteur_revision');
+    assert.match(m.situations[0].description, /^Révision ou entretien : dans 20 heures$/);
+    const f = V.planFiche(engin(), m);
+    assert.equal(f.texteCompteur, '1 180 h, dernier relevé il y a 2 jours.');
+    assert.equal(V.delaiEcheance(f.echeances[0], f.unite), 'dans 20 h');
+    assert.equal(V.texteRepetition(f.echeances[0], f.unite), 'Tous les 500 h.');
+
+    // une échéance par date, annoncée par l'univers BTP
+    await modifier({ verification_generale_le: jour(-3) });
+    m = await appel('GET', '/monde');
+    assert.ok(m.situations.some((x: Quelconque) => x.regle === 'verification_generale_engin' && /échéance dépassée de 3/.test(x.description)), JSON.stringify(m.situations));
+
+    // « C'est fait » : les heures relevées, la suivante programmée au compteur, l'historique en heures
+    const r = await appel('POST', '/actions', { cle: 'fait-engin-1', capacite: 'vehicule.fait', cible: o.id, parametres: { echeance: 'revision', compteur: 1_200, cout: 540 }, executer: true });
+    assert.equal(r.etat, 'reussie_technique', r.message);
+    m = await appel('GET', '/monde');
+    assert.equal(suivi().compteur.valeur, 1_200);
+    assert.equal(suivi().echeances.find((e: Quelconque) => e.id === 'revision').compteur, 1_700);
+    assert.equal(suivi().historique[0].compteur, 1_200);
+    assert.equal(suivi().totalAnnee, 540);
+
+    // le préavis au compteur se change aussi, en heures
+    await modifier({ heures: 1_650, heures_le: jour(-1) });
+    m = await appel('GET', '/monde');
+    assert.equal(echeance(m, o.id, 'revision').statut, 'bientot', 'préavis de départ : 50 h');
+    await modifier({ prevenir_heures: 10 });
+    m = await appel('GET', '/monde');
+    assert.equal(echeance(m, o.id, 'revision').statut, 'ok');
+    assert.equal(echeance(m, o.id, 'revision').prevenirCompteur, 10);
   });
 });
