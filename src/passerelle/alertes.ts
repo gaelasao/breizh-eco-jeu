@@ -162,7 +162,7 @@ const CANAUX_MAX = 5;
 const estObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
 const sansMention = (nom: string) => nom.replace(/\s*\((démo|fictif|fictive)\)/gi, '');
 /** Une seule ligne, sans caractère de contrôle : ce qui part vers un service extérieur ne porte jamais de mise en forme. */
-const uneLigne = (t: string) => t.replace(/[\u0000-\u001f\u007f-\u009f  ]+/g, ' ').replace(/ {2,}/g, ' ').trim();
+const uneLigne = (t: string) => t.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/ {2,}/g, ' ').trim();
 
 /** Quoi faire, selon le sujet et le type de l'objet. */
 function quoiFaire(sujet: string, type: string): string {
