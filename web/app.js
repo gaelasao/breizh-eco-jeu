@@ -24,6 +24,7 @@ import { ACTIONS_PANNEAU, ICONE_TON, RAYON_ANNEAU, RAYON_COUVERTURE, anneauSante
 import * as JEU from '/jeu.js';
 import { texteCsv } from '/csv.js';
 import * as REG from '/reglages.js';
+import * as SUIVI from '/suivi.js';
 import * as RESEAU from '/reseau.js';
 import * as SIMPLE from '/simplicite.js';
 
@@ -5247,7 +5248,7 @@ function rendreReglages(sous = E.sousReglages) {
   const R = {
     entreprise: rendreEntreprise, acces: rendreAcces, reseau: rendreReseau, apparence: () => remplir(zoneReglages(), blocApparence({ titre: false })),
     clavier: rendreClavier, carte: () => remplir(zoneReglages(), blocCarte()), notifications: rendreNotifications, outils: rendreOutils, cles: rendreCles,
-    sauvegardes: rendreSauvegardes, 'en-ligne': rendreEnLigne, nexus: rendreReglagesNexus, confidentialite: rendreConfidentialite, 'a-propos': rendreAPropos,
+    suivi: rendreSuivi, sauvegardes: rendreSauvegardes, 'en-ligne': rendreEnLigne, nexus: rendreReglagesNexus, confidentialite: rendreConfidentialite, 'a-propos': rendreAPropos,
   };
   return (R[page] ?? rendreEntreprise)();
 }
@@ -5347,6 +5348,113 @@ function rendreNotifications() {
       h('div', {}, h('a', { href: '#/reglages:apparence', class: 'bz-lien-fleche bz-lien-cible', onclick: (e) => { e.preventDefault(); changerVue('reglages:apparence'); } }, 'Régler le mode Calme dans Apparence et accessibilité', icone('arrow-right', { taille: 'sm' })))),
     sectionReglage('notif-activite', 'Activité récente', 'Chaque action annulable, la file d’attente hors ligne et les envois différés sont dans Activité récente (la cloche de l’en-tête).',
       h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirActivite() }, icone('bell'), 'Ouvrir Activité récente'))));
+}
+
+// ----- Mon fichier de suivi : le classeur de l'entreprise où tout s'écrit aussi (web/suivi.js décide QUOI montrer)
+let ETAT_SUIVI = { erreur: null, lien: '', precision: '', compte: null, types: false };
+async function rendreSuivi() {
+  const Z = zoneReglages();
+  if (!Z) return;
+  remplir(Z, h('p', { class: 'bz-t-petit bz-texte-2', 'aria-busy': 'true', texte: 'Lecture du fichier de suivi…' }));
+  let V;
+  try { V = await api('GET', '/suivi'); } catch (e) { ETAT_SUIVI = { ...ETAT_SUIVI, erreur: e.message }; V = null; }
+  if (E.vue !== 'reglages' || E.sousReglages !== 'suivi' || !zoneReglages()) return;
+  dessinerSuivi(V);
+}
+
+function dessinerSuivi(V) {
+  const Z = zoneReglages();
+  if (!Z) return;
+  const S = { ...ETAT_SUIVI };
+  ETAT_SUIVI = { ...ETAT_SUIVI, erreur: null };
+  const refaire = () => { if (E.vue === 'reglages' && E.sousReglages === 'suivi') void rendreSuivi(); };
+  const occupe = (e, oui) => e.submitter?.setAttribute('aria-busy', oui ? 'true' : 'false');
+  // le résultat passe par Activité récente (toast) : la page se redessine dès que l'envoi change l'état du jeu,
+  // un message posé dans la page disparaîtrait avec elle
+  const appel = async (bouton, faire) => {
+    bouton?.setAttribute('aria-busy', 'true');
+    try {
+      const r = await faire();
+      ETAT_SUIVI = { ...ETAT_SUIVI, erreur: null };
+      if (r) informer(r, 'ok');
+    } catch (err) { ETAT_SUIVI = { ...ETAT_SUIVI, erreur: err.message }; informer(err.message, 'critique'); }
+    bouton?.removeAttribute('aria-busy');
+    refaire();
+  };
+  const c = V?.classeur ?? null;
+  const prop = SUIVI.propositionLisible(V?.proposition);
+  const autres = SUIVI.autresComptes(V);
+  const etat = SUIVI.etatEnvoi(V ?? {});
+  const lien = c ? SUIVI.lienClasseur(c) : null;
+  // outil retenu pour une création (bouton principal, ou l'autre outil choisi)
+  const compte = S.compte ?? prop?.compte ?? autres[0]?.id ?? null;
+  const outilDe = (id) => (V?.comptes ?? []).find((x) => x.id === id) ?? null;
+  const creer = (id, bouton, lienClasseur = '') => appel(bouton, async () => {
+    const r = await api('POST', '/suivi', { compte: id, ...(lienClasseur ? { lien: lienClasseur } : {}), ...(S.precision ? { precision: S.precision } : {}) });
+    informer(lienClasseur ? 'Classeur relié : vos fiches vont s’y écrire.' : 'Fichier de suivi créé : vos fiches vont s’y écrire.', 'ok');
+    return r ? 'Fichier de suivi prêt.' : null;
+  });
+  const champPrecision = (id) => {
+    const o = outilDe(id);
+    if (!o || o.outil === 'sheets') return null;
+    const notion = o.outil === 'notion';
+    return h('div', { class: 'bz-champ' },
+      h('label', { class: 'bz-champ__libelle', for: 'suivi-precision', texte: notion ? 'Page Notion où ranger le fichier (facultatif)' : 'Espace de travail Airtable' }),
+      h('input', { id: 'suivi-precision', class: 'bz-champ__saisie', value: S.precision, maxlength: '300', placeholder: notion ? 'https://www.notion.so/…' : 'wsp…', oninput: (e) => { ETAT_SUIVI.precision = e.target.value.trim(); } }),
+      h('p', { class: 'bz-champ__aide', texte: notion ? 'Laissez vide pour le créer à la racine de votre espace. Partagez la page avec la connexion Notion (••• → Connexions).' : 'Airtable ne donne pas la liste de vos espaces : copiez l’identifiant wsp… de l’adresse airtable.com/wsp…' }));
+  };
+  remplir(Z,
+    messageEnLigne('critique', S.erreur),
+    sectionReglage('suivi-promesse', 'Ce que fait le fichier de suivi', SUIVI.PROMESSE, null),
+    // ----- pas encore de classeur : une phrase, un bouton
+    c ? null : prop ? sectionReglage('suivi-creer', 'Créer mon fichier de suivi', prop.phrase,
+      champPrecision(compte),
+      h('div', { class: 'bz-groupe-boutons' },
+        h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: (e) => creer(compte, e.currentTarget) }, icone('table'), compte === prop.compte ? prop.bouton : `Créer mon fichier de suivi dans ${outilDe(compte)?.nomOutil ?? 'mon espace'}`)),
+      autres.length ? h('div', { class: 'bz-groupe-boutons' }, autres.map((a) => h('button', {
+        type: 'button', class: 'bz-bouton bz-bouton--lien', 'aria-pressed': a.id === compte, onclick: () => { ETAT_SUIVI.compte = a.id; dessinerSuivi(V); },
+      }, `Je préfère ${a.nomOutil}`))) : null) : null,
+    c || prop ? null : sectionReglage('suivi-aucun', 'Créer mon fichier de suivi', 'Connectez d’abord un compte Google, Notion ou Airtable : le fichier de suivi se crée dans VOTRE espace, avec VOTRE compte.',
+      h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => changerVue('reglages:outils') }, icone('plug'), 'Connecter un compte'))),
+    // ----- j'ai déjà un classeur
+    c ? null : sectionReglage('suivi-deja', 'J’ai déjà un classeur', 'Le jeu y ajoute les onglets qui manquent et n’efface rien de ce qui s’y trouve.',
+      h('form', { class: 'bz-formulaire', novalidate: true, onsubmit: (e) => { e.preventDefault(); occupe(e, true); return creer(compte, e.submitter, S.lien); } },
+        h('div', { class: 'bz-champ' },
+          h('label', { class: 'bz-champ__libelle', for: 'suivi-lien', texte: 'Lien de mon classeur' }),
+          h('input', { id: 'suivi-lien', class: 'bz-champ__saisie', value: S.lien, maxlength: '500', placeholder: 'https://docs.google.com/spreadsheets/d/…', oninput: (e) => { ETAT_SUIVI.lien = e.target.value.trim(); } })),
+        h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'submit', class: 'bz-bouton bz-bouton--secondaire', disabled: compte ? null : true }, icone('link'), 'Utiliser ce classeur')))),
+    // ----- classeur en place
+    c ? sectionReglage('suivi-ou', 'Où il est', `${c.nomOutil} · créé ${dateRelative(c.creeLe)}`,
+      h('p', { class: 'bz-t-corps' }, h('strong', { texte: c.nom })),
+      lien ? h('p', {}, lienExterne(lien, 'Ouvrir mon fichier de suivi')) : h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Adresse indisponible.' })) : null,
+    c ? sectionReglage('suivi-etat', 'Dernier envoi', null,
+      encadre(etat.ton === 'ok' ? 'ok' : etat.ton === 'attention' ? 'attention' : 'info', etat.texte, V?.dernier ? `Envoi ${dateRelative(V.dernier.le)}.` : null),
+      h('div', { class: 'bz-groupe-boutons' },
+        h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: (e) => appel(e.currentTarget, async () => {
+          const r = await api('POST', '/suivi/maintenant');
+          return `${pluriel(r.envoyees, 'ligne envoyée', 'lignes envoyées', { zero: 'Rien de nouveau à envoyer' })}${r.restants ? `, ${pluriel(r.restants, 'envoi en attente', 'envois en attente')}` : ''}.`;
+        }) }, icone('refresh-cw'), 'Envoyer maintenant'))) : null,
+    // la liste des sortes de fiches est repliée : par défaut tout est suivi, la personne n'a rien à régler
+    c ? sectionReglage('suivi-types', 'Ce qui est suivi', `${SUIVI.resumeSuivis(V?.types)} Par défaut, tout l’est : vous n’avez rien à régler.`,
+      h('details', { class: 'bz-repli', open: S.types || null, ontoggle: (e) => { ETAT_SUIVI.types = e.currentTarget.open; } },
+        h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Choisir ce qui est suivi' }), icone('chevron-down', { taille: 'sm' })),
+        SUIVI.groupesTypes(V?.types).map((g) => h('fieldset', { class: 'bz-champ' },
+          h('legend', { class: 'bz-champ__libelle', texte: g.libelle }),
+          g.types.map((t) => interrupteurReglage({
+            cle: `suivi-type-${t.id}`, titre: t.libelle, actif: t.suivi,
+            aide: t.onglet ? `Onglet « ${t.onglet} »${t.lignes ? ` · ${pluriel(t.lignes, 'ligne', 'lignes')}` : ''}` : null,
+            regler: (v) => appel(null, async () => { await api('PUT', '/suivi', { type: t.id, suivi: v }); return null; }),
+          })))))) : null,
+    c ? sectionReglage('suivi-outils', 'Repartir d’un classeur propre', SUIVI.TEXTE_SUPPRESSION,
+      h('div', { class: 'bz-groupe-boutons' },
+        h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: async (e) => {
+          if (!(await confirmerDialogue({ titre: 'Tout réécrire ?', texte: SUIVI.TEXTE_REECRIRE, confirmer: 'Tout réécrire', annuler: 'Annuler' }))) return;
+          await appel(e.currentTarget, async () => { await api('POST', '/suivi/reecrire'); return 'Toutes vos fiches repartent vers le fichier de suivi.'; });
+        } }, icone('rotate-ccw'), 'Tout réécrire'),
+        h('button', { type: 'button', class: 'bz-bouton bz-bouton--danger', onclick: async (e) => {
+          if (!(await confirmerDialogue({ titre: 'Ne plus suivre ce fichier ?', texte: SUIVI.TEXTE_DETACHER, confirmer: 'Ne plus suivre', annuler: 'Garder', danger: true }))) return;
+          await appel(e.currentTarget, async () => { await api('DELETE', '/suivi'); return 'Le jeu n’écrit plus dans ce fichier. Il reste chez vous.'; });
+        } }, icone('unlink'), 'Ne plus suivre'))) : null);
 }
 
 // ----- Confidentialité : ce qui sort, et vers qui (P3 : la vérité des données)

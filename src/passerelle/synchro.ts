@@ -93,6 +93,13 @@ export interface ConnecteurEnregistre {
   creeLe: string;
   /** Temps réel (temps-reel.ts) : abonnement chez l'outil et chez Breizhcosystem ; absent : relu à son intervalle. */
   tempsReel?: EtatTempsReel;
+  /**
+   * Branchement posé par le miroir de suivi (`miroir.ts`) sur un onglet du fichier de suivi : il ne fait que LIRE,
+   * pour que les lignes ajoutées à la main entrent dans le jeu. Il n'apparaît pas dans la liste des logiciels
+   * connectés (il se règle dans Réglages → « Mon fichier de suivi »), il ne retient aucune fiche pour les autres
+   * branchements, et il relie une ligne à sa fiche sans demander de confirmation : le classeur est celui du jeu.
+   */
+  miroir?: boolean;
 }
 
 /**
@@ -317,13 +324,87 @@ export class Synchro {
 
   lister(p: Profil) {
     this.#admin(p);
-    return [...this.#connecteurs.values()].map((c) => this.#vue(c));
+    return [...this.#connecteurs.values()].filter((c) => !c.miroir).map((c) => this.#vue(c));
   }
 
-  /** Statut résumé pour la barre (sans détail sensible). */
+  /** Statut résumé pour la barre (sans détail sensible). Le miroir de suivi a son propre état, dans Réglages. */
   resume() {
-    const liste = [...this.#connecteurs.values()].filter((c) => c.actif);
+    const liste = [...this.#connecteurs.values()].filter((c) => c.actif && !c.miroir);
     return { actifs: liste.length, enErreur: liste.filter((c) => c.statut === 'erreur').length, derniere: liste.map((c) => c.derniereSynchro).filter(Boolean).sort().at(-1) ?? null };
+  }
+
+  // ---------------------------------------------------------------- miroir de suivi (miroir.ts)
+
+  /**
+   * Comptes branchés capables d'écrire chez l'outil avec une connexion « Se connecter avec… » : le miroir de suivi
+   * s'en sert pour créer le fichier de suivi dans l'espace de l'entreprise, sans nouvelle connexion à faire.
+   */
+  comptesEcriture(): { id: string; source: TypeSource; fournisseur: FournisseurOAuth; nom: string }[] {
+    const r: { id: string; source: TypeSource; fournisseur: FournisseurOAuth; nom: string }[] = [];
+    for (const c of this.#connecteurs.values()) {
+      if (c.miroir || !c.actif || !ADAPTATEURS[c.source].ecriture) continue;
+      const connexion = lireEnveloppe(this.#secretDechiffre(c));
+      if (!connexion || connexion.droits === 'lecture') continue;
+      r.push({ id: c.id, source: c.source, fournisseur: connexion.fournisseur, nom: c.nom });
+    }
+    return r;
+  }
+
+  /**
+   * Appel à l'outil d'un compte, avec SA connexion (renouvelée par le relais au besoin) et une configuration propre
+   * au miroir : le jeton ne sort jamais d'ici.
+   */
+  async avecCompte<T>(idCompte: string, config: Readonly<Record<string, string>>, appel: (cfg: Config, secret: string | null, f: Recuperateur) => Promise<T>): Promise<T> {
+    const c = this.#trouver(idCompte);
+    return this.#avecSecret(config, this.#secret(c), this.#contexte(c), (cfg, s) => appel(cfg, s, this.#f));
+  }
+
+  /** Branchement de LECTURE posé par le miroir sur un onglet du fichier de suivi. Renvoie son identifiant. */
+  creerMiroir(a: { compte: string; source: TypeSource; nom: string; typeObjet: string; config: Record<string, string>; mapping: Record<string, string> }): string {
+    const compte = this.#trouver(a.compte);
+    if (!ADAPTATEURS[a.source]) throw new ErreurApi(400, 'source_inconnue');
+    const c: ConnecteurEnregistre = {
+      id: `cx-${randomUUID().replace(/-/g, '').slice(0, 12)}`, source: a.source, nom: a.nom.slice(0, 80), typeObjet: a.typeObjet, roles: [],
+      mapping: a.mapping, config: a.config, secret: compte.secret, secretEntrant: null, sens: 'lecture', intervalleS: 300, actif: true,
+      liens: {}, empreintes: {}, derniereSynchro: null, statut: 'jamais', message: null, historique: [], creeLe: this.#monde.maintenant().toISOString(), miroir: true,
+    };
+    this.#connecteurs.set(c.id, c);
+    this.#changement();
+    if (this.#eligible(c) && this.#reseau?.relie()) void this.entretenirTempsReel();
+    return c.id;
+  }
+
+  existeMiroir(id: string): boolean {
+    return this.#connecteurs.get(id)?.miroir === true;
+  }
+
+  /** Retire un branchement du miroir. L'accès à l'outil reste : c'est celui du compte, partagé. */
+  supprimerMiroir(id: string): void {
+    const c = this.#connecteurs.get(id);
+    if (!c?.miroir) return;
+    this.#connecteurs.delete(id);
+    const regroupe = this.#regroupes.get(id);
+    if (regroupe) { clearTimeout(regroupe); this.#regroupes.delete(id); }
+    void this.#arreterTempsReel(c, this.#secretDechiffre(c)).catch(() => undefined);
+    this.#changement();
+  }
+
+  /** Ligne écrite par le miroir : reliée à sa fiche, pour qu'une relecture ne crée pas de doublon. */
+  lierMiroir(id: string, externeId: string, objId: string): void {
+    const c = this.#connecteurs.get(id);
+    if (!c?.miroir || c.liens[externeId] === objId) return;
+    c.liens[externeId] = objId;
+    c.liensFaibles = (c.liensFaibles ?? []).filter((x) => x !== externeId);
+    const e = this.#monde.empreinte(objId);
+    if (e) c.empreintes[objId] = e;
+    this.#changement();
+  }
+
+  /** Ligne du classeur reliée à cette fiche (fiche née d'une ligne ajoutée à la main) ; null si elle n'en a pas. */
+  externeIdMiroir(id: string, objId: string): string | null {
+    const c = this.#connecteurs.get(id);
+    if (!c?.miroir) return null;
+    return Object.entries(c.liens).find(([, o]) => o === objId)?.[0] ?? null;
   }
 
   #lireConfig(source: TypeSource, d: Record<string, unknown>, ancienne: Record<string, string> = {}) {
@@ -870,7 +951,9 @@ export class Synchro {
     const enAttente = new Set(Object.values(c.liens).filter((objId) => c.empreintes[objId] && this.#monde.empreinte(objId) !== c.empreintes[objId]));
     // Rapprochement par le nom (évite les doublons) : jamais avec une fiche déjà tenue par un AUTRE outil, jamais si
     // l'e-mail ou le SIRET diffèrent ; le lien reste « faible » : l'outil complète la fiche sans rien écraser.
-    const tenues = new Set([...this.#connecteurs.values()].filter((x) => x.id !== c.id).flatMap((x) => Object.values(x.liens)));
+    // un branchement du miroir ne retient aucune fiche pour les autres, et n'est retenu par aucun : le fichier de
+    // suivi reflète tout le jeu, y compris ce qui vient d'un autre logiciel
+    const tenues = c.miroir ? new Set<string>() : new Set([...this.#connecteurs.values()].filter((x) => x.id !== c.id && !x.miroir).flatMap((x) => Object.values(x.liens)));
     const faibles = new Set(c.liensFaibles ?? []);
     const exclus = new Set(c.exclus ?? []);
     const separes = new Set(c.separes ?? []);
@@ -882,7 +965,8 @@ export class Synchro {
       for (const [ext, cible] of Object.entries(c.mapping)) if (ext in e.champs) valeurs[cible] = e.champs[ext] ?? '';
       if (!c.liens[e.externeId] && valeurs[NOM] && !separes.has(e.externeId)) {
         const existant = this.#monde.rapprocher(c.typeObjet, valeurs[NOM], { exclus: tenues, valeurs });
-        if (existant && !Object.values(c.liens).includes(existant)) { c.liens[e.externeId] = existant; faibles.add(e.externeId); }
+        // miroir : la ligne vient du classeur du jeu, elle désigne bien cette fiche — rien à confirmer
+        if (existant && !Object.values(c.liens).includes(existant)) { c.liens[e.externeId] = existant; if (!c.miroir) faibles.add(e.externeId); }
       }
       // même e-mail ou même SIRET des deux côtés : c'est bien la même entité, le lien n'a pas (ou plus) à être confirmé
       if (faibles.has(e.externeId) && c.liens[e.externeId] && this.#monde.memeIdentifiantFort(c.liens[e.externeId] as string, valeurs)) faibles.delete(e.externeId);
@@ -961,7 +1045,7 @@ export class Synchro {
       } catch (err) { erreurs++; derniere = err instanceof Error ? err.message : 'erreur'; }
     }
     if (c.sens === 'deux' || c.sens === 'ecriture') {
-      const autres = new Set([...this.#connecteurs.values()].filter((x) => x.id !== c.id).flatMap((x) => Object.values(x.liens)));
+      const autres = new Set([...this.#connecteurs.values()].filter((x) => x.id !== c.id && !x.miroir).flatMap((x) => Object.values(x.liens)));
       for (const o of this.#monde.objetsReels()) {
         if (o.type !== c.typeObjet || o.mode !== 'reel' || parObjet.has(o.id) || autres.has(o.id) || o.source.id.startsWith('connecteur:') || o.source.id === 'effacement') continue;
         if (c.roles.length && !o.roles.some((r) => c.roles.includes(r))) continue;
