@@ -4,15 +4,15 @@
   "fichiers": {
     "tokens.css": {
       "octets": 33320,
-      "gzip": 10137,
-      "brotli": 8896,
-      "sha256": "90112d19be11d292e927a8736e2ed56fef82046fe7940c54f9d7789475f6b9a2"
+      "gzip": 10138,
+      "brotli": 8895,
+      "sha256": "7a57996950cf052ecffc5148a46e38cce043f7d8a563a662371d6fa83633c193"
     },
     "tokens.min.css": {
       "octets": 18137,
-      "gzip": 4620,
-      "brotli": 4015,
-      "sha256": "76200e886a3a35dab0b58357782c3198d8d0539a6695e7045f021833ad3332a1"
+      "gzip": 4619,
+      "brotli": 4016,
+      "sha256": "15b64093af6a512ba35d9d1754826f434ac7e002521b5d0e2bc2a974ae45b53f"
     }
   }
 }

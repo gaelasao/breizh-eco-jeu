@@ -73,14 +73,14 @@
 |---|---|---|
 | encre jour / quartier clients jour | 4,5:1 | 9,39 |
 | encre jour / quartier fournisseurs jour | 4,5:1 | 7,76 |
-| encre jour / quartier partenaires jour | 4,5:1 | 6,30 |
+| encre jour / quartier partenaires jour | 4,5:1 | 5,83 |
 | encre jour / quartier equipe jour | 4,5:1 | 9,12 |
 | encre jour / quartier stock jour | 4,5:1 | 7,15 |
 | encre jour / quartier prospects jour | 4,5:1 | 11,21 |
 | encre jour / halo jour | 4,5:1 | 14,64 |
 | encre nuit / quartier clients nuit | 4,5:1 | 10,14 |
 | encre nuit / quartier fournisseurs nuit | 4,5:1 | 12,82 |
-| encre nuit / quartier partenaires nuit | 4,5:1 | 10,51 |
+| encre nuit / quartier partenaires nuit | 4,5:1 | 10,38 |
 | encre nuit / quartier equipe nuit | 4,5:1 | 10,58 |
 | encre nuit / quartier stock nuit | 4,5:1 | 12,50 |
 | encre nuit / quartier prospects nuit | 4,5:1 | 8,95 |

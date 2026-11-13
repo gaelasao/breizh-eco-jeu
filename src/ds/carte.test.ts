@@ -413,6 +413,24 @@ test('carte : murs de la maison de poupée, abaissés par orientation face à la
   assert.deepEqual(mursBaisses([0, -1]), [0, 0, 0, 0, 1]);
   assert.equal(echelleMur(0, 3.4), 1);
   assert.ok(Math.abs(echelleMur(1, 3.4) * 3.4 - ALLEGE) < 1e-9, 'abaissé à hauteur d’allège');
+
+  /* Pièces fines d'un mur abaissé (§5.11) : écrasées au tiers, le bandeau d'accent de 8 cm et les montants de
+     menuiserie tombent sous le pixel et crénèlent l'arête. Elles quittent l'image tant que le mur est abaissé ;
+     le mur garde ce qui se lit encore : son allège, sa vitre, son linteau. */
+  const scene = lire('web/scene.js');
+  assert.ok(0.08 * echelleMur(1, 3.4) < 0.025, 'le bandeau de 8 cm écrasé fait moins de 2,5 cm');
+  assert.match(scene, /const menuiserie = \(me\) => \{ me\.userData\.menuiserie = true; return me; \};/);
+  assert.match(scene, /menuiserie\(piece\(B2\(long, 0\.08, e \+ 0\.04\), mat\(accent\)/, 'le bandeau d’accent');
+  assert.match(scene, /menuiserie\(piece\(B2\(0\.06, linteau - allege, 0\.12\), mat\(P\.cadre\)/, 'les montants de menuiserie');
+  assert.doesNotMatch(scene, /menuiserie\(piece\(B2\(long, allege, e\)/, 'l’allège, elle, reste');
+  // portée jusqu'au shader : un drapeau par sommet, lu avec l'orientation du mur
+  assert.match(scene, /attribute vec3 aDrap; \/\/ ombre portée, fenêtre qui s'allume la nuit, menuiserie du mur/);
+  assert.match(scene, /bool murBaisse\(\) \{ return aInfo\.w > 0\.5 && uBaisse\[int\(aInfo\.w \+ 0\.5\)\] > 0\.5; \}/);
+  assert.match(scene, /aDrap\.z > 0\.5 && murBaisse\(\)/, 'la pièce fine quitte l’image quand le mur s’abaisse');
+  assert.match(scene, /drap\[\(o \+ i\) \* 3 \+ 2\] = menuiserie \? 1 : 0;/, 'drapeau cuit dans le lot');
+  // la fusion par matériau et le contour permanent gardent le drapeau, sinon l'arête crénellerait quand même
+  assert.match(scene, /if \(fine\) me\.userData\.menuiserie = true;/);
+  assert.match(scene, /if \(x\.userData\.menuiserie === true\) c\.userData\.menuiserie = true;/);
 });
 
 test('carte : atlas des enseignes, une page partagée (un seul appel de dessin)', async () => {
