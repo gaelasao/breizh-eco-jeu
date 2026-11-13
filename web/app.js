@@ -1127,13 +1127,15 @@ function objetsDeVue(vue) {
 const STOCKAGE_LOCAL = { getItem: lireLocal, setItem: ecrireLocal };
 const toutAffiche = () => Boolean(E.simplicite.tout);
 /** Une rubrique est-elle à montrer ? Débloquée par les données, ou « Tout afficher ». */
-const rubriqueMontree = (id) => toutAffiche() || E.deblocages[id] !== false;
-/** Le menu tel qu'on le montre : rubriques débloquées, celle où l'on est, celles où quelque chose est dû. */
+/** Rubriques déjà ouvertes une fois sur cet appareil : elles restent dans le menu (on doit pouvoir y revenir). */
+const rubriquesVues = () => (Array.isArray(E.simplicite?.vues) ? E.simplicite.vues : null);
+const rubriqueMontree = (id) => toutAffiche() || E.deblocages[id] !== false || Boolean(rubriquesVues()?.includes(id));
+/** Le menu tel qu'on le montre : rubriques débloquées ou déjà ouvertes, celle où l'on est, celles où quelque chose est dû. */
 function menuMontre() {
-  return SIMPLE.menuAffiche(navigation(), E.deblocages, { tout: toutAffiche(), vue: E.vue });
+  return SIMPLE.menuAffiche(navigation(), E.deblocages, { tout: toutAffiche(), vue: E.vue, vues: rubriquesVues() });
 }
 function piedMenu() {
-  return SIMPLE.entreesAffichees(piedNavigation(E.monde), E.deblocages, { tout: toutAffiche(), vue: E.vue });
+  return SIMPLE.entreesAffichees(piedNavigation(E.monde), E.deblocages, { tout: toutAffiche(), vue: E.vue, vues: rubriquesVues() });
 }
 /** Entrées du menu qui attendent encore leurs données (sans elles, « Tout afficher » n'aurait rien à montrer de plus). */
 const rubriquesEnAttente = () => SIMPLE.entreesEnAttente(navigation(), piedNavigation(E.monde), E.deblocages);

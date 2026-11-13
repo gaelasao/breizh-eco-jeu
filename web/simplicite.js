@@ -94,8 +94,8 @@ export const RUBRIQUES = Object.freeze(Object.fromEntries(Object.entries({
     manque: 'Personne dans l’équipe pour le moment.',
   },
   sante: {
-    regle: 'Apparaît dès qu’un score peut être calculé : au moins un critère sur cinq est renseigné.',
-    debloque: (f) => f.scoreSante,
+    regle: 'Apparaît dès qu’il y a de quoi la mesurer : un client, ou de l’activité (commande, stock, courrier, document, tâche).',
+    debloque: (f) => f.scoreSante || f.clients > 0 || f.activite > 0,
     sert: 'Un score sur 100 et vos priorités, calculés sur vos données. Ce n’est pas une notation de crédit.',
     premier: 'regardez vos priorités : la première a son bouton.',
     manque: 'Pas encore assez de données pour un score.',
@@ -221,20 +221,21 @@ export function deblocages(m) {
 }
 
 /**
- * Une entrée est montrée si sa rubrique est débloquée, si l'on s'y trouve (lien direct, recherche), ou si quelque chose
- * y est dû (compteur d'actions). Une entrée sans règle n'est jamais retirée.
+ * Une entrée est montrée si sa rubrique est débloquée, si on l'a déjà ouverte une fois (`vues`), si l'on s'y trouve
+ * (lien direct, recherche), ou si quelque chose y est dû (compteur d'actions). Une entrée sans règle n'est jamais
+ * retirée. Une rubrique déjà ouverte ne disparaît plus : on y a été envoyé, on doit pouvoir y revenir (Santé).
  */
-const montree = (e, d, vue) => d[e.id] !== false || (e.compte ?? 0) > 0 || (vue !== null && estCourante(e, vue));
+const montree = (e, d, vue, vues) => d[e.id] !== false || (e.compte ?? 0) > 0 || (vue !== null && estCourante(e, vue)) || (vues ?? []).includes(e.id);
 
 /** Entrées montrées d'une liste à plat (pied du rail). d : deblocages(monde) ; tout : « Tout afficher ». */
-export function entreesAffichees(entrees, d, { tout = false, vue = null } = {}) {
-  return tout ? entrees : entrees.filter((e) => montree(e, d, vue));
+export function entreesAffichees(entrees, d, { tout = false, vue = null, vues = null } = {}) {
+  return tout ? entrees : entrees.filter((e) => montree(e, d, vue, vues));
 }
 
 /** Groupes du menu tels qu'on les montre : un groupe sans entrée montrée disparaît. */
-export function menuAffiche(groupes, d, { tout = false, vue = null } = {}) {
+export function menuAffiche(groupes, d, { tout = false, vue = null, vues = null } = {}) {
   if (tout) return groupes;
-  return groupes.map((g) => ({ ...g, entrees: g.entrees.filter((e) => montree(e, d, vue)) })).filter((g) => g.entrees.length);
+  return groupes.map((g) => ({ ...g, entrees: g.entrees.filter((e) => montree(e, d, vue, vues)) })).filter((g) => g.entrees.length);
 }
 
 /** Entrées que la simplicité retire aujourd'hui du menu : s'il n'y en a pas, « Tout afficher » n'a pas lieu d'être. */
