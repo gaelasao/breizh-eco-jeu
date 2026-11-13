@@ -376,6 +376,8 @@ test('un engin de chantier se suit comme un véhicule, mais en heures de service
     assert.equal(V.planListe(m).resume, '1 engin, rien à prévoir pour l’instant.');
     assert.equal(V.planFiche(engin(), m).identite, 'Mini-pelle · P-12');
     assert.deepEqual(m.situations, [], 'un engin sans rien ne produit aucune alerte');
+    // le menu ne peut pas dire « Véhicules » quand ce qu'il ouvre est une mini-pelle
+    assert.equal(N.titreDeVue(N.groupesNavigation(m), 'vehicules'), 'Matériel');
 
     // échéance au compteur : prévenue en heures, jamais en kilomètres
     await modifier({ heures: 1_180, heures_le: jour(-2), revision_heures: 1_200, revision_toutes_les_heures: 500 });

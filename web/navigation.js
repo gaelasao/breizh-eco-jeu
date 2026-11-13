@@ -22,9 +22,21 @@ export const tacheDue = (o, maintenant = new Date()) => { const e = valeurDe(o, 
 export const tachesDues = (m, maintenant = new Date()) => tachesOuvertes(m).filter((o) => tacheDue(o, maintenant)).length;
 
 const APRESENT = new Set(['depassee', 'aujourdhui', 'bientot']);
-/** Échéances de véhicule à prévoir (le compteur de « Véhicules » : une chose due, jamais la taille de la flotte). */
+/** Échéances de matériel à prévoir (le compteur de la rubrique : une chose due, jamais la taille de la flotte). */
 export const echeancesVehicules = (m) => (m.objets ?? [])
   .reduce((n, o) => n + (o.vehicule?.echeances ?? []).filter((e) => APRESENT.has(e.statut)).length, 0);
+
+/**
+ * Comment nommer la rubrique du matériel roulant. Une entreprise qui n'a que des véhicules lit « Véhicules » ;
+ * dès qu'un engin de chantier est suivi, le mot qui couvre les deux est « Matériel » — c'est déjà celui que
+ * l'écran emploie (« 4 matériels », « Ajouter un matériel »), le menu ne doit pas dire autre chose.
+ */
+export function motMateriel(m) {
+  const engin = (m.objets ?? []).some((o) => o.vehicule?.sorte === 'engin');
+  return engin
+    ? { libelle: 'Matériel', singulier: 'échéance de matériel à prévoir', pluriel: 'échéances de matériel à prévoir' }
+    : { libelle: 'Véhicules', singulier: 'échéance de véhicule à prévoir', pluriel: 'échéances de véhicule à prévoir' };
+}
 
 /**
  * Groupes du rail, dans l'ordre (§6.1 P1) : Aujourd'hui · Planning · Pilotage · Relations · Activité · Réseau.
@@ -41,6 +53,7 @@ export function groupesNavigation(m, { aFaire = 0, vueAujourdhui = 'carte', main
   const trous = m.planning?.trousAujourdhui || 0;
   const dues = tachesDues(m, maintenant);
   const vehicules = echeancesVehicules(m);
+  const materiel = motMateriel(m);
   const p = m.profil ?? {};
   const groupes = [
     { id: 'aujourdhui', libelle: 'Aujourd’hui', entrees: [
@@ -71,8 +84,8 @@ export function groupesNavigation(m, { aFaire = 0, vueAujourdhui = 'carte', main
     { id: 'activite', libelle: 'Activité', entrees: [
       { id: 'commandes', vue: 'famille:commande', libelle: 'Commandes', icone: 'receipt' },
       { id: 'stock', vue: 'famille:ressource', libelle: 'Stock', icone: 'package', raccourci: 'g s' },
-      { id: 'vehicules', vue: 'vehicules', prefixes: ['vehicule:'], libelle: 'Véhicules', icone: 'truck',
-        compte: vehicules, compteLibelle: vehicules ? pluriel(vehicules, 'échéance de véhicule à prévoir', 'échéances de véhicule à prévoir') : '' },
+      { id: 'vehicules', vue: 'vehicules', prefixes: ['vehicule:'], libelle: materiel.libelle, icone: 'truck',
+        compte: vehicules, compteLibelle: vehicules ? pluriel(vehicules, materiel.singulier, materiel.pluriel) : '' },
       { id: 'documents', vue: 'type:document', libelle: 'Documents', icone: 'file-text' },
       { id: 'lieux', vue: 'famille:lieu', libelle: 'Lieux', icone: 'map-pin' },
     ] },
