@@ -18,10 +18,42 @@
     { "id": "article", "libelle": "Matériau", "pluriel": "Matériaux" },
     {
       "id": "engin", "famille": "ressource", "libelle": "Engin", "pluriel": "Engins", "icone": "engin",
-      "champs": [{ "id": "disponible", "libelle": "Disponible", "type": "booleen" }]
+      "champs": [
+        { "id": "lieu", "libelle": "Rattaché à", "type": "reference", "cible": { "famille": "lieu" } },
+        { "id": "departement", "libelle": "Département", "type": "reference", "cible": { "famille": "departement" } },
+        { "id": "numero_parc", "libelle": "Numéro de parc", "type": "texte" },
+        { "id": "disponible", "libelle": "Disponible", "type": "booleen" },
+        { "id": "genre", "libelle": "Type d'engin", "type": "choix", "choix": ["pelle", "chargeuse", "nacelle", "compacteur", "mini-pelle", "groupe électrogène", "autre"] },
+        { "id": "conducteur", "libelle": "Utilisé par", "type": "reference", "cible": { "famille": "personne" } },
+        { "id": "heures", "libelle": "Heures de service", "type": "nombre", "unite": "h" },
+        { "id": "heures_le", "libelle": "Heures relevées le", "type": "date" },
+        { "id": "prevenir_jours", "libelle": "Prévenir avant une échéance", "type": "nombre", "unite": "jours" },
+        { "id": "prevenir_heures", "libelle": "Prévenir avant une échéance au compteur", "type": "nombre", "unite": "h" },
+        { "id": "prochaine_revision", "libelle": "Prochaine révision", "type": "date" },
+        { "id": "revision_heures", "libelle": "Révision au compteur", "type": "nombre", "unite": "h" },
+        { "id": "revision_tous_les_mois", "libelle": "Révision tous les", "type": "nombre", "unite": "mois" },
+        { "id": "revision_toutes_les_heures", "libelle": "Révision toutes les", "type": "nombre", "unite": "h" },
+        { "id": "controle_periodique_le", "libelle": "Contrôle périodique le", "type": "date" },
+        { "id": "controle_periodique_heures", "libelle": "Contrôle périodique au compteur", "type": "nombre", "unite": "h" },
+        { "id": "controle_periodique_tous_les_mois", "libelle": "Contrôle périodique tous les", "type": "nombre", "unite": "mois" },
+        { "id": "controle_periodique_toutes_les_heures", "libelle": "Contrôle périodique toutes les", "type": "nombre", "unite": "h" },
+        { "id": "verification_generale_le", "libelle": "Vérification générale le", "type": "date" },
+        { "id": "verification_generale_tous_les_mois", "libelle": "Vérification générale tous les", "type": "nombre", "unite": "mois" },
+        { "id": "autre_libelle", "libelle": "Autre échéance, son nom", "type": "texte" },
+        { "id": "autre_le", "libelle": "Autre échéance le", "type": "date" },
+        { "id": "autre_heures", "libelle": "Autre échéance au compteur", "type": "nombre", "unite": "h" },
+        { "id": "autre_tous_les_mois", "libelle": "Autre échéance tous les", "type": "nombre", "unite": "mois" },
+        { "id": "autre_toutes_les_heures", "libelle": "Autre échéance toutes les", "type": "nombre", "unite": "h" }
+      ]
     }
   ],
   "regles": [
     { "id": "retard_projet", "libelle": "Retard du chantier", "type": "projet", "champ": "retard_jours", "sens": "max", "seuil": 0, "seuilCritique": 10, "unite": "jours" }
+  ],
+  "echeances": [
+    { "id": "revision_engin", "libelle": "Révision", "type": "engin", "champ": "prochaine_revision", "critiqueApresJours": 7, "avantJours": 21, "champAvantJours": "prevenir_jours" },
+    { "id": "controle_periodique_engin", "libelle": "Contrôle périodique", "type": "engin", "champ": "controle_periodique_le", "critiqueApresJours": 0, "avantJours": 30, "champAvantJours": "prevenir_jours" },
+    { "id": "verification_generale_engin", "libelle": "Vérification générale", "type": "engin", "champ": "verification_generale_le", "critiqueApresJours": 0, "avantJours": 30, "champAvantJours": "prevenir_jours" },
+    { "id": "echeance_engin", "libelle": "Échéance de l'engin", "type": "engin", "champ": "autre_le", "critiqueApresJours": 7, "avantJours": 21, "champAvantJours": "prevenir_jours", "champLibelle": "autre_libelle" }
   ]
 }
