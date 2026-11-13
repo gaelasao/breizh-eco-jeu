@@ -469,7 +469,7 @@ export class LienNexus {
         body: corps === undefined ? null : JSON.stringify(corps),
       });
     } catch {
-      throw new ErreurApi(502, 'nexus_injoignable', 'Breizhcosystem ne répond pas : votre jeu continue de fonctionner, réessayez plus tard.');
+      throw new ErreurApi(502, 'nexus_injoignable', 'Breizhcosystem ne répond pas : Living Business continue de fonctionner, réessayez plus tard.');
     }
     const texte = await lireTexteBorne(r, 5_000_000, 'Réponse de Breizhcosystem trop volumineuse.').catch((e: unknown) => {
       throw new ErreurApi(502, 'nexus_injoignable', e instanceof ErreurSortante ? e.message : 'Breizhcosystem ne répond pas : réessayez plus tard.');
@@ -491,7 +491,7 @@ export class LienNexus {
     if (r.status === 403 && avecCle && code === 'entreprise_suspendue') {
       this.#suspendue ??= { depuis: new Date().toISOString(), message: null };
       this.#suspendue.message = message === null ? null : message.slice(0, 300);
-      throw new ErreurApi(409, 'nexus_suspendu', 'Breizhcosystem a suspendu l’accès de votre entreprise. La liaison est conservée : tout reprendra dès la levée de la suspension. Votre jeu continue de fonctionner.');
+      throw new ErreurApi(409, 'nexus_suspendu', 'Breizhcosystem a suspendu l’accès de votre entreprise. La liaison est conservée : tout reprendra dès la levée de la suspension. Living Business continue de fonctionner.');
     }
     // un autre refus de Breizhcosystem ne doit pas passer pour la fin de VOTRE session dans le jeu (401) : erreur de Breizhcosystem
     if (r.status === 401) throw new ErreurApi(502, code ?? 'nexus_refus', 'Breizhcosystem a refusé la demande : réessayez plus tard.');

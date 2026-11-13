@@ -4009,7 +4009,7 @@ function contenuAssistant(A) {
   if (A.etape === 'recuperer') return [corpsRecuperer(A.outil), [boutonRetour('connexion'),
     A.outil?.apercu ? boutonPrincipal('Continuer', () => allerEtape('colonnes')) : null]];
   if (A.etape === 'colonnes' && A.parcours === 'outil') return [corpsColonnesOutil(A.outil), [boutonRetour('recuperer'),
-    boutonPrincipal(`Importer ${pluriel(A.outil?.apercu?.enregistrements ?? 0, 'fiche', 'fiches')} dans le jeu`, () => activerOutil(A.outil), { occupe: A.envoi, enCours: 'Import…' })]];
+    boutonPrincipal(`Importer ${pluriel(A.outil?.apercu?.enregistrements ?? 0, 'fiche', 'fiches')} dans Living Business`, () => activerOutil(A.outil), { occupe: A.envoi, enCours: 'Import…' })]];
   if (A.etape === 'colonnes') return [corpsColonnes(A), [boutonRetour('fichier'), boutonPrincipal(`Importer ${pluriel(A.analyse?.lignes ?? 0, 'ligne', 'lignes')}`, confirmer, { occupe: A.envoi, enCours: 'Import…' })]];
   if (A.etape === 'connexion') return [corpsConnexion(A.outil), [boutonRetour('choisir'), piedConnexion(A.outil)]];
   if (A.etape === 'fec') return [corpsFec(A), [boutonRetour('choisir')]];
@@ -5731,7 +5731,7 @@ function dessinerSuivi(V) {
     c || prop ? null : sectionReglage('suivi-aucun', 'Créer mon fichier de suivi', 'Connectez d’abord un compte Google, Notion ou Airtable : le fichier de suivi se crée dans VOTRE espace, avec VOTRE compte.',
       h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => changerVue('reglages:outils') }, icone('plug'), 'Connecter un compte'))),
     // ----- j'ai déjà un classeur
-    c ? null : sectionReglage('suivi-deja', 'J’ai déjà un classeur', 'Le jeu y ajoute les onglets qui manquent et n’efface rien de ce qui s’y trouve.',
+    c ? null : sectionReglage('suivi-deja', 'J’ai déjà un classeur', 'Living Business y ajoute les onglets qui manquent et n’efface rien de ce qui s’y trouve.',
       h('form', { class: 'bz-formulaire', novalidate: true, onsubmit: (e) => { e.preventDefault(); occupe(e, true); return creer(compte, e.submitter, S.lien); } },
         h('div', { class: 'bz-champ' },
           h('label', { class: 'bz-champ__libelle', for: 'suivi-lien', texte: 'Lien de mon classeur' }),
@@ -5767,7 +5767,7 @@ function dessinerSuivi(V) {
         } }, icone('rotate-ccw'), 'Tout réécrire'),
         h('button', { type: 'button', class: 'bz-bouton bz-bouton--danger', onclick: async (e) => {
           if (!(await confirmerDialogue({ titre: 'Ne plus suivre ce fichier ?', texte: SUIVI.TEXTE_DETACHER, confirmer: 'Ne plus suivre', annuler: 'Garder', danger: true }))) return;
-          await appel(e.currentTarget, async () => { await api('DELETE', '/suivi'); return 'Le jeu n’écrit plus dans ce fichier. Il reste chez vous.'; });
+          await appel(e.currentTarget, async () => { await api('DELETE', '/suivi'); return 'Living Business n’écrit plus dans ce fichier. Il reste chez vous.'; });
         } }, icone('unlink'), 'Ne plus suivre'))) : null);
 }
 
@@ -6083,7 +6083,7 @@ async function rendreMisesAJour(M = null) {
     messageEnLigne('critique', M.erreur),
     h('dl', { class: 'bz-champs-fiche' }, [['Version installée', M.actuelle || '—'], ['Dernière version publiée', M.derniere ?? 'inconnue'], ['Dernière vérification', M.verifieLe ? dateHeure(M.verifieLe) : 'jamais']]
       .map(([k, v]) => h('div', { class: 'bz-champ-fiche' }, h('dt', { class: 'bz-champ-fiche__libelle', texte: k }), h('dd', { class: 'bz-champ-fiche__valeur', texte: v })))),
-    interrupteurReglage({ cle: 'maj-auto', titre: 'Vérifier chaque jour', actif: Boolean(M.auto), aide: enLigne ? 'Recommandé pour un jeu en ligne, exposé sur Internet.' : 'Sinon, vérifiez de temps en temps avec le bouton ci-dessous.', regler: (auto) => agir(() => api('PUT', '/mises-a-jour', { auto })) }),
+    interrupteurReglage({ cle: 'maj-auto', titre: 'Vérifier chaque jour', actif: Boolean(M.auto), aide: enLigne ? 'Recommandé pour une installation en ligne, exposée sur Internet.' : 'Sinon, vérifiez de temps en temps avec le bouton ci-dessous.', regler: (auto) => agir(() => api('PUT', '/mises-a-jour', { auto })) }),
     source,
     h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => agir(() => api('POST', '/mises-a-jour', {})) }, icone('refresh-cw'), 'Vérifier maintenant'),
       !enLigne && M.telechargement ? lienExterne(M.telechargement, 'Page de téléchargement de Breizhcosystem') : null)));
@@ -6681,7 +6681,7 @@ async function rendreReglagesNexus() {
         sectionReglage('nexus-lien', 'Entreprise reliée', null,
           h('p', { class: 'bz-t-label' }, N.organisation ?? 'Entreprise reliée', ' ', offre ? h('span', { class: offre === 'Breizhcosystem ACTIVE' ? 'bz-badge bz-badge--active' : 'bz-badge', texte: offre === 'Breizhcosystem ACTIVE' ? 'ACTIVE' : 'Gratuit' }) : null),
           h('p', { class: 'bz-t-petit bz-texte-2' }, h('span', { class: 'bz-t-identifiant', 'data-brut': '', texte: N.url }), N.dernierEnvoi ? ` · dernier envoi ${dateRelative(N.dernierEnvoi)}` : ' · pas encore d’envoi'),
-          N.suspendue ? encadre('attention', 'Accès à Breizhcosystem suspendu par l’éditeur.', `${N.suspendue.message ? `${N.suspendue.message} ` : ''}La liaison est conservée : inutile de relier de nouveau, tout reprendra dès la levée de la suspension. Votre jeu continue de fonctionner.`) : null,
+          N.suspendue ? encadre('attention', 'Accès à Breizhcosystem suspendu par l’éditeur.', `${N.suspendue.message ? `${N.suspendue.message} ` : ''}La liaison est conservée : inutile de relier de nouveau, tout reprendra dès la levée de la suspension. Living Business continue de fonctionner.`) : null,
           N.derniereErreur ? messageEnLigne('critique', 'Le dernier envoi a échoué.', N.derniereErreur) : null,
           h('div', { class: 'bz-groupe-boutons' },
             lienExterne(N.url, 'Ouvrir Breizhcosystem'),
@@ -6719,7 +6719,7 @@ function apercuPartage(A) {
       h('dd', { class: 'bz-champ-fiche__valeur' }, h('span', { texte: v }), ' ', h('span', { class: partent.has(cat) ? 'bz-badge bz-badge--ok' : 'bz-badge', texte: partent.has(cat) ? 'Part' : 'Ne part pas' }))))) : blocVide({ titre: 'Rien à envoyer pour l’instant.', compact: true }));
 }
 
-const LIBELLE_SENS = { lecture: 'De l’outil vers le jeu', deux: 'Dans les deux sens', ecriture: 'Du jeu vers l’outil' };
+const LIBELLE_SENS = { lecture: 'De l’outil vers Living Business', deux: 'Dans les deux sens', ecriture: 'De Living Business vers l’outil' };
 
 /**
  * « Se connecter avec… » : l'onglet est ouvert PENDANT le clic (sinon le navigateur le bloque), vide et sans lien vers
@@ -7113,7 +7113,7 @@ function champListe(id, libelle, valeur, options, onchange, { large = false } = 
 /** « À quoi ça correspond dans le jeu » : au-delà de 15 choix, une liste filtrable remplace le <select> (§4.6). */
 function selectCible(C, apres = null) {
   const cibles = ciblesImport();
-  const libelle = 'À quoi ça correspond dans le jeu ?';
+  const libelle = 'À quoi ça correspond dans Living Business ?';
   const choisir = (cle) => { C.cible = cibles.find((x) => x.cle === cle) ?? C.cible; apres?.(); };
   if (cibles.length <= 15) return champListe('outil-cible', libelle, C.cible?.cle ?? '', cibles.map((c) => [c.cle, c.libelle]), (e) => choisir(e.target.value));
   return h('div', { class: 'bz-champ' },
@@ -7376,9 +7376,9 @@ function corpsRecuperer(C) {
   // relecture seulement si un réglage a vraiment changé (sinon un simple rendu relancerait la lecture sans fin)
   const relire = () => { if (C.signatureApercu === signatureRecuperation(C)) return; C.apercu = null; majOutil(C); chargerApercu(C); };
   return [
-    resultatAssistant('ok', `Connecté à ${nomOutil}. Rien n’a encore été importé.`, { detail: 'Choisissez ce que vous voulez récupérer : rien n’entrera dans le jeu avant que vous ne validiez.' }),
+    resultatAssistant('ok', `Connecté à ${nomOutil}. Rien n’a encore été importé.`, { detail: 'Choisissez ce que vous voulez récupérer : rien n’entrera dans Living Business avant que vous ne validiez.' }),
     C.s.lecture === 'reception'
-      ? h('p', { texte: 'Ce branchement reçoit les données que votre scénario lui envoie : il n’y a rien à choisir ici. Indiquez seulement à quoi elles correspondent dans le jeu.' })
+      ? h('p', { texte: 'Ce branchement reçoit les données que votre scénario lui envoie : il n’y a rien à choisir ici. Indiquez seulement à quoi elles correspondent dans Living Business.' })
       : listes.length ? h('div', { class: 'bz-grille-champs' }, listes.map((ch) => champOutil(C, ch, { apres: relire })))
       : h('p', { class: 'bz-t-petit', texte: `Tout ce que ce branchement lit chez ${nomOutil} sera repris.` }),
     C.s.id === 'mcp' ? h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', 'aria-busy': C.envoi ? 'true' : null, onclick: () => listerOutilsMcp(C) }, C.envoi ? icone('loader-circle') : icone('list'), 'Lister les outils du serveur')) : null,
@@ -7402,18 +7402,18 @@ function corpsRecuperer(C) {
 /** Le sens : lecture seule par défaut, puisque la connexion n'a demandé que le droit de lire. */
 function blocSens(C) {
   const nomOutil = nomOutilDe(C);
-  if (!C.s.ecriture) return h('p', { class: 'bz-t-petit', texte: `Sens : de ${nomOutil} vers le jeu. Living Business ne modifie rien chez ${nomOutil}.` });
+  if (!C.s.ecriture) return h('p', { class: 'bz-t-petit', texte: `Sens : de ${nomOutil} vers Living Business, qui ne modifie rien chez ${nomOutil}.` });
   if (C.mode === 'cle') return h('div', { class: 'bz-grille-champs' }, champListe('outil-sens', 'Sens de la synchronisation', C.sens, Object.entries(LIBELLE_SENS), (e) => { C.sens = e.target.value; }));
   if (C.droits === 'ecriture') return h('div', { class: 'bz-grille-champs' }, champListe('outil-sens', 'Sens de la synchronisation', C.sens, Object.entries(LIBELLE_SENS), (e) => { C.sens = e.target.value; }));
   return h('div', { class: 'bz-pile bz-pile--serre' },
-    h('p', { class: 'bz-t-petit', texte: `Sens : de ${nomOutil} vers le jeu (lecture seule). Vous vous êtes connecté sans donner le droit d’écrire : rien ne sera modifié chez ${nomOutil}.` }),
+    h('p', { class: 'bz-t-petit', texte: `Sens : de ${nomOutil} vers Living Business (lecture seule). Vous vous êtes connecté sans donner le droit d’écrire : rien ne sera modifié chez ${nomOutil}.` }),
     h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => { C.sens = 'deux'; C.apercu = null; E.assistant.etape = 'connexion'; seConnecterOutil(C); } },
-      `Je veux aussi que le jeu écrive dans ${nomOutil} (nouvelle connexion)`)));
+      `Je veux aussi que Living Business écrive dans ${nomOutil} (nouvelle connexion)`)));
 }
 function corpsColonnesOutil(C) {
   const a = C.apercu;
   return [
-    resultatAssistant('info', 'Dernière étape avant l’import.', { detail: `Vérifiez la correspondance entre les colonnes de ${nomOutilDe(C)} et les champs du jeu, corrigez ce qu’il faut, puis importez. Une colonne non reconnue est simplement laissée de côté : elle ne fait rien échouer.` }),
+    resultatAssistant('info', 'Dernière étape avant l’import.', { detail: `Vérifiez la correspondance entre les colonnes de ${nomOutilDe(C)} et les champs de Living Business, corrigez ce qu’il faut, puis importez. Une colonne non reconnue est simplement laissée de côté : elle ne fait rien échouer.` }),
     a.champs.length ? listeColonnes(a.champs, a.cibles, C.mapping, (ch) => a.apercu.map((l) => l[ch]).filter(Boolean).slice(0, 3).join(' · ').slice(0, 120))
       : h('p', { class: 'bz-t-petit', texte: 'Les colonnes seront associées automatiquement à la première réception.' }),
     h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'outil-nom', texte: 'Nom de cette connexion' }),
@@ -7448,7 +7448,7 @@ function corpsPretOutil(C) {
       resultatAssistant('attention', 'Ces secrets ne seront plus affichés : copiez-les maintenant.', { detail: 'L’en-tête ci-dessous autorise vos envois vers Living Business. Signature possible à la place : X-LB-Signature: t=<secondes>,v1=<HMAC-SHA256 de « t.corps » avec ce secret>, valable 5 minutes et une seule fois.' }),
       blocCode(`Authorization: Bearer ${c.secretEntrant}`, 'Copier l’en-tête'),
       c.cleEnvois ? [
-        h('p', { class: 'bz-t-petit', texte: 'Clé de vérification des envois de Living Business (facultatif) : ils portent l’en-tête X-LB-Signature, signé avec cette autre clé. Elle ne permet pas d’envoyer au jeu.' }),
+        h('p', { class: 'bz-t-petit', texte: 'Clé de vérification des envois de Living Business (facultatif) : ils portent l’en-tête X-LB-Signature, signé avec cette autre clé. Elle ne permet pas d’envoyer à Living Business.' }),
         blocCode(c.cleEnvois, 'Copier la clé de vérification'),
       ] : null,
       h('h4', { class: 'bz-catalogue__intertitre', texte: 'Corps JSON attendu' }), blocCode(exemple, 'Copier l’exemple'),
@@ -8935,11 +8935,11 @@ function ouvrirToutAutomatiser(Pr, admin, apres) {
         h('p', { class: 'bz-t-petit', texte: 'Une automatisation surveille vos données réelles et agit dès que la situation se présente : elle prépare la tâche pour la bonne personne, sans jamais faire deux fois la même chose. Vous l’arrêtez quand vous voulez, sur cette page.' }),
         versOutil ? resultatAssistant('info', Pr.outilBranche
           ? 'Votre outil d’automatisation (Make, Zapier ou n8n) reçoit chaque événement : c’est lui qui envoie les relances et les demandes d’avis.'
-          : 'Les messages vers l’extérieur (relance, demande d’avis) ne partent pas tout seuls : le jeu prépare une tâche pour une personne.',
+          : 'Les messages vers l’extérieur (relance, demande d’avis) ne partent pas tout seuls : Living Business prépare une tâche pour une personne.',
           Pr.outilBranche ? {} : { detail: 'Pour qu’ils partent sans vous : Connecter mes données → Mode avancé → Make · Zapier · n8n.' }) : null,
         messageEnLigne('critique', S.erreur),
         groupe('Prêtes à mettre en marche', pretes, (r) => (r.heuresMois ? `Environ ${nf.format(r.heuresMois)} h par mois, estimé sur vos données d’aujourd’hui.` : 'Rien à traiter aujourd’hui : elle agira dès qu’un cas se présentera.')),
-        groupe('Il manque des données', manquantes, (r) => `Le jeu ne voit pas encore ${r.manque}.`),
+        groupe('Il manque des données', manquantes, (r) => `Living Business ne voit pas encore ${r.manque}.`),
         manquantes.length && admin ? h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { D.fermer(); ouvrirAssistant(); } }, icone('plug'), 'Connecter mes données')) : null,
         groupe('Déjà en marche', actives, () => null),
       ],
@@ -9004,7 +9004,7 @@ function suiteTacheRepetitive(t, T, { admin = false, basculer = null } = {}) {
           : h('span', { class: 'bz-t-petit', texte: 'À mettre en marche par la direction.' })) : null,
       });
     }
-    return resultatAssistant('attention', `« ${a.nom} » sait faire cette tâche, mais il lui manque des données.`, { detail: `Le jeu ne voit pas encore ${a.manque ?? 'les données qu’elle regarde'}.`, actions: brancher });
+    return resultatAssistant('attention', `« ${a.nom} » sait faire cette tâche, mais il lui manque des données.`, { detail: `Living Business ne voit pas encore ${a.manque ?? 'les données qu’elle regarde'}.`, actions: brancher });
   }
   if (!TON_VERDICT[c.verdict]) return h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Aucune automatisation de Living Business ne fait cette tâche : rien à mettre en marche ici.' });
   if (T.outilBranche) {
@@ -9192,7 +9192,7 @@ function ouvrirTacheRepetitive(T, Pr, { tache = null, idee = null } = {}, apres 
         ...question('Une automatisation de Living Business fait-elle déjà cette tâche ?', `Living Business a ${pluriel(Pr.recettes.length, 'automatisation prête', 'automatisations prêtes')} à l’emploi. Si l’une d’elles correspond, il n’y a rien à construire : il suffit de la mettre en marche.`),
         liste('tache-recette', 'Automatisation existante', [['', 'Non, aucune ne correspond'], ...Pr.recettes.map((x) => [x.id, x.nom])], v.recette, (val) => { v.recette = val; D.rendre(); }),
         erreurChamp(),
-        r ? resultatAssistant('info', `Celle-ci le fait déjà : ${enMinuscule(r.nom)}.`, { detail: `Quand : ${enMinuscule(r.quand)}. Alors : ${enMinuscule(r.alors)}. Aujourd’hui, ${ETAT_RECETTE[r.etat]}${r.etat === 'a_brancher' && r.manque ? ` : le jeu ne voit pas encore ${r.manque}` : ''}.` })
+        r ? resultatAssistant('info', `Celle-ci le fait déjà : ${enMinuscule(r.nom)}.`, { detail: `Quand : ${enMinuscule(r.quand)}. Alors : ${enMinuscule(r.alors)}. Aujourd’hui, ${ETAT_RECETTE[r.etat]}${r.etat === 'a_brancher' && r.manque ? ` : Living Business ne voit pas encore ${r.manque}` : ''}.` })
           : h('p', { class: 'bz-t-petit', texte: 'Aucune ne correspond ? Continuez : le résultat vous dira ce qu’il reste à faire.' }),
       ];
     }

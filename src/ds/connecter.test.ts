@@ -148,7 +148,7 @@ test('connecter n’est pas importer : l’étape « Que récupérer ? » est en
   const connexion = app.slice(app.indexOf('function corpsConnexion(C)'), app.indexOf('function piedConnexion(C)'));
   assert.doesNotMatch(connexion, /selectCible\(/, 'on ne demande plus ce que contient l’outil AVANT de connecter');
   // le seul appel qui crée un branchement reste l'import, après la correspondance des colonnes
-  assert.match(app, /boutonPrincipal\(`Importer \$\{pluriel\(A\.outil\?\.apercu\?\.enregistrements \?\? 0, 'fiche', 'fiches'\)\} dans le jeu`, \(\) => activerOutil\(A\.outil\)/);
+  assert.match(app, /boutonPrincipal\(`Importer \$\{pluriel\(A\.outil\?\.apercu\?\.enregistrements \?\? 0, 'fiche', 'fiches'\)\} dans Living Business`, \(\) => activerOutil\(A\.outil\)/);
   const avantImport = app.slice(app.indexOf('function versRecuperer(C)'), app.indexOf('/** La personne a tout vu et tout validé'));
   assert.ok(!/api\('POST', '\/synchro'[^/]/.test(avantImport), 'aucun branchement actif créé avant l’import');
   assert.match(avantImport, /api\('POST', '\/synchro\/apercu'/, 'seulement un aperçu, en lecture');
@@ -159,9 +159,9 @@ test('connecter n’est pas importer : l’étape « Que récupérer ? » est en
   // l'écran « Que récupérer ? » montre ce que le compte contient, ce que ça devient, et un aperçu
   const recuperer = app.slice(app.indexOf('function corpsRecuperer(C)'), app.indexOf('function blocSens(C)'));
   assert.match(recuperer, /tableauApercu\(a\)/, 'un aperçu de quelques lignes');
-  assert.match(recuperer, /selectCible\(C/, 'à quoi ça correspond dans le jeu');
+  assert.match(recuperer, /selectCible\(C/, 'à quoi ça correspond dans Living Business');
   assert.match(recuperer, /blocSens\(C\)/, 'le sens de la synchronisation');
-  assert.match(app, /À quoi ça correspond dans le jeu \?/);
+  assert.match(app, /À quoi ça correspond dans Living Business \?/);
 });
 
 test('correspondance des colonnes : proposée, montrée, modifiable, et un champ inconnu ne fait rien échouer', () => {

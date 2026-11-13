@@ -561,7 +561,7 @@ export class Miroir {
       // message simple, sans jargon : l'état du dernier envoi
       message: !c ? null
         : !this.#compteVivant() ? `Le compte ${ENDROIT[c.outil].outil} qui porte ce fichier n’est plus branché : rebranchez-le dans Connecteurs, rien n’est perdu en attendant.`
-          : attente ? `${attente === 1 ? 'Un envoi est' : `${attente} envois sont`} en attente : le jeu réessaie tout seul. Rien n’est perdu.`
+          : attente ? `${attente === 1 ? 'Un envoi est' : `${attente} envois sont`} en attente : Living Business réessaie tout seul. Rien n’est perdu.`
             : this.#etat.dernier?.ok === false ? `Dernier envoi : ${this.#etat.dernier.message ?? 'échec'}`
               : this.#etat.dernier ? 'Tout est à jour dans votre fichier de suivi.' : 'Fichier de suivi prêt.',
     };

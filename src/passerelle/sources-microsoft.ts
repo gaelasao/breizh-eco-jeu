@@ -291,7 +291,7 @@ export const excel365: Adaptateur = {
     { id: 'fichier', libelle: 'Classeur', aide: 'Choisissez-le dans la liste (vos classeurs), ou collez son lien : OneDrive ou SharePoint → Partager → Copier le lien. Un classeur qu’on a partagé avec vous : collez son lien.', exemple: 'https://monentreprise.sharepoint.com/:x:/…', obligatoire: true, liste: true },
     { id: 'feuille', libelle: 'Feuille (facultatif)', aide: 'Nom exact de l’onglet ; par défaut le premier.' },
     { id: 'colonneId', libelle: 'Colonne identifiant', aide: 'Nom exact de la colonne (par défaut la 1re), ex. « Référence ».' },
-    { id: 'jeton', libelle: 'Connexion Microsoft', aide: 'Votre mot de passe reste chez Microsoft : le jeu reçoit un jeton, chiffré sur votre ordinateur.', secret: true, obligatoire: true, connexion: 'microsoft', mode: 'cle' },
+    { id: 'jeton', libelle: 'Connexion Microsoft', aide: 'Votre mot de passe reste chez Microsoft : Living Business reçoit un jeton, chiffré sur votre ordinateur.', secret: true, obligatoire: true, connexion: 'microsoft', mode: 'cle' },
   ],
   lecture: 'appel',
   ecriture: true,

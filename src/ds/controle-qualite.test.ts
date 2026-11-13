@@ -218,3 +218,34 @@ test('écrans d’entrée : titre de l’onglet avec l’endossement, ouverture 
   assert.match(app, /champ\.focus\(\{ preventScroll: true \}\)/);
   assert.doesNotMatch(lire('web/bz/composants.css'), /\.bz-entree__marque \{ position: sticky;/, 'le fond du panneau suit toute la hauteur');
 });
+
+/** Code sans ses commentaires : les blocs deviennent des blancs, les lignes de commentaire disparaissent (« https:// » reste). */
+const sansCommentaires = (src: string) => src
+  .replace(/\/\*[\s\S]*?\*\//g, (b) => b.replace(/[^\n]/g, ' '))
+  .replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
+
+test('vocabulaire : l’interface dit « Living Business », jamais « le jeu » (G14)', () => {
+  // Hors des textes lus par l’entreprise : chemins de modules, adresses, identifiants, et « en jeu » (ce qui est en cause).
+  const technique = /installer-jeu\.sh|breizh-eco-jeu|\/jeu\.js|alertes-adresse-jeu|demo:jeu|MARQUE\.jeu|jeu\.(mondomaine|monentreprise|menuiserie|kerlann)/;
+  const interdit = /\b(le|Le|du|Du|au|Au|un|Un|ce|Ce|votre|Votre|notre|Notre) jeu\b/;
+  const fichiers = [
+    'web/app.js', 'web/suivi.js', 'web/reglages.js', 'web/aujourdhui.js', 'web/connecter.js', 'web/simplicite.js',
+    'web/navigation.js', 'web/reseau.js', 'web/courrier.js', 'web/jeu.js',
+    'src/passerelle/http.ts', 'src/passerelle/alertes.ts', 'src/passerelle/monde.ts', 'src/passerelle/sources.ts',
+    'src/passerelle/miroir.ts', 'src/passerelle/lien-nexus.ts', 'src/passerelle/sources-microsoft.ts',
+    'src/passerelle/automatisations.ts', 'src/core/sante.ts', 'src/core/optimisations.ts',
+  ];
+  const restes: string[] = [];
+  for (const f of fichiers) {
+    sansCommentaires(lire(f)).split('\n').forEach((ligne, i) => {
+      const chaines = ligne.match(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g) ?? [];
+      for (const s of chaines) if (interdit.test(s) && !technique.test(s)) restes.push(`${f}:${i + 1} ${s.slice(0, 90)}`);
+    });
+  }
+  assert.deepEqual(restes, [], 'une entreprise qui tient sa comptabilité ici ne lit pas « le jeu »');
+  // et les textes refaits disent bien le nom du produit
+  const app = lire('web/app.js');
+  assert.match(app, /lecture: 'De l’outil vers Living Business', deux: 'Dans les deux sens', ecriture: 'De Living Business vers l’outil'/);
+  assert.match(app, /'À quoi ça correspond dans Living Business \?'/);
+  assert.match(lire('src/passerelle/monde.ts'), /libelle: 'Créée dans Living Business'/);
+});

@@ -149,7 +149,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
     else if (installation.fichier) installation.preparer();
   }
   const aideInstallation = installation.fichier
-    ? `Ouvrez le lien affiché à la fin de l’installation du serveur. Perdu ? Sur le serveur : « sudo cat ${installation.fichier} », puis ouvrez ${opts.origine ?? 'l’adresse du jeu'}/installation#<le code>.`
+    ? `Ouvrez le lien affiché à la fin de l’installation du serveur. Perdu ? Sur le serveur : « sudo cat ${installation.fichier} », puis ouvrez ${opts.origine ?? 'l’adresse de Living Business'}/installation#<le code>.`
     : 'L’installation se fait sur l’ordinateur où Living Business est lancé : ouvrez http://127.0.0.1:4173 sur cet ordinateur-là.';
   /** Installation : sur place, ou (en ligne seulement) avec le code du serveur — 5 codes faux par adresse → 15 min de blocage. */
   const autoriserInstallation = (req: IncomingMessage) => {
@@ -315,7 +315,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
         ? 'sur le serveur, lancez « sudo living-business-secours » : le lien de réinitialisation s’affiche (15 minutes, une fois)'
         : process.env.LB_PAQUET === '1'
           ? (dansApplicationMac() ? 'ouvrez Living Business en maintenant la touche ⌥ (Option) enfoncée, puis « Ouvrir la page de secours »' : 'double-cliquez sur « Secours mot de passe » dans le dossier de Living Business')
-          : 'lancez « npm run secours » dans le dossier du jeu',
+          : 'lancez « npm run secours » dans le dossier de Living Business',
     };
   };
 
@@ -436,7 +436,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
         const c = await app.comptes.reinitialiserSurPlace(d.identifiant, d.motDePasse, monde.profils());
         app.stockage.effacerDemandeSecours();
         const profil = monde.profil(c.profilId) as Profil;
-        tracerSecurite(profil, 'compte.secours', `mot de passe réinitialisé ${opts.enLigne ? 'avec le lien de secours créé sur le serveur' : 'sur l’ordinateur du jeu'} (validation en deux étapes remise à zéro)`);
+        tracerSecurite(profil, 'compte.secours', `mot de passe réinitialisé ${opts.enLigne ? 'avec le lien de secours créé sur le serveur' : 'sur l’ordinateur où Living Business est installé'} (validation en deux étapes remise à zéro)`);
         envoyer(res, 200, { profil: vueProfil(profil) }, sessionCompte(req, c));
         return true;
       }
@@ -491,7 +491,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       profil = pr;
     }
     // administrateur d'un jeu en ligne : validation en deux étapes d'abord, rien d'autre n'est possible avant
-    if (deuxEtapesRequise(compte) && !chemin.startsWith('/compte/deux-etapes')) throw new ErreurApi(403, 'deux_etapes_requise', 'Administrateur d’un jeu en ligne : activez d’abord la validation en deux étapes.');
+    if (deuxEtapesRequise(compte) && !chemin.startsWith('/compte/deux-etapes')) throw new ErreurApi(403, 'deux_etapes_requise', 'Administrateur d’une installation en ligne : activez d’abord la validation en deux étapes.');
     // Aperçu « voir comme » (administrateur, lecture seule)
     if (chemin === '/session/apercu' && methode === 'POST') {
       if (!compte || !session) throw new ErreurApi(400, 'compte_requis');

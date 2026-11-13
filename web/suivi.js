@@ -52,10 +52,10 @@ export function etatEnvoi(vue) {
   if (!vue?.classeur) return { ton: 'info', texte: 'Aucun fichier de suivi pour l’instant.' };
   const attente = Number(vue.attente ?? 0);
   if (attente > 0) {
-    return { ton: 'attention', texte: `${attente === 1 ? 'Un envoi attend' : `${attente} envois attendent`} : le jeu réessaie tout seul. Rien n’est perdu, rien n’est bloqué.` };
+    return { ton: 'attention', texte: `${attente === 1 ? 'Un envoi attend' : `${attente} envois attendent`} : Living Business réessaie tout seul. Rien n’est perdu, rien n’est bloqué.` };
   }
   const d = vue.dernier;
-  if (d && d.ok === false) return { ton: 'attention', texte: `Dernier envoi : ${d.message || 'il n’a pas abouti'}. Le jeu réessaie tout seul.` };
+  if (d && d.ok === false) return { ton: 'attention', texte: `Dernier envoi : ${d.message || 'il n’a pas abouti'}. Living Business réessaie tout seul.` };
   if (d) return { ton: 'ok', texte: 'Tout est à jour dans votre fichier de suivi.' };
   return { ton: 'info', texte: 'Fichier de suivi prêt : la première écriture part au prochain changement.' };
 }
@@ -91,6 +91,6 @@ export function lienClasseur(classeur) {
 /** Ce que « Tout réécrire » fait, dit avant de le faire (rien n'est effacé chez l'entreprise). */
 export const TEXTE_REECRIRE = 'Toutes vos fiches repartent vers le fichier de suivi, une par une. Les lignes déjà présentes sont mises à jour, aucune n’est effacée.';
 /** Ce que « Ne plus suivre » fait : le jeu oublie le classeur, l'entreprise garde son fichier. */
-export const TEXTE_DETACHER = 'Le jeu oublie ce fichier et n’y écrit plus. Le fichier reste chez vous, avec tout ce qu’il contient.';
+export const TEXTE_DETACHER = 'Living Business oublie ce fichier et n’y écrit plus. Le fichier reste chez vous, avec tout ce qu’il contient.';
 /** Ce qu'il advient d'une fiche effacée dans le jeu. */
-export const TEXTE_SUPPRESSION = 'Une fiche effacée dans le jeu n’efface pas sa ligne : elle est marquée « Supprimée ». Vos données restent les vôtres.';
+export const TEXTE_SUPPRESSION = 'Une fiche effacée dans Living Business n’efface pas sa ligne : elle est marquée « Supprimée ». Vos données restent les vôtres.';

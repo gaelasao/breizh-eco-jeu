@@ -1045,7 +1045,7 @@ export class Monde {
           champs: { ...o.champs, [champ]: nouveau },
           majLe: maintenant,
           provenance: 'confirme',
-          source: { id: 'passerelle:mouvements', libelle: 'Mouvement enregistré dans le jeu', derniereSynchro: maintenant },
+          source: { id: 'passerelle:mouvements', libelle: 'Mouvement enregistré dans Living Business', derniereSynchro: maintenant },
         });
         e.modifies.add(o.id);
         a.message = `${actuel} → ${nouveau}`;
@@ -1056,7 +1056,7 @@ export class Monde {
         const tache: ObjetMetier = {
           id, orgId: o.orgId, famille: 'tache', type: 'tache', roles: [], nom: cmd.parametres.titre as string,
           champs: { concerne: o.id, statut: 'à faire', ...(cmd.parametres.echeance ? { echeance: cmd.parametres.echeance as string } : {}) },
-          provenance: 'declare', source: { id: 'passerelle:taches', libelle: 'Créée dans le jeu', derniereSynchro: maintenant },
+          provenance: 'declare', source: { id: 'passerelle:taches', libelle: 'Créée dans Living Business', derniereSynchro: maintenant },
           majLe: maintenant, disponibilite: 'disponible', mode: o.mode,
         };
         if (validerObjet(this.#univers, tache).length) { a.message = 'Tâche invalide pour cet univers.'; return 'echec'; }
@@ -1084,7 +1084,7 @@ export class Monde {
             ...(cmd.parametres.note ? { note: cmd.parametres.note as string } : {}),
             ...(typeof o.champs.departement === 'string' ? { departement: o.champs.departement } : {}),
           },
-          provenance: 'declare', source: { id: 'passerelle:vehicules', libelle: 'Enregistré dans le jeu', derniereSynchro: maintenant },
+          provenance: 'declare', source: { id: 'passerelle:vehicules', libelle: 'Enregistré dans Living Business', derniereSynchro: maintenant },
           majLe: maintenant, disponibilite: 'disponible', mode: o.mode,
         };
         if (validerObjet(this.#univers, ligne).length) { a.message = 'Entretien invalide pour cet univers.'; return 'echec'; }
