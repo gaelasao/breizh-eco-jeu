@@ -561,9 +561,10 @@ export class Miroir {
       dernier: this.#etat.dernier,
       // message simple, sans jargon : l'état du dernier envoi
       message: !c ? null
-        : attente ? `${attente === 1 ? 'Un envoi est' : `${attente} envois sont`} en attente : le jeu réessaie tout seul. Rien n’est perdu.`
-          : this.#etat.dernier?.ok === false ? `Dernier envoi : ${this.#etat.dernier.message ?? 'échec'}`
-            : this.#etat.dernier ? 'Tout est à jour dans votre fichier de suivi.' : 'Fichier de suivi prêt.',
+        : !this.#compteVivant() ? `Le compte ${ENDROIT[c.outil].outil} qui porte ce fichier n’est plus branché : rebranchez-le dans Connecteurs, rien n’est perdu en attendant.`
+          : attente ? `${attente === 1 ? 'Un envoi est' : `${attente} envois sont`} en attente : le jeu réessaie tout seul. Rien n’est perdu.`
+            : this.#etat.dernier?.ok === false ? `Dernier envoi : ${this.#etat.dernier.message ?? 'échec'}`
+              : this.#etat.dernier ? 'Tout est à jour dans votre fichier de suivi.' : 'Fichier de suivi prêt.',
     };
   }
 
@@ -638,11 +639,20 @@ export class Miroir {
       if (table.connecteur && this.#synchro.existeMiroir(table.connecteur)) continue;
       const t = defType(this.#monde.univers, typeId);
       if (!t) continue;
-      table.connecteur = this.#synchro.creerMiroir({
-        compte: c.compte, source: outil.source, nom: `Suivi — ${table.nom}`, typeObjet: typeId,
-        config: outil.config(c, table), mapping: mappingDe(t),
-      });
+      // compte débranché entre-temps : le miroir reste en place et le dit ; les branchements repartent à son retour
+      try {
+        table.connecteur = this.#synchro.creerMiroir({
+          compte: c.compte, source: outil.source, nom: `Suivi — ${table.nom}`, typeObjet: typeId,
+          config: outil.config(c, table), mapping: mappingDe(t),
+        });
+      } catch { table.connecteur = null; }
     }
+  }
+
+  /** Le compte qui porte le classeur est-il encore branché ? */
+  #compteVivant(): boolean {
+    const c = this.#etat.classeur;
+    return Boolean(c) && this.#synchro.comptesEcriture().some((x) => x.id === c?.compte);
   }
 
   // ----- réglages
@@ -787,6 +797,8 @@ export class Miroir {
     let erreur: string | null = null;
     try {
       for (const n of this.#aEnvoyer()) this.#empiler(n);
+      // compte débranché : les envois restent en attente, aucun appel inutile n'est tenté
+      if (!this.#compteVivant()) return { envoyees: 0, restants: this.#etat.attente.length };
       const maintenant = this.#maintenant().getTime();
       const prets = this.#etat.attente.filter((a) => Date.parse(a.prochain) <= maintenant).slice(0, PAR_PASSAGE);
       for (const a of prets) {

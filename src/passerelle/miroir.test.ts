@@ -403,6 +403,22 @@ test('« Ne plus suivre » : le jeu oublie le classeur, l’entreprise garde son
   app.arreter();
 });
 
+test('compte débranché : rien n’est tenté, rien n’est perdu, et Réglages dit quoi faire', async () => {
+  const sim = simulation();
+  const { app, p } = await monter(sim);
+  await app.miroir.creer(p, {});
+  const compte = app.miroir.classeur?.compte as string;
+  app.monde.creerObjet(p, 's', { type: 'entreprise', nom: 'Ardoisières de Maël-Carhaix', roles: ['fournisseur'], champs: {} });
+  await app.synchro.supprimer(p, compte);
+  const appels = sim.trace.sheets.length;
+  assert.equal((await app.miroir.passer()).envoyees, 0, 'aucun appel inutile vers l’outil');
+  assert.equal(sim.trace.sheets.length, appels);
+  const v = app.miroir.vue(p);
+  assert.match(v.message ?? '', /n’est plus branché/);
+  assert.ok(v.attente >= 1, 'l’envoi attend le retour du compte');
+  app.arreter();
+});
+
 // ---------------------------------------------------------------- Notion et Airtable
 
 test('Notion : une base, un tableau par type, les lignes créées dans le tableau (API 2025-09-03 et après)', async () => {
