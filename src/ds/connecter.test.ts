@@ -15,7 +15,7 @@ type Module = {
   QUESTION: string;
   REPONSES: ReadonlyArray<{ id: string; titre: string; detail: string; icone: string }>;
   FAMILLES: ReadonlyArray<{ id: string; libelle: string; icone: string }>;
-  SECTIONS: ReadonlyArray<{ id: 'un-clic' | 'cle' | 'avance' | 'fichier'; titre: string; texte: string; icone: string }>;
+  SECTIONS: ReadonlyArray<{ id: 'un-clic' | 'cle' | 'avance' | 'fichier'; titre: string; texte: string }>;
   COMPTES: ReadonlyArray<{ id: string; nom: string; icone: string; contenus: ReadonlyArray<{ id: string; libelle: string; source: string | null }> }>;
   CONSEILS: Readonly<Record<string, readonly string[]>>;
   PARCOURS: Readonly<Record<string, ReadonlyArray<readonly [string, string]>>>;
@@ -53,7 +53,6 @@ test('question d’entrée : 6 réponses illustrées, dans l’ordre du §6.1 P4
     assert.doesNotMatch(`${r.titre} ${r.detail}`, /\(s\)|[A-ZÉ]{4,}/, 'ni « (s) » ni capitales écrites');
   }
   for (const f of M.FAMILLES) assert.ok(sprite.includes(`id="i-${f.icone}"`), `famille ${f.id} : icône ${f.icone}`);
-  for (const s of M.SECTIONS) assert.ok(sprite.includes(`id="i-${s.icone}"`), `section ${s.id} : icône ${s.icone}`);
   for (const c of M.COMPTES) assert.ok(sprite.includes(`id="i-${c.icone}"`), `compte ${c.id} : icône ${c.icone}`);
 });
 

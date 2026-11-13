@@ -3959,7 +3959,7 @@ function resultatsCatalogue(A) {
     const id = `assistant-section-${s.id}`;
     return h('section', { class: 'bz-catalogue', cle: id, 'aria-labelledby': id },
       h('div', {},
-        h('h5', { class: 'bz-catalogue__intertitre', id }, icone(s.icone, { taille: 'sm' }), h('span', { texte: s.titre })),
+        h('h5', { class: 'bz-catalogue__intertitre', id, texte: s.titre }),
         h('p', { class: 'bz-t-petit', texte: s.texte })),
       h('ul', { class: 'bz-logiciels', role: 'list' }, liste.map((x) => h('li', {}, carteLogiciel(x)))),
       s.id === 'avance' && E.monde.profil.peutAdministrer
@@ -6658,7 +6658,7 @@ function versRecuperer(C) {
 /* Le point le plus important : CONNECTER N'EST PAS IMPORTER. La connexion ne crée aucune fiche. Ici on voit ce que le
    compte contient (bases, tables, feuilles, objets), ce que ça deviendra dans le jeu, un aperçu de quelques lignes et
    le sens, et rien n'entre tant que la personne n'a pas validé à l'écran suivant. */
-const listesRecuperer = (C) => champsEtape(C, false).filter((ch) => ch.liste || ch.choix);
+const listesRecuperer = (C) => champsEtape(C, false).filter((ch) => (ch.liste || ch.choix) && ch.obligatoire && !ch.avance);
 /** Tous les choix « quoi récupérer » sont-ils faits ? */
 const recuperationChoisie = (C) => champsEtape(C, false).every((ch) => !ch.obligatoire || String(C.config[ch.id] ?? '').trim());
 /** Nom lisible de ce qui a été choisi (« Clients 2026 »), pour deviner la cible et nommer le branchement. */
@@ -6672,12 +6672,18 @@ function nomChoisi(C) {
   }
   return '';
 }
+/**
+ * Ce qui décide du contenu de l'aperçu. Un rendu recrée les champs de l'écran, et le navigateur peut émettre
+ * « change » sur celui qu'il retire : sans cette signature, l'aperçu se rechargerait en boucle.
+ */
+const signatureRecuperation = (C) => JSON.stringify([C.config, C.cible?.cle ?? '']);
 /** L'aperçu : quelques lignes lues chez l'outil et la correspondance proposée. Lecture seule : rien n'est enregistré. */
 async function chargerApercu(C) {
   const A = E.assistant;
   if (!A || !recuperationChoisie(C)) return;
   const nom = nomChoisi(C);
   if (!C.cible || C.cibleAuto) { C.cible = CONNECTER.cibleProbable(nom, ciblesImport()) ?? C.cible ?? ciblesImport()[0]; C.cibleAuto = true; }
+  C.signatureApercu = signatureRecuperation(C);
   C.chargeApercu = true;
   C.erreurApercu = null;
   majOutil(C);
@@ -6700,20 +6706,28 @@ async function chargerApercu(C) {
   majOutil(C);
 }
 /** Tableau d'aperçu : 4 colonnes, 3 lignes — assez pour reconnaître ses données, jamais un écran de données. */
+/**
+ * Aperçu : trois lignes, quatre colonnes au plus — assez pour reconnaître ses données, jamais un écran de données.
+ * Une liste plutôt qu'un tableau : l'assistant est une colonne étroite, et chaque ligne s'y lit d'un coup d'oeil.
+ */
 function tableauApercu(a) {
   const colonnes = a.champs.slice(0, 4);
   const lignes = a.apercu.slice(0, 3);
   if (!colonnes.length || !lignes.length) return null;
-  return h('div', { class: 'bz-tableau-cadre' }, h('table', { class: 'bz-tableau bz-t-petit' },
-    h('thead', {}, h('tr', {}, colonnes.map((c) => h('th', { scope: 'col', 'data-brut': '', texte: c })))),
-    h('tbody', {}, lignes.map((l) => h('tr', {}, colonnes.map((c) => h('td', { 'data-brut': '', texte: String(l[c] ?? '').slice(0, 40) })))))));
+  const valeur = (v) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  return h('div', { class: 'bz-pile bz-pile--serre' },
+    h('p', { class: 'bz-t-petit bz-texte-2' }, 'Colonnes lues : ', h('span', { 'data-brut': '', texte: colonnes.join(' · ') }),
+      a.champs.length > colonnes.length ? `, et ${pluriel(a.champs.length - colonnes.length, 'autre', 'autres')}.` : '.'),
+    h('ul', { class: 'bz-liste-simple bz-t-petit', role: 'list', 'aria-label': 'Premières lignes lues' },
+      lignes.map((l) => h('li', { 'data-brut': '', texte: colonnes.map((c) => valeur(l[c])).filter(Boolean).join(' · ') }))));
 }
 function corpsRecuperer(C) {
   const nomOutil = nomOutilDe(C);
   const listes = listesRecuperer(C);
-  const autres = champsEtape(C, false).filter((ch) => !ch.liste && !ch.choix);
+  const autres = champsEtape(C, false).filter((ch) => !listes.includes(ch));
   const a = C.apercu;
-  const relire = () => { C.apercu = null; majOutil(C); chargerApercu(C); };
+  // relecture seulement si un réglage a vraiment changé (sinon un simple rendu relancerait la lecture sans fin)
+  const relire = () => { if (C.signatureApercu === signatureRecuperation(C)) return; C.apercu = null; majOutil(C); chargerApercu(C); };
   return [
     resultatAssistant('ok', `Connecté à ${nomOutil}. Rien n’a encore été importé.`, { detail: 'Choisissez ce que vous voulez récupérer : rien n’entrera dans le jeu avant que vous ne validiez.' }),
     C.s.lecture === 'reception'
@@ -6806,7 +6820,7 @@ function listeOutils(sources) {
     if (!liste.length) return null;
     const id = `reglages-section-${s.id}`;
     return h('section', { class: 'bz-catalogue', 'aria-labelledby': id },
-      h('div', {}, h('h4', { class: 'bz-catalogue__intertitre', id }, icone(s.icone, { taille: 'sm' }), h('span', { texte: s.titre })), h('p', { class: 'bz-t-petit', texte: s.texte })),
+      h('div', {}, h('h4', { class: 'bz-catalogue__intertitre', id, texte: s.titre }), h('p', { class: 'bz-t-petit', texte: s.texte })),
       h('ul', { class: 'bz-logiciels', role: 'list' }, liste.map((x) => h('li', {}, carteLogiciel(x, { faire: ouvrir })))));
   });
 }

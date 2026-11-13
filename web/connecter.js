@@ -50,10 +50,10 @@ const FAMILLE_FORCEE = Object.freeze({ axonaut: 'facturation', 'ebp-api': 'factu
  * fait quand il n'y a rien à brancher, et elle ferme la page.
  */
 export const SECTIONS = Object.freeze([
-  { id: 'un-clic', titre: 'En un clic', texte: 'Vous vous connectez avec votre compte, sans rien copier. Tout ce qui est ici fonctionne aujourd’hui.', icone: 'mouse-pointer-click' },
-  { id: 'cle', titre: 'Avec une clé', texte: 'Une clé (ou un jeton) à créer dans le logiciel, puis à coller ici. Votre informaticien peut s’en charger.', icone: 'key-round' },
-  { id: 'avance', titre: 'Par webhook ou API', texte: 'Pour un logiciel absent de la liste : webhook Make, Zapier ou n8n, API REST, serveur MCP.', icone: ICONE_AVANCE },
-  { id: 'fichier', titre: 'Sans rien connecter', texte: 'Un fichier, un copier-coller, ou quelques questions : rien à brancher, rien à autoriser.', icone: 'file-spreadsheet' },
+  { id: 'un-clic', titre: 'En un clic', texte: 'Vous vous connectez avec votre compte, sans rien copier. Tout ce qui est ici fonctionne aujourd’hui.' },
+  { id: 'cle', titre: 'Avec une clé', texte: 'Une clé (ou un jeton) à créer dans le logiciel, puis à coller ici. Votre informaticien peut s’en charger.' },
+  { id: 'avance', titre: 'Par webhook ou API', texte: 'Pour un logiciel absent de la liste : webhook Make, Zapier ou n8n, API REST, serveur MCP.' },
+  { id: 'fichier', titre: 'Sans rien connecter', texte: 'Un fichier, un copier-coller, ou quelques questions : rien à brancher, rien à autoriser.' },
 ].map(Object.freeze));
 
 /**
