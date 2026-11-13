@@ -32,6 +32,15 @@ type Qualite = {
   BUDGETS: Record<string, { appels: number; triangles: number; ombres: number; densite: number }>; CADENCE: { ambiance: number; ambianceApresMs: number; pauseApresMs: number };
   VIE: { pleine: number; immobile: number }; vieAmbiante: (d: number, o?: { pleine?: number; immobile?: number }) => number;
 };
+type Perso = Record<string, { nom?: string; couleur?: string; place?: number }>;
+type Personnalisation = {
+  COULEURS_CARTE: readonly { id: string; libelle: string }[]; FAMILLES_PERSONNALISABLES: readonly string[]; LIMITE_NOM: number; CLE_RANGEMENT: string;
+  lirePersonnalisation: (t: string | null | undefined) => Perso; ecrirePersonnalisation: (p: Perso) => string; estPersonnalisee: (p: Perso | null) => boolean;
+  nomCarte: (p: Perso | null, o: { id: string; nom: string }) => string; couleurCarte: (p: Perso | null, id: string) => string | null;
+  regler: (p: Perso | null, id: string, champ: string, v: unknown) => Perso; oublier: (p: Perso | null, id?: string | null) => Perso;
+  ordonner: <T extends { id: string }>(l: readonly T[], p: Perso | null) => T[];
+  deplacer: (p: Perso | null, l: readonly { id: string }[], id: string, sens: number) => Perso;
+};
 type Lots = {
   NOMS_COUCHES: readonly string[]; COUCHES_CUITES: readonly string[]; MASQUE: Record<string, number>; NB_MASQUES: number; masqueCalque: (n: string) => number;
   orientationMur: (nx: number, nz: number) => number; mursBaisses: (v: [number, number], ferme?: boolean) => number[]; echelleMur: (b: number, h: number) => number; ALLEGE: number;
@@ -237,6 +246,52 @@ test('carte : la vie ambiante se calme avec l’éloignement, jusqu’à l’ima
   assert.match(scene, /vieAmbiante\(controles\.distance\)/);
   assert.match(scene, /if \(vie > 0\) animer\(dt, vie\)/);
   assert.match(scene, /else if \(ambiance && vie > 0\)/, 'vie éteinte : aucune image de plus n’est demandée');
+});
+
+test('carte : personnalisation — nom, couleur et place, sur l’appareil, et jamais rien d’obligatoire', async () => {
+  const P = await charger<Personnalisation>('web/carte/personnalisation.js');
+  // sans réglage, rien ne change : la carte d'une personne qui n'a rien touché est exactement celle d'avant
+  assert.deepEqual(P.lirePersonnalisation(null), {});
+  assert.equal(P.estPersonnalisee({}), false);
+  const lieux = [{ id: 'a', nom: 'Siège' }, { id: 'b', nom: 'Atelier' }, { id: 'c', nom: 'Dépôt' }];
+  assert.deepEqual(P.ordonner(lieux, null).map((o) => o.id), ['a', 'b', 'c']);
+  assert.equal(P.nomCarte(null, lieux[0]!), 'Siège');
+  // lecture tolérante : un texte abîmé ou un réglage inconnu n'empêche jamais la carte de s'afficher
+  for (const t of ['', 'pas du json', '[]', 'null', '{"a":3}', '{"a":{"nom":"   "}}']) assert.deepEqual(P.lirePersonnalisation(t), {}, t);
+  assert.deepEqual(P.lirePersonnalisation('{"a":{"nom":"Port","couleur":"mauve","place":-2,"autre":1}}'), { a: { nom: 'Port' } }, 'couleur et place invalides ignorées');
+  assert.equal(Object.keys(P.lirePersonnalisation(`{"a":{"nom":"${'x'.repeat(120)}"}}`).a?.nom ?? '').length, P.LIMITE_NOM, 'nom tronqué');
+  // réglages
+  let p = P.regler({}, 'a', 'nom', '  Port de Brest  ');
+  assert.deepEqual(p, { a: { nom: 'Port de Brest' } });
+  p = P.regler(p, 'a', 'couleur', 'orange');
+  assert.equal(P.couleurCarte(p, 'a'), 'orange');
+  assert.equal(P.nomCarte(p, lieux[0]!), 'Port de Brest');
+  assert.equal(P.couleurCarte(p, 'b'), null);
+  assert.deepEqual(P.regler(p, 'a', 'couleur', 'fuchsia').a, { nom: 'Port de Brest' }, 'couleur inconnue : on revient à celle d’origine');
+  assert.deepEqual(P.regler(P.regler(p, 'a', 'nom', ''), 'a', 'couleur', ''), {}, 'une fiche vidée disparaît : rien ne traîne');
+  assert.deepEqual(P.oublier(p, 'a'), {});
+  assert.deepEqual(P.oublier(p), {}, 'tout remettre comme avant');
+  // déplacer : l'ordre garde exactement les mêmes éléments, et les bords ne font rien
+  const q = P.deplacer({}, lieux, 'c', -1);
+  assert.deepEqual(P.ordonner(lieux, q).map((o) => o.id), ['a', 'c', 'b']);
+  assert.deepEqual(P.ordonner(lieux, P.deplacer(q, lieux, 'a', -1)).map((o) => o.id), ['a', 'c', 'b'], 'déjà au début');
+  assert.deepEqual(P.ordonner(lieux, P.deplacer(q, lieux, 'b', 1)).map((o) => o.id), ['a', 'c', 'b'], 'déjà à la fin');
+  assert.deepEqual([...P.ordonner(lieux, P.deplacer(q, lieux, 'c', 1))].map((o) => o.id).sort(), ['a', 'b', 'c']);
+  // un nouvel élément arrivé après coup se range derrière, sans rien casser
+  assert.deepEqual(P.ordonner([...lieux, { id: 'd', nom: 'Neuf' }], q).map((o) => o.id), ['a', 'c', 'b', 'd']);
+  // aller-retour par le rangement de l'appareil
+  assert.deepEqual(P.lirePersonnalisation(P.ecrirePersonnalisation(q)), q);
+  assert.deepEqual([...P.FAMILLES_PERSONNALISABLES], ['lieu', 'departement']);
+  assert.equal(P.COULEURS_CARTE.length, 8);
+  // la scène lit la personnalisation et l'applique une seule fois, sur une copie des objets
+  const scene = lire('web/scene.js');
+  assert.match(scene, /from '\/carte\/personnalisation\.js'/);
+  assert.match(scene, /const perso = estPersonnalisee\(options\.perso\) \? options\.perso : null;/);
+  assert.match(scene, /ordonner\(departements, perso\)/);
+  assert.match(scene, /ordonner\(lieux, perso\)/);
+  const app = lire('web/app.js');
+  assert.match(app, /E\.scene\.maj\(E\.monde, \{ vue: E\.vueCarte, perso: E\.perso \}\)/);
+  assert.match(app, /function sectionPersonnaliser\(\)/, 'un seul endroit : le panneau de la carte');
 });
 
 test('carte : aucune surface posée sur une autre — marquages en décalque, voirie à quatre niveaux, contours écartés', () => {

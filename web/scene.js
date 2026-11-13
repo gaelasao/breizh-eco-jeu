@@ -17,6 +17,7 @@ import { partagerAtlas, reduireImage } from '/carte/atlas.js';
 import { couleurRole, etatHeure, lirePalette, lumieres } from '/carte/heure.js';
 import { MAX_ETIQUETTES, PRIORITE, ordreClavier, placerEtiquettes, regrouperParQuartier, voisin } from '/carte/etiquettes.js';
 import { categorieDe, peintureDe } from '/carte/categories.js';
+import { FAMILLES_PERSONNALISABLES, estPersonnalisee, ordonner } from '/carte/personnalisation.js';
 import { CADENCE, palierInferieur, profil, qualiteInitiale, surveillance, vieAmbiante } from '/carte/qualite.js';
 import { ALLEGE, ATLAS_ENSEIGNES, COUCHES_CUITES, MASQUE, NB_MASQUES, NOMS_COUCHES, details, echelleMur, estMobilier, masqueCalque, mursBaisses, orientationMur, placeEnseigne, rvb, uvEnseigne } from '/carte/lots.js';
 
@@ -2655,7 +2656,16 @@ export async function creerScene(conteneur, options) {
   let peintsAvant = null; // objets peints au rendu précédent : « la maquette se peint » à l'arrivée de vraies données
   function maj(monde, options = {}) {
     vider();
-    const objets = monde.objets;
+    /* Personnalisation (§5) : le nom et la couleur choisis remplacent ceux des données, pour l'affichage seulement.
+       On réécrit une copie des objets ici, une fois : tout le reste de la scène (étiquettes, enseignes, totems,
+       couleurs des départements) lit alors la version personnalisée sans rien savoir du réglage. */
+    const perso = estPersonnalisee(options.perso) ? options.perso : null;
+    const objets = perso ? monde.objets.map((o) => {
+      const p = FAMILLES_PERSONNALISABLES.includes(o.famille) ? perso[o.id] : null;
+      if (!p || (!p.nom && !p.couleur)) return o;
+      const champs = p.couleur ? [...(o.champs ?? []).filter((c) => c.id !== 'couleur'), { id: 'couleur', libelle: 'Couleur', type: 'choix', valeur: p.couleur }] : o.champs;
+      return { ...o, nom: p.nom ?? o.nom, champs };
+    }) : monde.objets;
     const parId = new Map(objets.map((o) => [o.id, o]));
     objetsParId = parId;
     const role = (id) => monde.univers.roles.find((r) => r.id === id);
@@ -2682,7 +2692,7 @@ export async function creerScene(conteneur, options) {
 
     if (modeDep) {
       const FINAUX = ['livrée', 'facturée', 'reçue', 'refusé'];
-      const deps = departements.slice(0, 12);
+      const deps = ordonner(departements, perso).slice(0, 12); // chacun à la place qu'on lui a donnée
       const org = objets.find((o) => o.famille === 'organisation') ?? { id: '__siege', nom: 'Siège', famille: 'organisation', libelleType: 'Mon entreprise', champs: [] };
       const compos = deps.map((d) => {
         const membres = objets.filter((o) => conteneurDe(o) === d.id);
@@ -2721,9 +2731,10 @@ export async function creerScene(conteneur, options) {
     } else {
       const lieux = objets.filter((o) => o.famille === 'lieu');
       lieux.sort((a, b) => Number((b.icone ?? b.type) === 'siege') - Number((a.icone ?? a.type) === 'siege'));
-      lieux.slice(0, EMPLACEMENTS_PROPRES.length).forEach((l, i) => {
+      ordonner(lieux, perso).slice(0, EMPLACEMENTS_PROPRES.length).forEach((l, i) => {
         const [x, z, rot] = EMPLACEMENTS_PROPRES[i];
-        installer(batimentPropre(l, effectifDe(l.id)), l, x, z, rot);
+        // couleur choisie : le bandeau du bâtiment et ses menuiseries la portent (§5.4)
+        installer(batimentPropre(l, effectifDe(l.id), COULEURS_DEP[val(l, 'couleur')] ?? P.cadre), l, x, z, rot);
         puce({ texte: l.nom, sorte: 'principal', monde: new THREE.Vector3(x, 0, z), hauteur: 8, id: l.id });
       });
       if (lieux.length === 0) {

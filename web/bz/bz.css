@@ -865,6 +865,14 @@
   .bz-calques > button[aria-pressed="true"] { background: var(--bz-marque-doux); border-color: var(--bz-etat-indicateur); }
   .bz-calques > button > .bz-icone { inline-size: 1rem; block-size: 1rem; visibility: hidden; }
   .bz-calques > button[aria-pressed="true"] > .bz-icone { visibility: visible; }
+  /* personnaliser la carte : une ligne par lieu ou département — son nom, sa couleur, sa place */
+  .bz-perso { display: flex; flex-direction: column; gap: var(--bz-e-2); }
+  .bz-perso__ligne { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: var(--bz-e-1); align-items: center; }
+  .bz-perso__nom { min-inline-size: 0; min-block-size: var(--bz-h-controle-sm); padding: 0 var(--bz-e-2); font: var(--bz-g-normal) var(--bz-t-petit)/1 var(--bz-police); }
+  .bz-perso__couleur { min-block-size: var(--bz-h-controle-sm); max-inline-size: 8rem; padding: 0 var(--bz-e-2); border-radius: var(--bz-r-2);
+    border: var(--bz-bord-1) solid var(--bz-bordure-champ); background: var(--bz-composant); color: var(--bz-texte);
+    font: var(--bz-g-normal) var(--bz-t-petit)/1 var(--bz-police); cursor: pointer; }
+  .bz-perso__ligne .bz-bouton--icone { min-inline-size: var(--bz-h-controle-sm); min-block-size: var(--bz-h-controle-sm); }
   .bz-legende-carte { display: grid; grid-template-columns: auto 1fr; gap: var(--bz-e-2) var(--bz-e-3); align-items: center; margin: 0; font: var(--bz-g-normal) var(--bz-t-petit)/var(--bz-i-label) var(--bz-police); }
   .bz-legende-carte dt { display: inline-flex; justify-content: center; min-inline-size: 1.5rem; }
   .bz-legende-carte dd { margin: 0; color: var(--bz-texte); }
