@@ -3848,7 +3848,9 @@ function rendreAssistant() {
   const d = E.assistantDlg;
   if (!A || !d || !CONNECTER) return;
   const { PARCOURS, progression } = CONNECTER;
-  const p = progression(A.parcours, A.etape);
+  // un agenda ou une boîte n'a aucune colonne à associer : l'étape n'est pas annoncée non plus
+  const parcours = A.parcours === 'outil' && A.outil && cibleFixeDe(A.outil) ? 'outilDirect' : A.parcours;
+  const p = progression(parcours, A.etape);
   const avecEtapes = A.etape !== 'choisir';
   const titre = A.etape === 'choisir' ? 'Connecter mes données'
     : A.parcours === 'outil' && A.outil ? `Connecter ${A.outil.compte?.nom ?? A.outil.s?.nom ?? ''}`
@@ -3863,7 +3865,7 @@ function rendreAssistant() {
   remplir(prog, avecEtapes ? [h('progress', { class: 'bz-assistant__barre', max: String(p.total), value: String(p.index + 1), 'aria-hidden': 'true' }), h('span', { texte: p.texte })] : null);
   const grille = $('#assistant-grille');
   if (avecEtapes) grille.setAttribute('data-etapes', ''); else grille.removeAttribute('data-etapes');
-  const etapes = PARCOURS[A.parcours] ?? PARCOURS.fichier;
+  const etapes = PARCOURS[parcours] ?? PARCOURS.fichier;
   remplir($('#assistant-etapes'), avecEtapes ? h('ol', {}, etapes.map(([k, l], i) => {
     const etat = i < p.index ? 'faite' : i === p.index ? 'courante' : 'future';
     const contenu = [etat === 'faite' ? icone('check', { taille: 'sm' }) : h('span', { class: 'bz-etapes__numero', 'aria-hidden': 'true', texte: String(i + 1) }), h('span', { texte: l })];
@@ -3912,6 +3914,12 @@ function contenuAssistant(A) {
     return allerEtape('fichier');
   })]];
   if (A.etape === 'fichier') return [corpsFichier(A), [boutonRetour('contenu'), boutonPrincipal(A.source === 'coller' ? 'Lire ces lignes' : A.source === 'sheets' ? 'Lire la feuille' : 'Lire le fichier', analyser, { occupe: A.envoi, enCours: 'Lecture…' })]];
+  // agenda, boîte de réception : les noms des champs sont déjà ceux du jeu, il n'y a aucune colonne à associer.
+  // Le bouton branche donc tout de suite, au lieu de mener à un écran où il n'y aurait rien à faire.
+  if (A.etape === 'recuperer' && A.outil && cibleFixeDe(A.outil)) {
+    return [corpsRecuperer(A.outil), [boutonRetour('connexion'),
+      A.outil.apercu ? boutonPrincipal(`Brancher ${(A.outil.contenu?.libelle ?? A.outil.s?.nom ?? '').toLowerCase()}`, () => activerOutil(A.outil), { occupe: A.envoi, enCours: 'Branchement…' }) : null]];
+  }
   if (A.etape === 'recuperer') return [corpsRecuperer(A.outil), [boutonRetour('connexion'),
     A.outil?.apercu ? boutonPrincipal('Continuer', () => allerEtape('colonnes')) : null]];
   if (A.etape === 'colonnes' && A.parcours === 'outil') return [corpsColonnesOutil(A.outil), [boutonRetour('recuperer'),
@@ -6768,8 +6776,15 @@ function seConnecterOutil(C) {
       annoncer(`Connecté à ${nomOutilDe(C)}. Rien n’a encore été importé.`);
       enregistrerConnexion(C);
     } else if (r.code === 'oauth_indisponible') {
-      // outil pas encore ouvert sur le relais : la clé (mode avancé) reste possible, sans l'éditeur
       C.annulerOAuth = null; s.oauth = null;
+      // un agenda, une boîte de réception : il n'y a pas de clé à créer soi-même, seulement la connexion au compte
+      if (!s.champs.some((ch) => ch.secret && ch.mode !== 'oauth')) {
+        C.oauth = null;
+        A.erreur = `${s.nom} n’est pas disponible pour le moment. Réessayez plus tard : il n’y a rien d’autre à faire de votre côté.`;
+        majOutil(C);
+        return;
+      }
+      // outil pas encore ouvert sur le relais : la clé (mode avancé) reste possible, sans l'éditeur
       modeCle(C);
       informer(`« Se connecter avec ${s.nom} » n’est pas disponible pour le moment : branchez-le avec une clé créée dans ${s.nom}, sans passer par l’éditeur.`);
       return;
@@ -6929,6 +6944,22 @@ function infoRelais(nomOutil) {
 const AVERTISSEMENT_MICROSOFT = resultatAssistant('attention', 'Il vous faut un compte Microsoft 365 professionnel.', {
   detail: 'L’adresse de votre entreprise, celle qui ouvre OneDrive Entreprise ou SharePoint. Un compte personnel (Outlook, Hotmail, Live) est refusé par Microsoft dès la page de connexion : Microsoft n’ouvre pas Excel aux classeurs d’un OneDrive personnel. Vos fichiers sont sur un compte personnel ? Importez-les en fichier, section « Sans rien connecter ».',
 });
+/**
+ * Agenda, boîte de réception : « dans les deux sens » se choisit AVANT la connexion, parce que c'est lui qui décide
+ * des droits demandés à l'outil. Lire seulement est proposé en premier, et c'est le choix par défaut : on ne demande
+ * jamais d'écrire chez quelqu'un qui ne l'a pas demandé.
+ */
+function choixSensAvantConnexion(C) {
+  const libelles = C.s ? CONNECTER.sensAvantConnexion(C.s.id) : null;
+  if (!libelles || C.mode !== 'oauth') return null;
+  const choisir = (sens) => { C.sens = sens; C.droits = sens === 'lecture' ? 'lecture' : 'ecriture'; majOutil(C); };
+  return h('fieldset', { class: 'bz-grille-choix' },
+    h('legend', { class: 'bz-champ__libelle', texte: 'Que doit faire Living Business ?' }),
+    ...['lecture', 'deux'].map((sens) => h('label', { class: 'bz-choix' },
+      h('input', { type: 'radio', name: 'outil-sens-avant', value: sens, checked: C.sens === sens, onchange: () => choisir(sens) }),
+      h('span', { class: 'bz-choix__texte' }, h('span', { class: 'bz-choix__titre' }, h('span', { texte: libelles[sens] }))))));
+}
+
 /** Dans un compte, ce qu'on veut brancher (classeur Excel, Dynamics 365…) : choisi AVANT la connexion, pour ne demander à l'outil que les droits correspondants. */
 function choixContenu(C) {
   const contenus = C.compte.contenus;
@@ -6958,9 +6989,10 @@ function corpsConnexion(C) {
           h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => { nettoyerOutil(C); C.s = null; C.contenu = null; C.ferme = false; majOutil(C); } }, 'Changer')) : null,
       !connecte && microsoft ? AVERTISSEMENT_MICROSOFT : null,
       param && !connecte ? h('div', { class: 'bz-grille-champs' }, champOutil(C, param)) : null,
+      !connecte ? choixSensAvantConnexion(C) : null,
       !C.oauth ? h('div', { class: 'bz-pile' },
         h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--lg', cle: 'outil-oauth', onclick: () => seConnecterOutil(C) }, icone('log-in'), `Se connecter avec ${nomOutil}`)),
-        h('p', { class: 'bz-t-petit', texte: `Une page ${nomOutil} s’ouvre dans un nouvel onglet : connectez-vous avec votre compte et acceptez. Votre mot de passe reste chez ${nomOutil}, aucune clé à copier. Living Business ne demande que le droit de LIRE : rien ne sera modifié chez ${nomOutil}, et rien ne sera importé tant que vous ne l’aurez pas choisi.` }),
+        h('p', { class: 'bz-t-petit', texte: `Une page ${nomOutil} s’ouvre dans un nouvel onglet : connectez-vous avec votre compte et acceptez. Votre mot de passe reste chez ${nomOutil}, aucune clé à copier. ${C.droits === 'ecriture' ? `Living Business demandera le droit de lire ET d’écrire, parce que vous l’avez choisi ci-dessus.` : 'Living Business ne demande que le droit de LIRE : rien ne sera modifié chez ' + nomOutil + '.'} Rien ne sera importé tant que vous ne l’aurez pas choisi.` }),
         infoRelais(nomOutil))
         : !connecte ? h('div', { role: 'status' }, resultatAssistant('attente', C.oauth.statut === 'ouverture' ? `Ouverture de la page ${nomOutil}…` : 'Connectez-vous dans l’onglet qui vient de s’ouvrir.', {
           detail: C.oauth.verification ? 'Avant d’accepter, Breizhcosystem vous montre le code de la demande : il doit être identique à celui-ci. Sinon, refusez : quelqu’un d’autre a lancé cette connexion. Cette fenêtre se met à jour toute seule ensuite.' : 'Cette fenêtre se met à jour toute seule dès que vous avez accepté.',
@@ -7048,12 +7080,26 @@ function nomChoisi(C) {
  * « change » sur celui qu'il retire : sans cette signature, l'aperçu se rechargerait en boucle.
  */
 const signatureRecuperation = (C) => JSON.stringify([C.config, C.cible?.cle ?? '']);
+/**
+ * Ce que ce branchement fait entrer dans le jeu, quand c'est connu d'avance (agenda → rendez-vous, boîte → courrier) :
+ * la cible n'est alors ni devinée ni demandée, et l'écran « Associer les colonnes » est sauté. null sinon.
+ */
+function cibleFixeDe(C) {
+  const type = C.s ? CONNECTER.cibleFixe(C.s.id) : null;
+  // ces types-là (rendez-vous, courrier) ne sont pas dans « à quoi ça correspond ? » : on n'importe pas un agenda
+  // depuis un tableur. Ils se lisent donc directement dans l'univers.
+  const t = type ? (E.monde?.univers?.types ?? []).find((x) => x.id === type) : null;
+  return t ? { cle: `type:${t.id}`, libelle: t.pluriel, sous: '', type: t.id, roles: [] } : null;
+}
 /** L'aperçu : quelques lignes lues chez l'outil et la correspondance proposée. Lecture seule : rien n'est enregistré. */
 async function chargerApercu(C) {
   const A = E.assistant;
   if (!A || !recuperationChoisie(C)) return;
   const nom = nomChoisi(C);
-  if (!C.cible || C.cibleAuto) { C.cible = CONNECTER.cibleProbable(nom, ciblesImport()) ?? C.cible ?? ciblesImport()[0]; C.cibleAuto = true; }
+  // agenda, boîte de réception : on sait d'avance ce que ça contient, il n'y a rien à deviner ni à demander
+  const fixe = cibleFixeDe(C);
+  if (fixe) { C.cible = fixe; C.cibleAuto = false; }
+  else if (!C.cible || C.cibleAuto) { C.cible = CONNECTER.cibleProbable(nom, ciblesImport()) ?? C.cible ?? ciblesImport()[0]; C.cibleAuto = true; }
   C.signatureApercu = signatureRecuperation(C);
   C.chargeApercu = true;
   C.erreurApercu = null;
@@ -7118,7 +7164,7 @@ function corpsRecuperer(C) {
       a.message ? resultatAssistant('info', a.message) : resultatAssistant('ok', `${pluriel(a.enregistrements, 'fiche trouvée', 'fiches trouvées')} chez ${nomOutil}.`, { detail: 'Voici les premières lignes, telles qu’elles sont aujourd’hui chez vous.' }),
       a.precision ? resultatAssistant('info', a.precision) : null,
       tableauApercu(a),
-      h('div', { class: 'bz-grille-champs' }, selectCible(C, () => { C.cibleAuto = false; relire(); }), reglagesSynchro(C, { sens: false })),
+      h('div', { class: 'bz-grille-champs' }, cibleFixeDe(C) ? null : selectCible(C, () => { C.cibleAuto = false; relire(); }), reglagesSynchro(C, { sens: false })),
       blocSens(C),
     ] : null,
   ];

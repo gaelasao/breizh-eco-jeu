@@ -24,6 +24,7 @@ import { chargerUnivers } from '../config/univers.ts';
 import { donneesDemo, NOM_ORG_DEMO, ORG_DEMO, PROFILS_DEMO, voitMotifsAbsence, type Profil } from '../demo/donnees.ts';
 import { donneesDemoEti } from '../demo/eti.ts';
 import { isoJour, joursOuvres, lundi, planningDemo, type Planning } from '../demo/planning.ts';
+import { ACTION_DU_BAC, bacDe, METHODE, POSTE_DU_BAC, urgenceDe, type Bac } from './tri-courrier.ts';
 
 export const EXEMPLES = { pme: 'Petite entreprise (sans départements)', eti: 'Entreprise organisée en départements' } as const;
 export type Exemple = keyof typeof EXEMPLES;
@@ -654,27 +655,27 @@ export class Monde {
     if (!p.peutPreparer) throw new ErreurApi(403, 'interdit');
     const texte = estObj(d) && typeof d.texte === 'string' ? d.texte.slice(0, 8000) : '';
     if (texte.trim().length < 10) throw new ErreurApi(400, 'texte_trop_court', 'Collez un mail un peu plus long.');
-    const t = normaliser(texte);
-    const regles: [string, RegExp][] = [
-      ['paiements', /facture|paiement|reglement|virement|rib|relance|impaye|avoir|echeance/],
-      ['fournisseurs', /livraison|commande fournisseur|retard|stock|approvision|tarif fournisseur|expedition/],
-      ['clients', /devis|commande|reclamation|client|rendezvous|projet|chantier|intervention|sav/],
-      ['administratif', /urssaf|attestation|kbis|impots|assurance|mairie|prefecture|contrat|juridique/],
-      ['équipe', /candidature|cv|conge|arret|planning|recrutement|salarie|formation/],
-      ['publicité', /promotion|offre speciale|newsletter|desinscri|salon|publicite/],
-    ];
-    const bac = regles.find(([, r]) => r.test(t))?.[0] ?? 'autre';
-    const urgence = /urgent|immediat|aujourdhui|mise en demeure|dernier rappel|bloque|annul/.test(t) ? 'haute' : bac === 'publicité' ? 'basse' : 'normale';
-    const e = this.#espace(sid);
-    const employes = [...e.objets.values()].filter((o) => o.famille === 'personne' && this.#visible(p, o, e.objets));
-    const poste = (re: RegExp) => employes.find((o) => re.test(normaliser(String(o.champs.poste ?? ''))));
-    const destinataire = ({ paiements: poste(/compta|financ|factur/), fournisseurs: poste(/logisti|stock|achet/), clients: poste(/commercial|client/), administratif: poste(/admin|direct|compta/), 'équipe': poste(/rh|ressources|recrut|direct/) } as Record<string, ObjetMetier | undefined>)[bac] ?? null;
+    // mêmes règles que pour une boîte branchée (Gmail, Outlook) : elles sont toutes dans `tri-courrier.ts`
+    const bac = bacDe(texte);
+    const urgence = urgenceDe(texte, bac);
+    const destinataire = this.destinataireDuBac(p, sid, bac);
     const lignes = texte.split(/\n/).map((l) => l.trim()).filter(Boolean);
     const objet = (lignes.find((l) => /^(objet|subject)\s*:/i.test(l)) ?? lignes[0] ?? '').replace(/^(objet|subject)\s*:\s*/i, '').slice(0, 160);
     const expediteur = (lignes.find((l) => /^(de|from)\s*:/i.test(l)) ?? '').replace(/^(de|from)\s*:\s*/i, '').slice(0, 120) || 'Expéditeur inconnu';
     const resume = lignes.filter((l) => !/^(de|from|objet|subject|à|to|date)\s*:/i.test(l)).join(' ').slice(0, 220);
-    const action = { paiements: 'Vérifier le paiement et répondre', fournisseurs: 'Prévenir les équipes concernées et répondre', clients: 'Répondre au client', administratif: 'Fournir le document demandé', 'équipe': 'Accuser réception', 'publicité': 'Classer', autre: 'Lire et décider' }[bac];
-    return { expediteur, objet, resume, bac, urgence, destinataire: destinataire ? { id: destinataire.id, nom: destinataire.nom } : null, action, methode: 'mots-clés (sans IA)' };
+    return { expediteur, objet, resume, bac, urgence, destinataire, action: ACTION_DU_BAC[bac], methode: METHODE };
+  }
+
+  /**
+   * Employé à qui ce bac revient d'ordinaire, d'après son poste ; null si personne ne correspond. Sert au mail collé
+   * comme au courrier qui arrive d'une boîte branchée.
+   */
+  destinataireDuBac(p: Profil, sid: string, bac: Bac): { id: string; nom: string } | null {
+    const re = POSTE_DU_BAC[bac];
+    if (!re) return null;
+    const e = this.#espace(sid);
+    const trouve = [...e.objets.values()].find((o) => o.famille === 'personne' && this.#visible(p, o, e.objets) && re.test(normaliser(String(o.champs.poste ?? ''))));
+    return trouve ? { id: trouve.id, nom: trouve.nom } : null;
   }
 
   // ---------------------------------------------------------------- accès et visibilité

@@ -22,13 +22,18 @@ import { idPartage } from './sources-microsoft.ts';
 import { appeler, ErreurSortante, type Recuperateur } from './sortant.ts';
 import type { TypeSource } from './sources.ts';
 
-export const FOURNISSEURS_TEMPS_REEL = ['airtable', 'notion', 'google', 'microsoft', 'hubspot', 'pipedrive'] as const;
+export const FOURNISSEURS_TEMPS_REEL = ['airtable', 'notion', 'google', 'microsoft', 'hubspot', 'pipedrive', 'googleagenda', 'microsoftagenda'] as const;
 export type FournisseurTempsReel = (typeof FOURNISSEURS_TEMPS_REEL)[number];
 const estFournisseur = (x: unknown): x is FournisseurTempsReel => (FOURNISSEURS_TEMPS_REEL as readonly unknown[]).includes(x);
 
-/** Connecteurs qui peuvent passer en temps réel, et l'outil qui prévient. */
+/**
+ * Connecteurs qui peuvent passer en temps réel, et l'outil qui prévient. Le COURRIER n'y est pas : Gmail n'envoie ses
+ * avis que par Cloud Pub/Sub (un service Google de plus à tenir chez l'éditeur, et un abonnement à renouveler au moins
+ * tous les 7 jours), et une boîte se relit très bien toutes les quelques minutes.
+ */
 export const TEMPS_REEL_DE: Readonly<Partial<Record<TypeSource, FournisseurTempsReel>>> = {
   airtable: 'airtable', notion: 'notion', sheets: 'google', excel365: 'microsoft', hubspot: 'hubspot', pipedrive: 'pipedrive',
+  agendagoogle: 'googleagenda', agendamicrosoft: 'microsoftagenda',
 };
 
 /** Relecture de sécurité quand le temps réel vit (jamais plus souvent que l'intervalle choisi par l'entreprise). */
@@ -429,7 +434,66 @@ const pipedrive: OutilTempsReel = {
   },
 };
 
-export const OUTILS_TEMPS_REEL: Readonly<Record<FournisseurTempsReel, OutilTempsReel>> = { airtable, notion: parApplication, google, microsoft, hubspot: parApplication, pipedrive };
+// Google Agenda : un canal `events.watch` sur l'agenda branché. Même mécanique que Google Drive (jeton du canal dans
+// l'en-tête X-Goog-Channel-Token, corps vide, canal à rouvrir), mais sur l'agenda : aucun droit Drive n'est demandé.
+// La durée de vie par défaut d'un canal est de 604 800 secondes ; un jour suffit, et le canal est rouvert chaque jour.
+// https://developers.google.com/workspace/calendar/api/v3/reference/events/watch
+const CALENDAR = 'https://www.googleapis.com/calendar/v3';
+const ID_AGENDA_GOOGLE = /^[A-Za-z0-9._%+@#-]{1,320}$/;
+const googleAgenda: OutilTempsReel = {
+  parApplication: false, dureeMs: JOUR, margeMs: 3 * HEURE,
+  async creer(cfg, jeton, f, p) {
+    if (!p.secret) throw new ErreurSortante('Secret du canal manquant.');
+    const agenda = (cfg.agenda ?? '').trim() || 'primary';
+    if (!ID_AGENDA_GOOGLE.test(agenda)) throw new ErreurSortante('Identifiant d’agenda Google invalide.');
+    const canal = randomUUID();
+    const fin = Date.now() + JOUR - 5 * 60_000;
+    const { donnees } = await appeler(f, new URL(`${CALENDAR}/calendars/${encodeURIComponent(agenda)}/events/watch`), { methode: 'POST', entetes: bearer(jeton),
+      corps: { id: canal, type: 'web_hook', address: p.adresse, token: p.secret, expiration: String(fin) } });
+    const d = estObj(donnees) ? donnees : {};
+    const ressource = typeof d.resourceId === 'string' && /^[A-Za-z0-9_-]{1,200}$/.test(d.resourceId) ? d.resourceId : null;
+    if (!ressource) throw new ErreurSortante('Réponse de Google inattendue à l’ouverture du canal de l’agenda.');
+    const expire = typeof d.expiration === 'string' && /^\d{10,16}$/.test(d.expiration) ? iso(Number(d.expiration)) : iso(fin);
+    return { externe: canal, expire, ressource };
+  },
+  async renouveler(cfg, jeton, f, a, p) {
+    const neuf = await googleAgenda.creer(cfg, jeton, f, p);
+    await googleAgenda.supprimer(cfg, jeton, f, a).catch(() => undefined);
+    return neuf;
+  },
+  async supprimer(_cfg, jeton, f, a) {
+    if (!a.externe || !a.ressource) return;
+    // une seule adresse d'arrêt pour tous les canaux de l'API Agenda
+    await appeler(f, new URL(`${CALENDAR}/channels/stop`), { methode: 'POST', entetes: bearer(jeton), corps: { id: a.externe, resourceId: a.ressource }, texte: true });
+  },
+};
+
+// Agenda Microsoft 365 : abonnement Graph sur `me/events`, `clientState` = secret de Breizhcosystem. Microsoft limite
+// un abonnement à un événement Outlook à 10 080 minutes (moins de sept jours) ; renouvelé trois jours avant la fin.
+// https://learn.microsoft.com/en-us/graph/change-notifications-overview
+const DUREE_AGENDA_GRAPH_MS = 10_000 * 60_000;
+const microsoftAgenda: OutilTempsReel = {
+  parApplication: false, dureeMs: DUREE_AGENDA_GRAPH_MS, margeMs: 3 * JOUR,
+  async creer(_cfg, jeton, f, p) {
+    if (!p.secret) throw new ErreurSortante('Secret de l’abonnement manquant.');
+    const { donnees } = await appeler(f, new URL(`${GRAPH}/subscriptions`), { methode: 'POST', entetes: bearer(jeton), delaiMs: 30_000,
+      corps: { changeType: 'created,updated,deleted', notificationUrl: p.adresse, resource: 'me/events', expirationDateTime: iso(Date.now() + DUREE_AGENDA_GRAPH_MS), clientState: p.secret, latestSupportedTlsVersion: 'v1_2' } });
+    const d = estObj(donnees) ? donnees : {};
+    const id = typeof d.id === 'string' && /^[0-9a-f-]{36}$/i.test(d.id) ? d.id : null;
+    if (!id) throw new ErreurSortante('Réponse de Microsoft inattendue à la création de l’abonnement à l’agenda.');
+    return { externe: id, expire: dateIso(d.expirationDateTime) ?? iso(Date.now() + DUREE_AGENDA_GRAPH_MS), ressource: 'me/events' };
+  },
+  async renouveler(_cfg, jeton, f, a) {
+    if (!a.externe) throw new ErreurSortante('Abonnement Microsoft inconnu.');
+    const { donnees } = await appeler(f, new URL(`${GRAPH}/subscriptions/${encodeURIComponent(a.externe)}`), { methode: 'PATCH', entetes: bearer(jeton), corps: { expirationDateTime: iso(Date.now() + DUREE_AGENDA_GRAPH_MS) } });
+    return { ...a, expire: dateIso(estObj(donnees) ? donnees.expirationDateTime : null) ?? iso(Date.now() + DUREE_AGENDA_GRAPH_MS) };
+  },
+  supprimer: (cfg, jeton, f, a) => microsoft.supprimer(cfg, jeton, f, a),
+};
+
+export const OUTILS_TEMPS_REEL: Readonly<Record<FournisseurTempsReel, OutilTempsReel>> = {
+  airtable, notion: parApplication, google, microsoft, hubspot: parApplication, pipedrive, googleagenda: googleAgenda, microsoftagenda: microsoftAgenda,
+};
 
 /**
  * Ce que le branchement suit chez l'outil : s'il change (autre base, autre feuille, autre classeur, autre objet),
@@ -438,6 +502,7 @@ export const OUTILS_TEMPS_REEL: Readonly<Record<FournisseurTempsReel, OutilTemps
 export function suiviDe(source: TypeSource, cfg: Config): string {
   const champs: Readonly<Partial<Record<TypeSource, readonly string[]>>> = {
     airtable: ['base', 'table'], notion: ['base'], sheets: ['classeur'], excel365: ['fichier'], hubspot: ['objet'], pipedrive: ['objet', 'domaine'],
+    agendagoogle: ['agenda'], agendamicrosoft: ['agenda'],
   };
   return (champs[source] ?? []).map((k) => cfg[k] ?? '').join('|').slice(0, 2000);
 }
