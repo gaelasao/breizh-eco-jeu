@@ -10,8 +10,8 @@ import { situationsPour } from './situation.ts';
 import { chargerUnivers } from '../config/univers.ts';
 import {
   ajouterMois, champsApresFait, compteurDe, defEcheance, defMateriel, defSorte, echeancesDe, estMaterielSuivi,
-  historiqueDe, JOURS_COMPTEUR_PERIME, prochaineOccurrence, situationsMateriel, situationsMateriels, sorteMateriel,
-  totalAnnee, TYPE_ENTRETIEN,
+  defParNature, historiqueDe, JOURS_COMPTEUR_PERIME, NATURES, prochaineOccurrence, situationsMateriel, situationsMateriels,
+  sorteMateriel, totalAnnee, TYPE_ENTRETIEN,
 } from './vehicules.ts';
 
 const U = await chargerUnivers('generique');
@@ -276,4 +276,14 @@ test('historique par matériel : ce qui a été fait, et le total de l’année'
   const hg = historiqueDe(chantier, engin({}, 'g1'));
   assert.deepEqual(hg.map((l) => [l.echeance, l.compteur]), [['revision', 1_150], ['controle_periodique', 900]]);
   assert.equal(totalAnnee(hg, 2026), 1_090);
+});
+
+test('chaque nature d’échéance est un choix du type « entretien », sinon l’historique serait refusé', () => {
+  const choix = U.types.find((t) => t.id === TYPE_ENTRETIEN)?.champs.find((c) => c.id === 'echeance')?.choix ?? [];
+  for (const n of NATURES) assert.ok(choix.includes(n), `nature « ${n} » absente des choix de l’univers`);
+  // et chaque sorte sait relire la nature qu'elle a écrite
+  for (const sorte of ['vehicule', 'engin'] as const) {
+    const m = defSorte(sorte);
+    for (const d of m.echeances) assert.equal(defParNature(m, d.nature)?.id, d.id, `${sorte} / ${d.nature}`);
+  }
 });

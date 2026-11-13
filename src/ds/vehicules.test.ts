@@ -371,6 +371,7 @@ test('un engin de chantier se suit comme un véhicule, mais en heures de service
     assert.equal(suivi().sorte, 'engin');
     assert.equal(suivi().unite, 'h');
     assert.equal(suivi().compteur.libelle, 'Heures de service');
+    assert.equal(suivi().compteur.releve, 'Relever les heures de service', 'l’article et l’accord sont écrits d’avance');
     assert.deepEqual(suivi().echeances.map((e: Quelconque) => e.id), ['revision', 'controle_periodique', 'verification_generale', 'libre'], 'des échéances qui lui ressemblent');
     assert.equal(V.planListe(m).resume, '1 engin, rien à prévoir pour l’instant.');
     assert.equal(V.planFiche(engin(), m).identite, 'Mini-pelle · P-12');

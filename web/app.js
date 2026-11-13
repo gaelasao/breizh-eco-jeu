@@ -9230,7 +9230,7 @@ function ouvrirKilometrage(vehiculeId) {
   const suivi = v.vehicule;
   const S = { km: suivi.compteur.valeur === null ? '' : String(suivi.compteur.valeur), erreur: null, envoi: false };
   const D = dialogueVivant({
-    titre: `Relever : ${suivi.compteur.libelle.toLocaleLowerCase('fr-FR')}`, surtitre: sansDemo(v.nom), taille: 'sm',
+    titre: suivi.compteur.releve, surtitre: sansDemo(v.nom), taille: 'sm',
     onsubmit: async () => {
       const n = Number(S.km.replace(',', '.').replace(/\s/g, ''));
       if (!(Number.isFinite(n) && n >= 0)) { S.erreur = 'Indiquez le nombre lu au compteur.'; D.rendre(); return; }
@@ -9350,10 +9350,12 @@ async function rendreVehicules() {
   if (E.vue !== 'vehicules') return;
   const plan = VEH.planListe(E.monde, { filtre: dansFiltre });
   const admin = E.monde.profil.peutAdministrer;
+  // l'univers peut déclarer plusieurs sortes de matériel (véhicules, engins) : le bouton ne promet alors pas un véhicule
+  const libelleAjout = typesMateriel().length > 1 ? 'Ajouter un matériel' : 'Ajouter un véhicule';
   if (!VEH.materielsDe(E.monde).length) {
     const type = typesMateriel()[0] ?? null;
     remplir($('#page'), h('div', { class: 'bz-ecran' }, videRubrique('vehicules', {
-      action: h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirNouveauVehicule() }, icone('plus'), 'Ajouter un véhicule'),
+      action: h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirNouveauVehicule() }, icone('plus'), libelleAjout),
       secondaire: type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirAssistant('fichier', { type: type.id }) }, icone('upload'), 'Reprendre d’un fichier') : null,
     })));
     return;
@@ -9372,7 +9374,7 @@ async function rendreVehicules() {
     h('div', { class: 'bz-liste__tete' },
       h('p', { class: 'bz-liste__compte bz-t-petit bz-texte-2', texte: plan.resume }),
       admin ? h('div', { class: 'bz-groupe-boutons' },
-        h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirNouveauVehicule() }, icone('plus'), 'Ajouter un véhicule')) : null),
+        h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirNouveauVehicule() }, icone('plus'), libelleAjout)) : null),
     filtreDepartements(),
     plan.aRelever ? h('p', { class: 'bz-t-petit bz-texte-2 bz-ligne-icone' }, icone('gauge', { taille: 'sm' }),
       h('span', { texte: `${pluriel(plan.aRelever, `${plan.mot[0]} attend`, `${plan.mot[1]} attendent`)} un relevé de compteur : sans lui, les échéances au compteur ne veulent plus rien dire.` })) : null,
@@ -9404,7 +9406,7 @@ async function rendreVehicule(id) {
       ? h('span', { class: 'bz-texte-2' }, '—', h('span', { class: 'bz-visuellement-cache', texte: ' Pas encore renseigné' }))
       // le montant exact, centimes compris : une ligne d'historique n'arrondit pas ce qui a été payé
       : h('span', { class: 'bz-t-chiffre', texte: euros(l.cout) })));
-  const releve = `Relever : ${f.compteur.libelle.toLocaleLowerCase('fr-FR')}`;
+  const releve = f.compteur.releve;
   remplir($('#page'), h('div', { class: 'bz-ecran bz-pile' },
     h('p', {}, h('a', { href: '#/vehicules', class: 'bz-lien-fleche', onclick: (ev) => allerA('vehicules', ev) }, icone('arrow-left', { taille: 'sm' }), 'Tous les véhicules')),
     h('div', { class: 'bz-liste__tete' },

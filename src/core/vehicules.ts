@@ -55,11 +55,10 @@ export interface DefEcheanceMateriel {
 /** Une sorte de matériel : son compteur, ses préavis, ses échéances. */
 export interface DefMateriel {
   sorte: SorteMateriel;
-  /** Comment en parler quand l'univers ne donne pas de nom. */
-  libelle: string;
   unite: UniteCompteur;
-  /** Le compteur : son intitulé, le champ qui le porte, le jour de son relevé. */
+  /** Le compteur : son intitulé, l'action qui le relève (écrite d'avance : l'article et l'accord changent), ses champs. */
   libelleCompteur: string;
+  libelleReleve: string;
   champCompteur: string;
   champCompteurLe: string;
   /** Ce qui identifie l'exemplaire sur sa fiche (immatriculation, numéro de parc). */
@@ -140,16 +139,16 @@ const ECHEANCES_ENGIN: readonly DefEcheanceMateriel[] = Object.freeze([
 
 export const MATERIELS: readonly DefMateriel[] = Object.freeze([
   {
-    sorte: 'vehicule', libelle: 'véhicule', unite: 'km',
-    libelleCompteur: 'Kilométrage', champCompteur: 'kilometrage', champCompteurLe: 'kilometrage_le',
+    sorte: 'vehicule', unite: 'km',
+    libelleCompteur: 'Kilométrage', libelleReleve: 'Relever le kilométrage', champCompteur: 'kilometrage', champCompteurLe: 'kilometrage_le',
     champIdentifiant: 'immatriculation',
     champPrevenirJours: 'prevenir_jours', champPrevenirCompteur: 'prevenir_km',
     prevenirJoursMax: 365, prevenirCompteurMax: 50_000, compteurMax: 5_000_000,
     echeances: ECHEANCES_VEHICULE,
   },
   {
-    sorte: 'engin', libelle: 'engin', unite: 'h',
-    libelleCompteur: 'Heures de service', champCompteur: 'heures', champCompteurLe: 'heures_le',
+    sorte: 'engin', unite: 'h',
+    libelleCompteur: 'Heures de service', libelleReleve: 'Relever les heures de service', champCompteur: 'heures', champCompteurLe: 'heures_le',
     champIdentifiant: 'numero_parc',
     champPrevenirJours: 'prevenir_jours', champPrevenirCompteur: 'prevenir_heures',
     prevenirJoursMax: 365, prevenirCompteurMax: 5_000, compteurMax: 200_000,
@@ -160,8 +159,8 @@ export const MATERIELS: readonly DefMateriel[] = Object.freeze([
 export const defSorte = (sorte: SorteMateriel): DefMateriel => MATERIELS.find((m) => m.sorte === sorte) as DefMateriel;
 
 /**
- * La sorte d'un objet, quel que soit le nom que l'univers lui donne (« Véhicule », « Camion », « Engin », « Pelle »…).
- * Un type dont l'identifiant parle d'engin se compte en heures ; les autres véhicules, en kilomètres.
+ * La sorte d'un objet, lue sur l'IDENTIFIANT de son type : un type qui parle d'engin se compte en heures de service,
+ * un type qui parle de véhicule se compte en kilomètres. Le libellé, lui, reste libre (« Camion », « Mini-pelle »…).
  */
 export function sorteMateriel(o: ObjetMetier): SorteMateriel | null {
   if (o.famille !== 'ressource') return null;
@@ -260,6 +259,8 @@ export interface CompteurMateriel {
   unite: UniteCompteur;
   /** Intitulé du compteur sur cette sorte de matériel (« Kilométrage », « Heures de service »). */
   libelle: string;
+  /** L'action qui le relève, écrite d'avance : « Relever le kilométrage », « Relever les heures de service ». */
+  releve: string;
   le: string | null;
   jours: number | null;
   /** Trop vieux pour qu'une échéance au compteur veuille dire quelque chose. */
@@ -270,7 +271,7 @@ export function compteurDe(v: ObjetMetier, maintenant: Date, m = defMateriel(v) 
   const valeur = nombre(v.champs[m.champCompteur]);
   const le = jourDe(v.champs[m.champCompteurLe]);
   const jours = le ? joursEntre(le, jourIso(maintenant)) : null;
-  return { valeur, unite: m.unite, libelle: m.libelleCompteur, le, jours, perime: valeur === null || jours === null || jours > JOURS_COMPTEUR_PERIME };
+  return { valeur, unite: m.unite, libelle: m.libelleCompteur, releve: m.libelleReleve, le, jours, perime: valeur === null || jours === null || jours > JOURS_COMPTEUR_PERIME };
 }
 
 /** Préavis en jours choisi sur la fiche, sinon celui de la nature d'échéance. */
