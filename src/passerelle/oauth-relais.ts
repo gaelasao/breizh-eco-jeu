@@ -103,6 +103,52 @@ const DOMAINE_PIPEDRIVE = /^https:\/\/[a-z0-9][a-z0-9-]{0,62}\.pipedrive\.com$/;
 const CLE_WOO = /^ck_[A-Za-z0-9]{20,64}$/;
 const localAutorise = () => process.env.LB_AUTORISER_LOCAL === '1';
 
+/**
+ * Outils dont la connexion passe par un compte Microsoft 365 professionnel (Entra ID) : leur refus se traduit par
+ * `conseilMicrosoft`.
+ */
+const MICROSOFT: ReadonlySet<FournisseurOAuth> = new Set<FournisseurOAuth>(['microsoft', 'dynamics', 'businesscentral']);
+
+/**
+ * Refus d'une connexion Microsoft, traduit en conseil utilisable. Les codes AADSTS ne servent qu'à reconnaître la
+ * situation : Microsoft prévient que ses codes et ses messages peuvent changer, donc rien ici n'en dépend pour
+ * fonctionner — sans code reconnu, le message d'origine est gardé.
+ *
+ * Le cas le plus courant est le COMPTE PERSONNEL (outlook.com, hotmail.fr, live.fr). La connexion passe par le point
+ * d'entrée « organizations » de Microsoft, réservé aux comptes professionnels ou scolaires : un compte personnel est
+ * refusé dès la page de connexion. C'est voulu — l'API Excel de Microsoft ne lit pas les classeurs d'un OneDrive
+ * personnel (« Support for workbooks stored in OneDrive Consumer platform is still not available. »), et Dynamics 365
+ * comme Business Central n'existent que pour un compte professionnel : être refusé tout de suite vaut mieux que de se
+ * connecter pour rien.
+ * https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols — points d'entrée common / organizations / consumers
+ * https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes — AADSTS500208, 500207, 50020, 65001, 700016, 53003
+ * https://learn.microsoft.com/en-us/graph/api/resources/excel — OneDrive personnel non pris en charge
+ */
+export function conseilMicrosoft(texte: string): string | null {
+  const t = texte ?? '';
+  const code = (...codes: string[]) => codes.some((c) => t.includes(c));
+  if (code('AADSTS500208', 'AADSTS500207', 'AADSTS50020', 'AADSTS16000') || /compte (personnel|microsoft personnel)|personal microsoft account|n’existe pas dans|does not exist in tenant/i.test(t)) {
+    return 'Ce compte Microsoft n’est pas un compte professionnel : Living Business se connecte à Microsoft 365 (OneDrive Entreprise, SharePoint, Dynamics 365, Business Central), pas à un compte personnel Outlook, Hotmail ou Live. Reconnectez-vous avec l’adresse de votre entreprise. Vos fichiers sont sur un compte personnel ? Importez-les en fichier : « Connecter mes données » → « Sans rien connecter ».';
+  }
+  if (code('AADSTS65001', 'AADSTS90094') || /consent_required/i.test(t)) {
+    return 'Microsoft attend une autorisation : reconnectez-vous et acceptez l’accès à vos fichiers. Si Microsoft répond que seul un administrateur peut accepter, demandez-le à la personne qui gère Microsoft 365 chez vous.';
+  }
+  if (code('AADSTS53003', 'AADSTS530035', 'AADSTS530036', 'AADSTS50158', 'AADSTS50076', 'AADSTS50079')) {
+    return 'Microsoft a bloqué la connexion au nom d’une règle de sécurité de votre entreprise (accès conditionnel, double authentification, appareil géré). Demandez à la personne qui gère Microsoft 365 d’autoriser cette connexion, ou connectez-vous depuis un appareil et un réseau autorisés.';
+  }
+  if (code('AADSTS700016', 'AADSTS50194', 'AADSTS900382')) {
+    return 'Microsoft ne reconnaît pas Living Business dans votre annuaire : la connexion doit être acceptée une première fois par la personne qui gère Microsoft 365 chez vous. Elle peut aussi la bloquer volontairement (« applications approuvées seulement »).';
+  }
+  if (code('AADSTS50105', 'AADSTS501051')) {
+    return 'Votre compte Microsoft n’est pas autorisé pour cette application : la personne qui gère Microsoft 365 doit vous y affecter (Applications d’entreprise → Utilisateurs et groupes).';
+  }
+  if (code('AADSTS650057')) {
+    return 'Microsoft refuse l’accès demandé : l’autorisation correspondante manque côté Living Business. Signalez-le, et en attendant branchez le classeur par fichier ou avec une clé.';
+  }
+  if (code('AADSTS90002')) return 'Microsoft ne trouve pas l’annuaire de votre entreprise : vérifiez que vous vous connectez bien avec l’adresse de votre entreprise.';
+  return null;
+}
+
 /** Texte d'une ligne, sans caractère de contrôle ni de direction, tronqué. */
 function ligne(x: unknown, max: number): string | null {
   if (typeof x !== 'string' && typeof x !== 'number') return null;
@@ -330,7 +376,10 @@ export class RelaisOAuth {
     if (p.site) corps.site = p.site;
     if (p.retour) corps.retour = p.retour;
     const { statut, json } = await this.#appel('POST', '/v0/oauth/demarrer', { ...corps, codeAffiche: true });
-    if (statut !== 200) throw new ErreurSortante(ligne(json.message, 300) ?? `Connexion à ${nom} impossible pour le moment (${statut}) : utilisez une clé (mode avancé).`, statut);
+    if (statut !== 200) {
+      const brut = ligne(json.message, 300) ?? `Connexion à ${nom} impossible pour le moment (${statut}) : utilisez une clé (mode avancé).`;
+      throw new ErreurSortante((MICROSOFT.has(fournisseur) ? conseilMicrosoft(brut) : null) ?? brut, statut);
+    }
     const url = pageConnexion(fournisseur, json.url, p);
     const attente = typeof json.attente === 'string' && ATTENTE.test(json.attente) ? json.attente : null;
     if (!url || !attente) throw new ErreurSortante(`Page de connexion ${nom} inattendue : connexion annulée par sécurité.`);
@@ -348,7 +397,10 @@ export class RelaisOAuth {
     if (statut === 404) return { statut: 'expire', message: `La connexion a expiré : relancez « Se connecter avec ${nom} ».` };
     if (statut !== 200) throw new ErreurSortante(ligne(json.message, 300) ?? `Relais de connexion : erreur ${statut}.`, statut);
     if (json.statut === 'attente') return { statut: 'attente' };
-    if (json.statut === 'refuse') return { statut: 'refuse', message: ligne(json.message, 300) ?? `Connexion refusée dans ${nom}.` };
+    if (json.statut === 'refuse') {
+      const brut = ligne(json.message, 300) ?? `Connexion refusée dans ${nom}.`;
+      return { statut: 'refuse', message: (MICROSOFT.has(fournisseur) ? conseilMicrosoft(brut) : null) ?? brut };
+    }
     if (json.statut === 'connecte') {
       if (json.fournisseur !== fournisseur) throw new ErreurSortante('Réponse du relais de connexion inattendue : connexion annulée.');
       const j = lireJetons(fournisseur, json.jetons);

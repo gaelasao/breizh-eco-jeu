@@ -275,13 +275,17 @@ export class Synchro {
 
   /**
    * Catalogue des connecteurs. `oauth` : « Se connecter avec… » proposé pour cet outil (null si l'adresse de Breizhcosystem
-   * n'est pas réglée, ou si le relais a dit, lors d'un clic précédent, que l'outil n'est pas encore ouvert).
-   * Aucun appel à Breizhcosystem ici : le relais n'est contacté qu'après un clic sur « Se connecter avec… » (rgpd-10).
+   * n'est pas réglée, ou si le relais n'ouvre pas encore cet outil).
+   * La liste des outils ouverts est demandée au relais (`/v0/oauth/fournisseurs`), et SEULEMENT si l'adresse de
+   * Breizhcosystem a été réglée — c'est-à-dire si l'entreprise a elle-même choisi ce relais (rgpd-10). Sans adresse
+   * réglée, aucun appel n'est fait et « En un clic » reste vide. Cette demande ne porte sur personne : elle ne dit que
+   * quels outils sont ouverts, et sa réponse est gardée quelques minutes. Ainsi rien de ce qui s'affiche en un clic ne
+   * mène à un refus — avant, les boutons étaient proposés d'office et le refus n'arrivait qu'après le clic.
    */
   async catalogue() {
     const regle = this.#relais.regle();
-    const connus = this.#relais.fournisseursConnus();
-    const ouvert = (f: FournisseurOAuth) => regle && (connus === null || connus.includes(f));
+    const connus = regle ? await this.#relais.fournisseurs() : [];
+    const ouvert = (f: FournisseurOAuth) => regle && connus.includes(f);
     return Object.values(ADAPTATEURS).map((a) => {
       const f = FOURNISSEUR_DE[a.id];
       return {
