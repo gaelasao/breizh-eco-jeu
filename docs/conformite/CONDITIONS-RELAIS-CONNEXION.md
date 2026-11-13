@@ -33,7 +33,25 @@ existe toujours, sans l'éditeur : le **mode avancé** (clé créée par l'entre
 
 Les **données** de l'entreprise (fiches, contacts, fichiers, tableurs) ne passent **jamais** par le relais : le jeu
 appelle l'outil directement avec ses jetons. Le jeu ne contacte le relais qu'après un clic sur « Se connecter avec… »,
-puis aux renouvellements ; ouvrir « Connecter mes données » ne le contacte pas.
+puis aux renouvellements ; ouvrir « Connecter mes données » ne le contacte pas. Seule exception, le temps réel (§3 bis) :
+certains outils mettent une partie des données changées dans leurs avis, qui passent par Breizhcosystem.
+
+## 3 bis. Temps réel (avis des outils), quand Living Business est relié à Breizhcosystem
+
+Un outil ne prévient de ses changements qu'une adresse publique sur Internet : ses avis arrivent à Breizhcosystem,
+qui prévient le Living Business de l'entreprise, lequel relit l'outil lui-même (`src/passerelle/temps-reel.ts`).
+
+| Donnée | Quand | Durée chez l'éditeur |
+|---|---|---|
+| Avis de l'outil : identifiants (Airtable, Google, Microsoft, Notion), et **une partie des données changées** (HubSpot : valeur d'une propriété ; Pipedrive : l'objet changé) | à chaque changement chez l'outil | **jamais gardé** : vérifié, puis seuls le branchement et au plus 20 identifiants sont poussés au jeu |
+| Abonnement : outil, identifiant chez l'outil, secret de vérification (chiffré), dates | du branchement au débranchement | tant que l'outil est branché |
+| Compte chez l'outil (Notion : espace et robot ; HubSpot : numéro du compte), noté à la connexion en un clic | à la connexion | avec la connexion du relais |
+| Date du premier avis en attente, quand le Living Business est éteint | à un avis | remise à la reconnexion, **24 heures au plus** |
+| Empreinte (SHA-256) du jeton de renouvellement, envoyée par le jeu pour désigner sa connexion Notion ou HubSpot | au branchement | le temps de la requête |
+
+Le jeu crée lui-même l'abonnement chez l'outil, avec ses jetons ; il n'accepte une adresse d'avis que sur l'origine
+de Breizhcosystem qu'il connaît, et supprime l'abonnement au débranchement. Sans liaison avec Breizhcosystem, rien de
+tout cela : chaque outil est relu à son intervalle. [Clause correspondante au §4 : à ajouter par l'éditeur.]
 
 ## 4. Clauses de sous-traitance (art. 28.3)
 

@@ -289,6 +289,7 @@ Réglages → **Outils branchés** : **Airtable, Notion, HubSpot, Google Sheets,
 - Les outils proposés en un clic sont ceux ouverts par l'éditeur sur Breizhcosystem (`GET /v0/oauth/fournisseurs`) ; sans adresse de Breizhcosystem, ou Breizhcosystem injoignable, le jeu propose simplement les clés.
 - **Mode avancé** : « Utiliser une clé à la place (mode avancé) » affiche les champs habituels (jeton d'API, clé ck_/cs_, script Apps Script, application de l'annuaire Microsoft…) ; ils marchent exactement comme avant. Serveur MCP, webhook Make · Zapier · n8n et API REST sont rangés sous « Avancé ». Odoo, Axonaut, PrestaShop, Qonto, Pennylane et Stripe se branchent toujours par leur clé.
 - Connexion expirée ou retirée chez l'outil : « Se reconnecter » dans Réglages → Outils branchés.
+- **En temps réel** (Living Business relié à Breizhcosystem) : Airtable, Notion, Google Sheets, Excel, HubSpot et Pipedrive préviennent de leurs changements. Ils ne savent joindre qu'une adresse sur Internet : leurs avis passent par Breizhcosystem, qui les vérifie et prévient le jeu par un canal que celui-ci garde ouvert ; le jeu relit alors l'outil lui-même, une fois pour tous les avis des 2 secondes. Le branchement affiche « En temps réel », sinon « Toutes les N minutes » ; la relecture régulière reste en filet de sécurité (30 minutes en temps réel). Détails, droits et limites par outil : [docs/CONNECTEURS.md](docs/CONNECTEURS.md), « Temps réel ».
 
 Détails par outil :
 - **Google Sheets** (feuille privée) : « Se connecter avec Google » puis le lien de la feuille (API Sheets, seules les cellules synchronisées sont modifiées, un texte venu du jeu qui commencerait une formule — = + - @ — est écrit comme texte, jamais exécuté ; de même par le script et dans Excel 365). Mode avancé : l'entreprise colle le script fourni dans SA feuille (Extensions → Apps Script) et le déploie en Application Web ; le secret est généré par le jeu et déjà placé dans le script, toute requête sans lui est refusée. Lecture et écriture (seules les cellules synchronisées changent, les formules restent). Rien n'est publié sur le Web.
@@ -405,6 +406,7 @@ src/
     csv.ts        analyse CSV, correspondance proposée, conversions
     connecteurs.ts catalogue honnête + Google Sheets publié (anti-SSRF)
     oauth-relais.ts « Se connecter avec… » : client du relais de Breizhcosystem, jetons relus, secret enregistré chiffré
+    temps-reel.ts   temps réel : canal des avis vers Breizhcosystem, abonnements chez chaque outil (avec ses jetons)
     sources-google.ts Google Sheets par l'API Sheets (connexion « Se connecter avec Google »)
     sources-microsoft.ts  Excel Microsoft 365 (Graph, relais ou code d'appareil avec l'application de l'entreprise)
   core/fec.ts     lecture du FEC (totaux du plan comptable général)
