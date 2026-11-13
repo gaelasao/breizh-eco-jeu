@@ -2126,7 +2126,7 @@ function rendreHudInterne() {
   const herosPrincipal = !estTelephone() && !E.matinReduit && !(Boolean(E.selection) && !E.panneauMalgreFiche && !matchMedia('(min-width: 100em)').matches) && Boolean(planCourant().heros?.bouton);
   // carte à l'étroit (sous 1 100 px, ou fiche ouverte) : la barre d'outils passerait sur deux lignes et recouvrirait le
   // plan du port. « Connecter mes données » la quitte — il reste dans le menu et dans le panneau — et le plan se replie.
-  const carteEtroite = () => !matchMedia('(min-width: 68.75em)').matches || Boolean(E.selection);
+  const carteEtroite = () => !matchMedia('(min-width: 68.75em)').matches || (Boolean(E.selection) && !matchMedia('(min-width: 100em)').matches);
   const connecter = sansSourceReelle() && !carteEtroite() ? h('button', { type: 'button', class: `bz-bouton ${herosPrincipal ? 'bz-bouton--secondaire' : 'bz-bouton--principal'}`, cle: 'hud-connecter', onclick: () => ouvrirAssistant() }, icone('plug'), 'Connecter mes données') : null;
   // un nouveau rendu (calques, mise à jour en direct) garde la position de lecture de la feuille ou du panneau
   const defile = $('#feuille-corps')?.scrollTop ?? $('#panneau-aujourdhui')?.scrollTop ?? 0;
