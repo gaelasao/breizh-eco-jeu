@@ -481,7 +481,7 @@ const ECRIT_PIPEDRIVE: Record<string, Record<string, TypeEcrit>> = {
   deals: { title: 'texte', value: 'nombre', currency: 'texte', expected_close_date: 'texte' },
 };
 
-function hotePipedrive(cfg: Config): string {
+export function hotePipedrive(cfg: Config): string {
   const d = (cfg.domaine ?? '').trim().toLowerCase().replace(/^https:\/\//, '').replace(/\/.*$/, '').replace(/\.pipedrive\.com$/, '');
   if (!d) return 'api.pipedrive.com';
   if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(d)) throw new ErreurSortante('Domaine Pipedrive invalide (ex. monentreprise pour monentreprise.pipedrive.com).');
@@ -489,7 +489,7 @@ function hotePipedrive(cfg: Config): string {
 }
 const objetPipedrive = (cfg: Config) => exiger(cfg, 'objet', /^(organizations|persons|deals)$/, 'Objet Pipedrive : organizations, persons ou deals.');
 /** Jeton d'API personnel (mode avancé) : en-tête x-api-token ; « Se connecter avec Pipedrive » : jeton OAuth en Bearer. */
-const entetePipedrive = (cfg: Config, secret: string | null): Record<string, string> =>
+export const entetePipedrive = (cfg: Config, secret: string | null): Record<string, string> =>
   parRelais(cfg, 'pipedrive') ? { authorization: `Bearer ${jeton(secret, 'Pipedrive')}` } : { 'x-api-token': jeton(secret, 'Pipedrive') };
 
 function champsPipedrive(r: Objet): Record<string, string> {

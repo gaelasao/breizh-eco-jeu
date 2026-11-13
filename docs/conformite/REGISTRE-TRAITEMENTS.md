@@ -79,6 +79,7 @@ chiffrée côté client si l'entreprise l'active), HTTPS et service isolé quand
 - **Données** : celles des fiches concernées (T2, T3), selon la correspondance de champs choisie ; secrets de connexion chiffrés.
 - **Destinataires** : les éditeurs de ces outils, choisis par l'entreprise (ses sous-traitants : voir [SOUS-TRAITANTS-TRANSFERTS.md](SOUS-TRAITANTS-TRANSFERTS.md)).
 - **« Se connecter avec… »** : les jetons passent par le relais de l'éditeur (sous-traitant : [CONDITIONS-RELAIS-CONNEXION.md](CONDITIONS-RELAIS-CONNEXION.md)) ; le relais n'est contacté qu'au clic ; le jeu ne demande que la **lecture** sauf synchro qui écrit ; information affichée avant le bouton et dans Réglages › Confidentialité.
+- **Temps réel** (jeu relié à Breizhcosystem) : les avis des outils passent par Breizhcosystem, qui ne les garde pas et ne pousse au jeu que « tel branchement a changé » ; le jeu crée lui-même les abonnements chez l'outil et relit l'outil directement ([CONDITIONS-RELAIS-CONNEXION.md](CONDITIONS-RELAIS-CONNEXION.md) §3 bis). HubSpot et Pipedrive mettent une partie des données changées dans leurs avis.
 - **Garanties du code** : une fiche tenue par un outil n'est jamais rattachée à l'enregistrement homonyme d'un autre outil ; un rattachement par le nom ne fait que compléter les champs vides ; un secret enregistré ne part jamais vers une autre adresse ni un autre outil ; réglages interdits aux clés d'API.
 
 ## T8 — Journal d'activité (sécurité et traçabilité)

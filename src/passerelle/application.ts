@@ -23,6 +23,7 @@ import { chiffrerAvecPhrase, CONSERVATION_JOURS, creerChiffreur, dechiffrerAvecP
 import { RelaisOAuth } from './oauth-relais.ts';
 import { ETAT_VIDE as MAJ_VIDE, lireDerniereVersion, lireEtat as lireEtatMaj, resume as resumeMaj, type EtatMisesAJour } from './mises-a-jour.ts';
 import { CHAMPS_CHIFFRES, Synchro, VALEUR_CHIFFREE, type EtatSynchro } from './synchro.ts';
+import { CanalTempsReel } from './temps-reel.ts';
 
 export type ModeConnexion = 'demo' | 'comptes';
 
@@ -130,6 +131,8 @@ export class Application {
   readonly cles: Cles;
   readonly comptes: Comptes;
   readonly nexus: LienNexus;
+  /** Canal des avis des outils (temps réel), ouvert vers Breizhcosystem quand le jeu y est relié et a des abonnements. */
+  readonly tempsReel: CanalTempsReel;
   readonly stockage: Stockage | null;
   readonly connexion: ModeConnexion;
   readonly options: OptionsApplication;
@@ -172,6 +175,17 @@ export class Application {
     this.#majs = lireEtatMaj(etat?.misesAJour);
     this.#fetch = f;
     this.nexus = new LienNexus({ etat: etat?.nexus ?? null, chiffreur: this.#chiffreur, changement, urlParDefaut: process.env.LB_NEXUS_URL ?? null, ...(f ? { fetch: f } : {}) });
+    // temps réel des outils : les avis arrivent par Breizhcosystem (canal ouvert par le jeu), le jeu relit l'outil lui-même
+    this.tempsReel = new CanalTempsReel({
+      ouvrir: (signal) => this.nexus.fluxRelais(signal),
+      utile: () => this.nexus.relie && this.synchro.aDesAbonnements(),
+      surAvis: (a) => this.synchro.signaler(a),
+      surEtat: () => this.#signaler('module'),
+    });
+    this.synchro.brancherTempsReel({
+      relie: () => this.nexus.relie, origine: () => this.nexus.origine(), enLigne: () => this.tempsReel.enLigne,
+      appel: (methode, chemin, corps) => this.nexus.relais(methode, chemin, corps), relancer: () => this.tempsReel.relancer(),
+    });
     monde.brancherNexus(() => this.nexus.etatPavillon());
     this.automatisations = new Automatisations(monde, this.enquetes, this.synchro, { etat: etat?.automatisations ?? null, changement, trous: () => monde.trousPlanningReel(), trousProchains: () => monde.trousPlanningReel('prochains') });
     monde.abonner((ev) => {
@@ -622,8 +636,13 @@ export class Application {
     const purgeDue = () => { const c = this.#reglages.conservation; if ((c.planning || c.avis || c.courrier) && Date.now() - this.#purgeeLe > 20 * 3600_000) { try { this.purgerDonneesAnciennes(); } catch { /* nouvel essai dans une heure */ } } };
     const t9 = setInterval(purgeDue, 3600_000);
     const t10 = setTimeout(purgeDue, 25_000);
-    for (const t of [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10]) t.unref?.();
-    this.#minuteries.push(t1, t2, t3, t4, t5, t6, t7, t8, t9, t10);
+    // temps réel des outils : abonnements créés, renouvelés et vérifiés toutes les 5 minutes ; canal des avis ouvert
+    const entretien = () => { void this.synchro.entretenirTempsReel().then(() => this.tempsReel.relancer(), () => undefined); };
+    const t11 = setInterval(entretien, 5 * 60_000);
+    const t12 = setTimeout(entretien, 10_000);
+    for (const t of [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12]) t.unref?.();
+    this.#minuteries.push(t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12);
+    this.tempsReel.demarrer();
   }
 
   arreter(): void {
@@ -631,6 +650,7 @@ export class Application {
     this.#demarre = false;
     for (const t of this.#minuteries) clearInterval(t);
     this.#minuteries = [];
+    this.tempsReel.arreter();
     if (this.#attenteNexus) { clearTimeout(this.#attenteNexus); this.#attenteNexus = null; }
     this.stockage?.ecrireMaintenant();
     this.#ferme = true;

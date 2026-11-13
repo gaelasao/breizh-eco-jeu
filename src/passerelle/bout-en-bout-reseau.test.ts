@@ -5,21 +5,23 @@
  *
  * Sauté quand les sources du réseau (ou leurs dépendances) ne sont pas à côté : c'est le cas dans la CI de ce dépôt et
  * pour toute personne qui n'a que ce dépôt. L'éditeur le lance avant une publication : `npm test` suffit si les deux
- * dossiers sont voisins ; LB_SOURCES_RESEAU=/chemin/vers/les-sources pour un autre emplacement.
+ * dossiers sont voisins ; LB_SOURCES_RESEAU=/chemin/vers/les-sources pour un autre emplacement. L'essai du temps réel
+ * est sauté aussi face à des sources du réseau qui n'ont pas encore le relais des avis (src/serveur/relais.ts).
  */
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import type { Server } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { ObjetMetier } from '../core/model.ts';
+import { Application } from './application.ts';
 import { LienNexus } from './lien-nexus.ts';
 import { ErreurApi } from './monde.ts';
 import { compteConnecte, RelaisOAuth, type ConnexionOAuth, type FournisseurOAuth } from './oauth-relais.ts';
-import { ErreurSortante } from './sortant.ts';
+import { ErreurSortante, recuperateurProtege } from './sortant.ts';
 import { chiffreurEphemere } from './stockage.ts';
 
 process.env.LB_AUTORISER_LOCAL = '1'; // le réseau d'essai écoute sur 127.0.0.1, refusé sinon par les sorties protégées
@@ -27,6 +29,7 @@ process.env.LB_AUTORISER_LOCAL = '1'; // le réseau d'essai écoute sur 127.0.0.
 const RACINE = process.env.LB_SOURCES_RESEAU ?? fileURLToPath(new URL('../../../breizh-eco-nexus/', import.meta.url));
 const PRESENT = existsSync(join(RACINE, 'src/serveur/http.ts')) && existsSync(join(RACINE, 'node_modules'));
 const saut = PRESENT ? false : 'dépôt du réseau absent à côté (ou sans ses dépendances)';
+const sautTempsReel = saut || (existsSync(join(RACINE, 'src/serveur/relais.ts')) ? false : 'réseau voisin sans relais des avis des outils (temps réel)');
 // modules du dépôt voisin : chargés par leur chemin, donc non typés ici
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Voisin = any;
@@ -537,5 +540,109 @@ test('bout en bout : HubSpot, Notion et Shopify (formats de 2026) par le vrai re
     await assert.rejects(() => relais.rafraichir(no2), expiree);
   } finally {
     serveur2.close();
+  }
+});
+
+/**
+ * Airtable simulé : côté relais, l'échange du code de connexion ; côté jeu, son API (webhook, charges, enregistrements).
+ * Et, comme Airtable, il envoie ses « ping » signés à l'adresse du réseau quand une table change.
+ */
+const airtableEssai = { mac: Buffer.from(`mac-${randomUUID()}`).toString('base64'), adresse: '', enregistrements: [{ id: 'recAAAAAAAAAAAAAA', fields: { Nom: 'Scierie du Trégor' } }], charges: 0, lectures: 0, webhooks: [] as unknown[] };
+const airtableRelais = async (u: string | URL): Promise<Response> => (String(u) === 'https://airtable.com/oauth2/v1/token'
+  ? Response.json({ access_token: 'at-acces-essai', refresh_token: 'at-renouvellement-essai', expires_in: 3600, refresh_expires_in: 5_184_000, token_type: 'Bearer', scope: 'data.records:read schema.bases:read webhook:manage' })
+  : Response.json({ error: 'inconnu' }, { status: 404 }));
+const airtableApi = async (u: URL, init?: RequestInit): Promise<Response> => {
+  const corps = init?.body ? JSON.parse(String(init.body)) : null;
+  if (u.pathname === '/v0/bases/appAAAAAAAAAAAAAA/webhooks' && init?.method === 'POST') {
+    airtableEssai.webhooks.push(corps);
+    airtableEssai.adresse = corps.notificationUrl;
+    return Response.json({ id: 'achWWWWWWWWWWWWWW', macSecretBase64: airtableEssai.mac, expirationTime: new Date(Date.now() + 7 * 86_400_000).toISOString() });
+  }
+  if (u.pathname === '/v0/bases/appAAAAAAAAAAAAAA/webhooks/achWWWWWWWWWWWWWW/payloads') {
+    const n = airtableEssai.charges;
+    airtableEssai.charges = 0;
+    return Response.json({ payloads: Array.from({ length: n }, (_, i) => ({ baseTransactionNumber: i + 1 })), cursor: 1 + n, mightHaveMore: false });
+  }
+  if (u.pathname === '/v0/appAAAAAAAAAAAAAA/tblTTTTTTTTTTTTTT') { airtableEssai.lectures++; return Response.json({ records: airtableEssai.enregistrements }); }
+  return Response.json({ error: 'inconnu' }, { status: 404 });
+};
+
+test('bout en bout : temps réel — un avis d’Airtable passe par le vrai réseau, le jeu relit l’outil en quelques secondes', { skip: sautTempsReel }, async (t) => {
+  const [{ Reseau }, { creerServeurNexus }, { RelaisOAuth: RelaisReseau }, { Coffre }, { RelaisTempsReel }] = await Promise.all(['reseau.ts', 'http.ts', 'oauth.ts', 'coffre.ts', 'relais.ts'].map((f) => voisin(`src/serveur/${f}`)));
+  // port choisi d'abord : l'adresse publique du réseau d'essai est celle où il écoute (le jeu n'accepte une adresse
+  // d'avis que sur l'origine de Breizhcosystem qu'il connaît)
+  const libre = createServer();
+  await new Promise<void>((ok) => libre.listen(0, '127.0.0.1', ok));
+  const port = (libre.address() as AddressInfo).port;
+  await new Promise<void>((ok) => libre.close(() => ok()));
+  const url3 = `http://127.0.0.1:${port}`;
+  const coffre = new Coffre();
+  const oauth = new RelaisReseau({ coffre, origine: url3, applications: { airtable: APPLICATION }, fetch: airtableRelais, base });
+  const tempsReel = new RelaisTempsReel({ base, coffre, origine: url3, comptes: oauth });
+  const serveur3 = creerServeurNexus(new Reseau({ base, origine: url3, fetch: annuaire }), { facteurEssais: 100, oauth, tempsReel }) as Server;
+  await new Promise<void>((ok) => serveur3.listen(port, '127.0.0.1', ok));
+  // le Living Business de l'entreprise : Airtable simulé, et le VRAI réseau par les sorties protégées
+  const app = await Application.creer({ exemple: 'pme', fetch: (async (u: string | URL, init?: RequestInit) => {
+    const x = new URL(String(u));
+    return x.host === 'api.airtable.com' ? airtableApi(x, init) : recuperateurProtege(u, init);
+  }) as typeof fetch });
+  try {
+    const p = app.monde.profil('dirigeante');
+    assert.ok(p);
+    app.monde.viderDemo(p, 's', { nom: 'Test' });
+    // 1. liaison en un clic avec le réseau (l'administratrice confirme sur le site)
+    const e = await membre('SCIERIE DU TRÉGOR');
+    await app.nexus.reglerAdresse(url3);
+    const d = await app.nexus.demarrerLiaison();
+    assert.equal((await e.appel('POST', '/v0/liaison/confirmer', { code: d.code })).statut, 200);
+    assert.equal((await app.nexus.suivreLiaison()).statut, 'reliee');
+
+    // 2. « Se connecter avec Airtable » par le vrai relais (consentement, code recopié), puis branchement
+    const o = await app.synchro.demarrerOAuth(p, { source: 'airtable', config: {} });
+    const etat = new URL(o.url).searchParams.get('state') ?? '';
+    const page = await (await fetch(`${url3}/oauth/retour?code=code-essai&state=${encodeURIComponent(etat)}`)).text();
+    const champ = (nom: string) => new RegExp(`name="${nom}" value="([^"]+)"`).exec(page)?.[1] ?? '';
+    const fin = await fetch(`${url3}/oauth/retour`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: url3, 'sec-fetch-site': 'same-origin' }, body: new URLSearchParams({ etat: champ('etat'), jeton: champ('jeton'), decision: 'accepter', code: String(o.verification) }).toString() });
+    assert.equal(fin.status, 200);
+    const s = await app.synchro.suivreOAuth(p, o.id) as { statut: string; jeton: string };
+    assert.equal(s.statut, 'connecte', JSON.stringify(s));
+    const c = app.synchro.creer(p, { source: 'airtable', config: { base: 'appAAAAAAAAAAAAAA', table: 'tblTTTTTTTTTTTTTT', jeton: s.jeton }, typeObjet: 'entreprise', roles: [], mapping: { Nom: '__nom' }, sens: 'lecture', intervalleS: 300, actif: true });
+    await app.synchro.synchroniser(c.id);
+    assert.equal(airtableEssai.lectures, 1);
+
+    // 3. abonnement : demandé au réseau, webhook créé chez Airtable avec le jeton de l'entreprise, secret MAC remis au réseau
+    await app.synchro.entretenirTempsReel();
+    assert.match(airtableEssai.adresse, new RegExp(`^${url3}/v0/relais/evenements/airtable/[A-Za-z0-9_-]{43}$`));
+    const ligne = (await sql<{ actif: boolean; externe: string; connecteur: string }>('SELECT actif, externe, connecteur FROM relais_abonnements WHERE connecteur = $1', [c.id]))[0];
+    assert.deepEqual(ligne, { actif: true, externe: 'achWWWWWWWWWWWWWW', connecteur: c.id });
+
+    // 4. canal ouvert par le jeu : le branchement passe « En temps réel »
+    app.tempsReel.demarrer();
+    for (let i = 0; i < 200 && !app.tempsReel.enLigne; i++) await new Promise((ok) => setTimeout(ok, 25));
+    assert.equal(app.tempsReel.enLigne, true, 'canal ouvert');
+    assert.equal(app.synchro.lister(p).find((x) => x.id === c.id)?.frequence, 'En temps réel');
+
+    // 5. une table change chez Airtable : Airtable prévient le réseau (ping signé), le jeu relit l'outil lui-même
+    airtableEssai.enregistrements.push({ id: 'recBBBBBBBBBBBBBB', fields: { Nom: 'Charpentes de l’Aulne' } });
+    airtableEssai.charges = 1;
+    const ping = JSON.stringify({ base: { id: 'appAAAAAAAAAAAAAA' }, webhook: { id: 'achWWWWWWWWWWWWWW' }, timestamp: new Date().toISOString() });
+    const debut = Date.now();
+    const r = await fetch(airtableEssai.adresse, { method: 'POST', headers: { 'content-type': 'application/json', 'x-airtable-content-mac': `hmac-sha256=${createHmac('sha256', Buffer.from(airtableEssai.mac, 'base64')).update(ping).digest('hex')}` }, body: ping });
+    assert.equal(r.status, 204);
+    const relu = () => app.monde.objetsReels().some((x) => x.nom === 'Charpentes de l’Aulne');
+    for (let i = 0; i < 400 && !relu(); i++) await new Promise((ok) => setTimeout(ok, 25));
+    const delai = Date.now() - debut;
+    assert.equal(relu(), true, 'la nouvelle fiche est arrivée');
+    assert.ok(delai < 6000, `relu en ${delai} ms`);
+    assert.equal(airtableEssai.lectures, 2, 'une relecture, regroupée');
+    // un ping faux (signé avec un autre secret) n'arrive jamais au jeu
+    const faux = await fetch(airtableEssai.adresse, { method: 'POST', headers: { 'content-type': 'application/json', 'x-airtable-content-mac': `hmac-sha256=${createHmac('sha256', 'autre').update(ping).digest('hex')}` }, body: ping });
+    assert.equal(faux.status, 401);
+    t.diagnostic(`ping Airtable reçu par le réseau → fiche dans le jeu en ${delai} ms (dont 2 s de regroupement)`);
+  } finally {
+    app.tempsReel.arreter();
+    tempsReel.fermer();
+    serveur3.closeAllConnections();
+    serveur3.close();
   }
 });
