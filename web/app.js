@@ -8630,10 +8630,88 @@ async function rendreSatisfaction() {
 }
 
 // ---------------------------------------------------------------- optimiser : ce qui peut être automatisé (§6.1 P8)
-/* Gain total en tuile, puis les pistes en liste priorisée (la plus rentable d'abord), chacune sous la forme d'une
-   « proposition à valider » (§4.28 : pointillés tant qu'elle n'est pas activée) avec son action ; puis les tâches
-   répétitives décrites par une personne (« est-ce que ça vaut le coup ? ») ; puis les automatisations en tableau,
-   avec leur interrupteur. */
+/* UN seul mot — « automatisation » — et UNE seule liste, où chaque automatisation porte son état : en marche, prête
+   (on la met en marche d'un clic) ou en attente des données qui lui manquent. En tête, un seul chiffre (le temps à
+   récupérer) et une seule action (« J'automatise »). Le « pourquoi » de chaque ligne est replié, le réglage du calcul
+   aussi ; les tâches qu'une personne décrit elle-même ont leur onglet. Ce qui ne s'automatise pas d'ici (brancher un
+   outil, fusionner des doublons) est dit à part, sans se faire passer pour une automatisation. */
+const ETAT_AUTOMATISATION = Object.freeze({
+  active: { libelle: 'En marche', ton: 'ok', icone: 'circle-check', rang: 2 },
+  prete: { libelle: 'Prête', ton: 'attention', icone: 'zap', rang: 0 },
+  a_brancher: { libelle: 'Il manque des données', ton: 'info', icone: 'plug', rang: 1 },
+});
+
+/**
+ * La liste, assemblée une fois pour toutes : l'état vient de /automatisations/preparation, le « pourquoi » chiffré de
+ * la piste correspondante, les déclenchements de /automatisations. Ordre : à mettre en marche, puis en attente de
+ * données, puis déjà en marche ; à état égal, le plus gros gain d'abord.
+ */
+function automatisationsUnifiees(O, A, Pr) {
+  const pistes = new Map(O.opportunites.filter((o) => o.recette).map((o) => [o.recette, o]));
+  const compteurs = new Map(A.recettes.map((r) => [r.id, r]));
+  return Pr.recettes.map((r) => {
+    const piste = pistes.get(r.id) ?? null;
+    const c = compteurs.get(r.id) ?? null;
+    return {
+      ...r, piste, etat: ETAT_AUTOMATISATION[r.etat] ? r.etat : 'a_brancher',
+      heuresMois: r.etat === 'active' ? 0 : r.heuresMois || piste?.heuresMois || 0,
+      euroMois: piste?.euroMois ?? null,
+      declenchements: c?.declenchements ?? 0, dernier: c?.dernier ?? null,
+      objets: piste?.objets ?? [],
+    };
+  }).sort((a, b) => ETAT_AUTOMATISATION[a.etat].rang - ETAT_AUTOMATISATION[b.etat].rang || b.heuresMois - a.heuresMois || a.nom.localeCompare(b.nom, 'fr'));
+}
+
+/** Une ligne de la liste : état, nom, gain, un seul geste, et le « pourquoi » replié. */
+function ligneAutomatisation(x, i, admin, basculer) {
+  const e = ETAT_AUTOMATISATION[x.etat];
+  const id = `automatisation-${i}`;
+  const gain = x.heuresMois ? `${nf.format(x.heuresMois)} h par mois${x.euroMois ? ` · ${nfEuro.format(x.euroMois)}` : ''}, estimé` : null;
+  const etat = x.etat === 'a_brancher' && x.manque ? `Il manque : ${x.manque}` : e.libelle;
+  return h('li', { class: 'bz-action', 'data-ton': e.ton },
+    // l'état se lit en toutes lettres sous le nom : l'icône ne porte ni alarme ni couleur seule
+    icone(e.icone, { classe: 'bz-action__icone', libelle: e.libelle }),
+    h('div', { class: 'bz-action__texte' },
+      h('p', { class: 'bz-action__titre', id, texte: x.nom }),
+      h('p', { class: 'bz-action__detail' }, h('strong', { texte: etat }), gain ? h('span', { class: 'bz-t-chiffre bz-texte-2', 'data-certitude': 'estime', texte: ` · ${gain}` }) : null),
+      x.etat === 'active' ? h('p', { class: 'bz-action__preuve', texte: x.declenchements ? `Déclenchée ${pluriel(x.declenchements, 'fois', 'fois')} · ${dateRelative(x.dernier)}` : 'Pas encore déclenchée : elle agira dès qu’un cas se présentera.' }) : null,
+      h('details', { class: 'bz-repli bz-repli--sobre' },
+        h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Pourquoi' }), icone('chevron-down', { taille: 'sm' })),
+        h('div', { class: 'bz-repli__corps bz-pile bz-pile--serre' },
+          h('p', { class: 'bz-t-petit', texte: `Quand : ${enMinuscule(x.quand)}. Alors : ${enMinuscule(x.alors)}.` }),
+          x.piste ? h('ul', { class: 'bz-proposition__raisons' },
+            h('li', { texte: x.piste.constat }),
+            h('li', { class: 'bz-texte-2', texte: `Hypothèse : ${enMinuscule(x.piste.hypothese)}` })) : null,
+          x.versOutil ? h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Les envois vers l’extérieur passent par votre outil d’automatisation ; sans lui, elle prépare la tâche et vous envoyez.' }) : null))),
+    h('div', { class: 'bz-action__boutons' },
+      admin && x.etat === 'prete' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', cle: `recette-${x.id}`, 'aria-describedby': id, onclick: () => basculer(x.id, true) }, icone('zap', { taille: 'sm' }), 'Mettre en marche') : null,
+      admin && x.etat === 'active' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', cle: `recette-${x.id}`, 'aria-describedby': id, onclick: () => basculer(x.id, false) }, icone('pause', { taille: 'sm' }), 'Arrêter') : null,
+      admin && x.etat === 'a_brancher' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', 'aria-describedby': id, onclick: () => ouvrirAssistant() }, icone('plug', { taille: 'sm' }), 'Connecter mes données') : null,
+      !admin ? h('span', { class: 'bz-t-petit bz-texte-2', texte: x.etat === 'prete' ? 'À mettre en marche par la direction.' : '' }) : null,
+      x.objets.length ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', 'aria-describedby': id, onclick: () => ouvrirSurCarte(x.objets[0]) }, icone('eye', { taille: 'sm' }), `Voir ${pluriel(x.objets.length, 'élément concerné', 'éléments concernés')}`) : null));
+}
+
+/** Ce qu'aucune automatisation ne fait (brancher un outil, fusionner des doublons) : dit à part, et replié. */
+function autresGains(O, admin) {
+  const restes = O.opportunites.filter((o) => !o.recette);
+  if (!restes.length) return null;
+  const heures = Math.round(restes.reduce((n, o) => n + o.heuresMois, 0) * 2) / 2;
+  return h('details', { class: 'bz-repli' },
+    h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'À faire vous-même, une fois' }),
+      h('span', { class: 'bz-repli__note', texte: `${nombre(restes.length)} · ${nf.format(heures)} h par mois` }), icone('chevron-down', { taille: 'sm' })),
+    h('div', { class: 'bz-repli__corps' },
+      h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Aucune automatisation ne fait ces gestes : ils demandent une décision, une fois.' }),
+      h('ul', { class: 'bz-actions', role: 'list' }, restes.map((o, i) => h('li', { class: 'bz-action', 'data-ton': 'info' },
+        icone('sparkles', { classe: 'bz-action__icone' }),
+        h('div', { class: 'bz-action__texte' },
+          h('p', { class: 'bz-action__titre', id: `gain-${i}`, texte: o.titre }),
+          h('p', { class: 'bz-action__detail', texte: o.constat }),
+          h('p', { class: 'bz-action__preuve', texte: `${nf.format(o.heuresMois)} h par mois · ${nfEuro.format(o.euroMois)}, estimé. ${o.proposition}` })),
+        h('div', { class: 'bz-action__boutons' },
+          o.id === 'connecter' && admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', 'aria-describedby': `gain-${i}`, onclick: () => ouvrirAssistant() }, icone('plug', { taille: 'sm' }), 'Connecter mes données') : null,
+          o.objets.length ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', 'aria-describedby': `gain-${i}`, onclick: () => ouvrirSurCarte(o.objets[0]) }, icone('eye', { taille: 'sm' }), `Voir ${pluriel(o.objets.length, 'élément concerné', 'éléments concernés')}`) : null))))));
+}
+
 /**
  * « J'automatise » : d'un geste, tout ce qui est prêt se met en marche. Ce qui ne peut pas l'être est dit, avec ce
  * qu'il faut relier. Pédagogie d'abord : ce qu'est une automatisation, ce qu'elle fera, ce qui reste à une personne.
@@ -8648,9 +8726,9 @@ function blocAutomatiser(Pr, admin, apres) {
   return h('section', { class: 'bz-carte bz-pile bz-optimiser__tout', 'aria-labelledby': 'tout-titre' },
     h('h2', { class: 'bz-t-titre-4', id: 'tout-titre', texte: 'J’automatise' }),
     h('p', { class: 'bz-t-corps', texte: phrase }),
-    manquantes.length ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `${pluriel(manquantes.length, 'autre attend', 'autres attendent')} des données que le jeu ne voit pas encore.` }) : null,
+    manquantes.length ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `${pluriel(manquantes.length, 'autre attend', 'autres attendent')} des données que Living Business ne voit pas encore.` }) : null,
     h('div', { class: 'bz-groupe-boutons' },
-      pretes.length && admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirToutAutomatiser(Pr, admin, apres) }, icone('zap'), 'Tout automatiser') : null,
+      pretes.length && admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'tout-automatiser', onclick: () => ouvrirToutAutomatiser(Pr, admin, apres) }, icone('zap'), 'Tout automatiser') : null,
       !pretes.length || !admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirToutAutomatiser(Pr, admin, apres) }, icone('list-checks'), pretes.length ? 'Voir le détail' : 'Voir ce qui manque') : null,
       pretes.length && !admin ? h('span', { class: 'bz-t-petit bz-texte-2', texte: 'À mettre en marche par la direction.' }) : null));
 }
@@ -8675,18 +8753,27 @@ function ouvrirToutAutomatiser(Pr, admin, apres) {
     try {
       const nbTaches = () => tachesOuvertes(E.monde ?? {}).length;
       const avant = nbTaches();
-      const r = await api('POST', '/automatisations/tout', {});
+      // Mettre en marche une automatisation en rend parfois une autre possible (la première a créé la tâche que la
+      // seconde regarde) : on enchaîne dans le même geste, au lieu de reproposer « Tout automatiser » juste après.
+      const activees = [];
+      for (let tour = 0; tour < 5; tour++) {
+        const r = await api('POST', '/automatisations/tout', {});
+        activees.push(...r.activees);
+        if (!r.activees.length) break;
+        await new Promise((ok) => setTimeout(ok, DELAI_AUTOMATISATIONS));
+        if (!(await api('GET', '/automatisations/preparation')).recettes.some((x) => x.etat === 'prete')) break;
+      }
       D.fermer();
       // Ce que les automatisations préparent doit se voir tout de suite. Elles s'exécutent un instant après l'activation
       // (côté serveur) : on attend, on relit, on compte les tâches préparées et le message y mène. Un seul message : celui
       // de la nouvelle rubrique « Tâches » ne s'ajoute pas au nôtre.
       rubriquesDejaDites.add('taches');
       try {
-        if (r.activees.length) await new Promise((ok) => setTimeout(ok, DELAI_AUTOMATISATIONS));
+        if (activees.length) await new Promise((ok) => setTimeout(ok, DELAI_AUTOMATISATIONS));
         await charger();
       } catch { /* hors ligne : le menu se mettra à jour à la prochaine lecture */ }
       const creees = Math.max(0, nbTaches() - avant);
-      const marche = r.activees.length ? `${pluriel(r.activees.length, 'automatisation mise', 'automatisations mises')} en marche : ${r.activees.length > 1 ? 'elles agissent' : 'elle agit'} dès maintenant sur vos données réelles.` : 'Rien de plus à mettre en marche.';
+      const marche = activees.length ? `${pluriel(activees.length, 'automatisation mise', 'automatisations mises')} en marche : ${activees.length > 1 ? 'elles agissent' : 'elle agit'} dès maintenant sur vos données réelles.` : 'Rien de plus à mettre en marche.';
       informer(creees ? `${marche} ${pluriel(creees, 'tâche préparée', 'tâches préparées')}.` : marche, 'ok',
         creees ? { libelle: creees > 1 ? 'Voir les tâches' : 'Voir la tâche', faire: () => changerVue('famille:tache') } : null);
       rubriquesDejaDites.delete('taches');
@@ -9026,63 +9113,49 @@ async function rendreOptimiser() {
     try { await api('POST', `/automatisations/${id}`, { actif }); informer(actif ? 'Automatisation activée : elle agit dès maintenant sur vos données réelles.' : 'Automatisation désactivée.', 'ok'); } catch (e) { E.optimiserErreur = e.message; }
     rendreOptimiser();
   };
-  const pistes = [...O.opportunites].sort((a, b) => Number(a.active) - Number(b.active) || b.heuresMois - a.heuresMois);
-  // une seule action principale par écran : « Tout automatiser » quand des automatisations sont prêtes, sinon la piste la plus rentable
-  const toutPret = admin && Pr.recettes.some((r) => r.etat === 'prete');
-  const premiere = toutPret ? null : pistes.find((o) => !o.active);
-  const ICONE_CATEGORIE = (c) => (/factur|paiement|relance/i.test(c) ? 'receipt' : /stock|achat/i.test(c) ? 'boxes' : /courrier|mail/i.test(c) ? 'mail' : /planning|équipe/i.test(c) ? 'calendar-days' : /connect|outil|saisie/i.test(c) ? 'plug' : 'sparkles');
+  const liste = automatisationsUnifiees(O, A, Pr);
+  const compte = (etat) => liste.filter((x) => x.etat === etat).length;
+  E.optimiserOnglet ??= lireLocal('lb-optimiser-onglet');
+  const onglet = E.optimiserOnglet === 'taches' ? 'taches' : 'automatisations';
+  const choisirOnglet = (id) => { E.optimiserOnglet = id; ecrireLocal('lb-optimiser-onglet', id); rendreOptimiser(); };
+  const ongletsOptimiser = [
+    { id: 'automatisations', libelle: 'Automatisations', icone: 'zap', note: nombre(liste.length) },
+    { id: 'taches', libelle: 'Mes tâches à moi', icone: 'rotate-cw', note: T.taches.length ? nombre(T.taches.length) : '—' },
+  ];
+  const ids = ongletsOptimiser.map((o) => o.id);
   remplir(P, h('div', { class: 'bz-ecran bz-optimiser' },
+    // un seul chiffre en tête, et une seule action
     h('div', { class: 'bz-tuiles' },
       h('dl', { class: 'bz-tuile bz-tuile--grande' },
         h('dt', {}, h('span', { texte: 'Temps à récupérer chaque mois' })),
         h('dd', { class: 'bz-tuile__valeur bz-t-chiffre', 'data-certitude': 'estime', texte: `${nf.format(O.heuresMois)} h` }),
-        h('dd', { class: 'bz-tuile__note', texte: `Soit environ ${nfEuro.format(O.euroMois)} par mois, estimé` })),
-      h('dl', { class: 'bz-tuile bz-tuile--grande' },
-        h('dt', {}, h('span', { texte: 'Pistes déjà automatisées' })),
-        h('dd', { class: 'bz-tuile__valeur bz-t-chiffre', texte: `${O.indice} %` }),
-        h('dd', { class: 'bz-tuile__note', texte: `${nombre(O.opportunites.filter((o) => o.recette && o.active).length)} sur ${pluriel(O.opportunites.filter((o) => o.recette).length, 'piste automatisable', 'pistes automatisables')}` }))),
+        h('dd', { class: 'bz-tuile__note', texte: `Soit environ ${nfEuro.format(O.euroMois)} par mois, estimé` }))),
     blocAutomatiser(Pr, admin, () => rendreOptimiser()),
-    admin ? h('div', { class: 'bz-champ bz-optimiser__taux' },
-      h('label', { class: 'bz-champ__libelle', for: 'taux-horaire', texte: 'Coût horaire chargé' }),
-      h('div', { class: 'bz-champ__suffixe' },
-        h('input', { id: 'taux-horaire', class: 'bz-champ__saisie', type: 'number', min: '1', max: '999', inputmode: 'decimal', value: String(A.tauxHoraire), 'aria-describedby': 'taux-aide',
-          onchange: async (e) => { try { await api('PUT', '/automatisations/reglages', { tauxHoraire: Number(e.target.value) }); E.optimiserErreur = null; } catch (err) { E.optimiserErreur = err.message; } rendreOptimiser(); } }),
-        h('span', { class: 'bz-champ__unite', 'aria-hidden': 'true', texte: '€ / h' })),
-      h('p', { class: 'bz-champ__aide', id: 'taux-aide', texte: 'Il sert à chiffrer chaque piste en euros. Ajustez-le à votre réalité.' })) : null,
     messageEnLigne('critique', erreur),
-    h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Calculé sur vos données réelles (retards, stock, courrier, planning, gestes répétés). Chaque estimation affiche son hypothèse.' }),
-    h('section', { class: 'bz-pile', 'aria-labelledby': 'pistes-titre' },
-      h('h2', { class: 'bz-t-titre-4', id: 'pistes-titre', texte: pistes.length ? 'Pistes, de la plus rentable à la moins rentable' : 'Pistes' }),
-      pistes.length ? h('ol', { class: 'bz-liste-simple bz-optimiser__pistes', role: 'list' }, pistes.map((o, i) => h('li', {},
-        h('article', { class: `bz-proposition${o.active ? ' bz-proposition--validee' : ''}`, 'aria-labelledby': `piste-${i}` },
-          h('p', { class: 'bz-proposition__tete bz-t-petit' }, icone(o.active ? 'circle-check' : 'bot', { taille: 'sm' }), o.active ? 'Automatisé' : `Proposé par Living Business · ${o.categorie}`),
-          h('div', { class: 'bz-proposition__corps' },
-            h('span', { class: 'bz-cat bz-cat--carre', 'aria-hidden': 'true' }, icone(ICONE_CATEGORIE(o.categorie), { taille: 'sm' })),
-            h('div', { class: 'bz-pile bz-pile--serre' },
-              h('h3', { class: 'bz-t-titre-4', id: `piste-${i}`, texte: o.titre }),
-              h('p', { class: 'bz-t-chiffre bz-proposition__gain', 'data-certitude': 'estime' }, `${nf.format(o.heuresMois)} h par mois`, h('span', { class: 'bz-t-petit bz-texte-2', texte: ` · ${nfEuro.format(o.euroMois)}, estimé` })))),
-          h('div', { class: 'bz-proposition__pourquoi' },
-            h('p', { class: 'bz-t-label', texte: 'Pourquoi ?' }),
-            h('ul', { class: 'bz-proposition__raisons' }, h('li', { texte: o.constat }), h('li', { texte: o.proposition }), h('li', { class: 'bz-texte-2', texte: `Hypothèse : ${/^\p{Lu}\p{Ll}/u.test(o.hypothese) ? `${o.hypothese.charAt(0).toLocaleLowerCase('fr-FR')}${o.hypothese.slice(1)}` : o.hypothese}` }))),
-          h('div', { class: 'bz-groupe-boutons' },
-            o.recette && admin ? h('button', { type: 'button', class: `bz-bouton ${o === premiere ? 'bz-bouton--principal' : 'bz-bouton--secondaire'}`, onclick: () => basculer(o.recette, !o.active) }, icone(o.active ? 'pause' : 'zap'), o.active ? 'Désactiver' : 'Automatiser') : null,
-            o.id === 'connecter' && admin ? h('button', { type: 'button', class: `bz-bouton ${o === premiere ? 'bz-bouton--principal' : 'bz-bouton--secondaire'}`, onclick: () => ouvrirAssistant() }, icone('plug'), 'Connecter mes données') : null,
-            o.objets.length ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => ouvrirSurCarte(o.objets[0]) }, icone('eye'), `Voir ${pluriel(o.objets.length, 'élément concerné', 'éléments concernés')}`) : null,
-            o.recette && !admin ? h('span', { class: 'bz-t-petit bz-texte-2', texte: o.active ? 'Automatisé' : 'À activer par la direction' }) : null))))) : blocVide({ titre: 'Rien à optimiser pour l’instant.', texte: 'Connectez vos données pour une analyse complète.', actions: admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirAssistant() }, icone('plug'), 'Connecter mes données') : null })),
-    blocTachesRepetitives(T, Pr, admin, { basculer, apres: () => rendreOptimiser() }),
-    h('section', { class: 'bz-pile', 'aria-labelledby': 'recettes-titre' },
-      h('div', {}, h('h2', { class: 'bz-t-titre-4', id: 'recettes-titre', texte: 'Automatisations' }),
-        h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Quand… alors… Elles agissent sur le réel, jamais en simulation, sans jamais faire deux fois la même chose.' })),
-      h('div', { class: 'bz-tableau-cadre' }, h('table', { class: 'bz-tableau bz-tableau--empile' },
-        h('thead', {}, h('tr', {}, ['Automatisation', 'Quand', 'Alors', 'Déclenchée', 'Active'].map((t) => h('th', { scope: 'col', texte: t })))),
-        h('tbody', {}, A.recettes.map((r) => h('tr', {},
-          h('th', { scope: 'row', texte: r.nom }), h('td', { 'data-colonne': 'Quand', texte: r.quand }), h('td', { 'data-colonne': 'Alors', texte: r.alors }),
-          h('td', { 'data-colonne': 'Déclenchée', texte: r.declenchements ? `${pluriel(r.declenchements, 'fois', 'fois')} · ${dateRelative(r.dernier)}` : 'Jamais' }),
-          h('td', { 'data-colonne': 'Active' }, admin ? h('label', { class: 'bz-interrupteur' },
-            h('input', { type: 'checkbox', role: 'switch', checked: r.active, cle: `recette-${r.id}`, onchange: (e) => basculer(r.id, e.target.checked) }),
-            h('span', { class: 'bz-visuellement-cache', texte: r.nom }), h('span', { class: 'bz-interrupteur__etat', 'aria-hidden': 'true', texte: r.active ? 'Activée' : 'Désactivée' }))
-            : h('span', { texte: r.active ? 'Active' : 'Inactive' }))))))),
-      A.recettes.some((r) => r.id === 'relance-factures') ? h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Pour envoyer réellement des e-mails ou écrire dans vos logiciels, branchez Make, Zapier ou n8n (Réglages › Connecteurs) : chaque automatisation leur envoie un événement signé.' }) : null),
+    cadreOnglets(h('div', { class: 'bz-onglets', role: 'tablist', 'aria-label': 'Optimiser' }, ongletsOptimiser.map((o) => h('button', {
+      type: 'button', role: 'tab', id: `onglet-${o.id}`, cle: `onglet-${o.id}`, 'aria-selected': o.id === onglet, 'aria-controls': 'panneau-optimiser', tabindex: o.id === onglet ? '0' : '-1',
+      onclick: () => choisirOnglet(o.id), onkeydown: (e) => clavierOnglets(e, ids, onglet, choisirOnglet),
+    }, icone(o.icone, { taille: 'sm' }), h('span', { texte: o.libelle }), h('span', { class: 'bz-onglets__note bz-t-chiffre', 'aria-hidden': 'true', texte: o.note }))))),
+    h('div', { class: 'bz-pile', role: 'tabpanel', id: 'panneau-optimiser', 'aria-labelledby': `onglet-${onglet}`, tabindex: '0' },
+      onglet === 'automatisations' ? [
+        // une seule liste, un seul mot : chaque automatisation porte son état
+        h('p', { class: 'bz-t-petit bz-texte-2', texte: `${pluriel(compte('prete'), 'prête à mettre en marche', 'prêtes à mettre en marche')} · ${pluriel(compte('active'), 'en marche', 'en marche')} · ${pluriel(compte('a_brancher'), 'en attente de données', 'en attente de données')}. Calculé sur vos données réelles ; chaque estimation dit son hypothèse.` }),
+        liste.length ? h('ul', { class: 'bz-actions', role: 'list' }, liste.map((x, i) => ligneAutomatisation(x, i, admin, basculer)))
+          : blocVide({ titre: 'Rien à automatiser pour l’instant.', texte: 'Connectez vos données : les automatisations se proposent toutes seules.',
+            actions: admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirAssistant() }, icone('plug'), 'Connecter mes données') : null }),
+        autresGains(O, admin),
+        // le réglage du calcul ne tient pas le haut de la page : il se déplie quand on en a besoin
+        admin ? h('details', { class: 'bz-repli' },
+          h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Régler le calcul' }), h('span', { class: 'bz-repli__note', texte: `${nfEuro.format(A.tauxHoraire)} de l’heure` }), icone('chevron-down', { taille: 'sm' })),
+          h('div', { class: 'bz-repli__corps' }, h('div', { class: 'bz-champ bz-optimiser__taux' },
+            h('label', { class: 'bz-champ__libelle', for: 'taux-horaire', texte: 'Coût horaire chargé' }),
+            h('div', { class: 'bz-champ__suffixe' },
+              h('input', { id: 'taux-horaire', class: 'bz-champ__saisie', type: 'number', min: '1', max: '999', inputmode: 'decimal', value: String(A.tauxHoraire), 'aria-describedby': 'taux-aide',
+                onchange: async (e) => { try { await api('PUT', '/automatisations/reglages', { tauxHoraire: Number(e.target.value) }); E.optimiserErreur = null; } catch (err) { E.optimiserErreur = err.message; } rendreOptimiser(); } }),
+              h('span', { class: 'bz-champ__unite', 'aria-hidden': 'true', texte: '€ / h' })),
+            h('p', { class: 'bz-champ__aide', id: 'taux-aide', texte: 'Il sert à chiffrer chaque automatisation en euros. Ajustez-le à votre réalité.' })))) : null,
+        A.recettes.some((r) => r.id === 'relance-factures') ? h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Pour envoyer réellement des e-mails ou écrire dans vos logiciels, branchez Make, Zapier ou n8n (Réglages › Connecteurs) : chaque automatisation leur envoie un événement signé.' }) : null,
+      ] : blocTachesRepetitives(T, Pr, admin, { basculer, apres: () => rendreOptimiser() })),
     encartEditeur()));
 }
 

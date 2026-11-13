@@ -324,8 +324,10 @@ test('écrans vides : deux lignes (ce qui manque, ce que l’écran montrera) et
     const corps = appel.slice(0, appel.indexOf('\n    return;') > 0 ? appel.indexOf('\n    return;') : 600);
     assert.ok((corps.match(/bz-bouton--principal|boutonConnecter\(/g) ?? []).length <= 1, corps.slice(0, 90));
   }
-  // Optimiser : « Tout automatiser » ou la première piste, jamais deux boutons principaux
-  assert.match(app, /const premiere = toutPret \? null : pistes\.find\(\(o\) => !o\.active\);/);
+  // Optimiser : « Tout automatiser » est la seule action principale ; chaque ligne porte un bouton secondaire
+  const optimiser = app.slice(app.indexOf('async function rendreOptimiser()'), app.indexOf('// ---------------------------------------------------------------- horloge'));
+  assert.equal((optimiser.match(/bz-bouton--principal/g) ?? []).length, 1, 'un seul bouton principal dans l’écran : celui de l’écran vide');
+  assert.match(app, /class: 'bz-bouton bz-bouton--principal', cle: 'tout-automatiser'/);
   // textes des écrans vides : un titre qui dit ce qui manque, une phrase qui dit ce qu'on verra
   for (const id of ['clients', 'fournisseurs', 'equipe', 'commandes', 'stock', 'documents', 'lieux', 'planning', 'courrier', 'satisfaction', 'pipeline']) {
     const t = S.texteVide(id);

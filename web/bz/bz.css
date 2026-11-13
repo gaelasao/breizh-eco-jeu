@@ -727,6 +727,12 @@
   .bz-repli > summary > .bz-icone:last-child { color: var(--bz-icone); transition: rotate var(--bz-d-2) var(--bz-c-standard); }
   .bz-repli[open] > summary > .bz-icone:last-child { rotate: 180deg; }
   .bz-repli__corps { display: flex; flex-direction: column; gap: var(--bz-e-3); padding: var(--bz-e-1) var(--bz-e-1) var(--bz-e-4); color: var(--bz-texte); }
+  /* Repli sobre : dans une ligne de liste (Optimiser), le « Pourquoi » ne doit pas peser plus que la ligne elle-même */
+  .bz-repli--sobre { border: 0; }
+  .bz-repli--sobre > summary { min-block-size: var(--bz-h-controle-sm); padding: 0; gap: var(--bz-e-2); color: var(--bz-texte-2); font-size: var(--bz-t-petit); }
+  .bz-repli--sobre > summary:hover { background: none; color: var(--bz-texte); text-decoration: underline; }
+  .bz-repli--sobre > summary > .bz-repli__titre { flex: 0 1 auto; }
+  .bz-repli--sobre > .bz-repli__corps { padding: var(--bz-e-2) 0 var(--bz-e-1); }
 
   /* ---- « Premiers pas » (§4.20) */
   .bz-premiers-pas { display: flex; flex-direction: column; gap: var(--bz-e-1); margin: 0; padding: 0; list-style: none; }

@@ -46,3 +46,15 @@ test('« J’automatise » : entreprise vide — rien à regarder, chaque automa
   assert.ok(fait.activees.includes('avis-bas') && !fait.activees.includes('relance-factures'));
   assert.ok(fait.aBrancher.some((r) => r.id === 'relance-factures' && /factures/.test(r.manque ?? '')));
 });
+
+test('aucune piste à zéro : « brancher vos outils » n’est proposé qu’avec au moins une fiche tenue à la main', async () => {
+  const app = await Application.creer({ connexion: 'comptes' });
+  const p = app.monde.initialiser({ nom: 'Maël', entreprise: 'Kerlann', depart: 'vide' });
+  const piste = () => app.automatisations.optimisations(p).opportunites.find((o) => o.id === 'connecter') ?? null;
+  const constat = () => (piste()?.constat ?? '').replace(/[\u00a0\u202f]/gu, ' ');
+  assert.equal(piste(), null, 'entreprise vide : rien à ressaisir, donc rien à proposer');
+  app.monde.creerObjet(p, 's', { type: 'entreprise', nom: 'Cave du Port', roles: ['client'], champs: {} });
+  assert.ok(piste(), 'une fiche saisie à la main : la piste a un sens');
+  assert.doesNotMatch(constat(), /: 0 /, 'jamais « 0 fiche saisie… qui vieillissent »');
+  assert.equal(constat(), 'Aucun outil branché : 1 fiche saisie ou importée à la main, qui vieillit.', 'et les accords suivent le nombre');
+});

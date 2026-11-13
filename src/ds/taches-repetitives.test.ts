@@ -13,13 +13,15 @@ const app = readFileSync(fileURLToPath(new URL('../../web/app.js', import.meta.u
 const entre = (debut: string, fin: string) => app.slice(app.indexOf(debut), app.indexOf(fin));
 const bloc = entre('// ---------------------------------------------------------------- optimiser : tâches répétitives déclarées', 'async function rendreOptimiser() {');
 
-test('Optimiser : la section des tâches décrites est chargée et affichée entre les pistes et les automatisations', () => {
+test('Optimiser : les tâches décrites par une personne ont leur onglet, « Mes tâches à moi »', () => {
   const ecran = entre('async function rendreOptimiser() {', '// ---------------------------------------------------------------- horloge');
   assert.match(ecran, /api\('GET', '\/automatisations\/taches'\)/);
-  const pistes = ecran.indexOf("'aria-labelledby': 'pistes-titre'");
-  const taches = ecran.indexOf('blocTachesRepetitives(T, Pr, admin');
-  const recettes = ecran.indexOf("'aria-labelledby': 'recettes-titre'");
-  assert.ok(pistes > 0 && pistes < taches && taches < recettes, 'pistes détectées, puis tâches décrites, puis automatisations');
+  assert.match(ecran, /\{ id: 'taches', libelle: 'Mes tâches à moi'/);
+  assert.match(ecran, /onglet === 'automatisations' \? \[/, 'un onglet ou l’autre, jamais les deux listes à la suite');
+  assert.match(ecran, /\] : blocTachesRepetitives\(T, Pr, admin, \{ basculer, apres: \(\) => rendreOptimiser\(\) \}\)/);
+  // le choix de l'onglet tient d'une visite à l'autre
+  assert.match(ecran, /E\.optimiserOnglet \?\?= lireLocal\('lb-optimiser-onglet'\);/);
+  assert.match(ecran, /ecrireLocal\('lb-optimiser-onglet', id\)/);
 });
 
 test('tâches décrites : l’écran ne recalcule rien, le verdict vient du serveur avec sa raison et ses calculs', () => {
@@ -57,4 +59,31 @@ test('tâches décrites : ce qu’il reste à faire est dit, avec ou sans automa
     'Aucune automatisation de Living Business ne fait cette tâche.', 'Cette tâche ne peut pas encore être automatisée d’ici.', 'Make, Zapier ou n8n', 'événements signés', 'Celle-ci le fait déjà']) assert.ok(bloc.includes(phrase), phrase);
   assert.match(bloc, /Aucune tâche décrite pour l’instant\./, 'état vide');
   assert.match(bloc, /Des idées pour commencer/);
+});
+
+test('Optimiser : une seule liste, trois états, un seul mot — et « Tout automatiser » enchaîne', () => {
+  const ecran = entre('// ---------------------------------------------------------------- optimiser : ce qui peut être automatisé', '// ---------------------------------------------------------------- horloge');
+  // les trois états, écrits une fois pour toutes
+  const etats = ecran.slice(ecran.indexOf('const ETAT_AUTOMATISATION'), ecran.indexOf('automatisationsUnifiees'));
+  assert.deepEqual(etats.match(/libelle: '[^']+'/g), ["libelle: 'En marche'", "libelle: 'Prête'", "libelle: 'Il manque des données'"]);
+  assert.match(ecran, /const etat = x\.etat === 'a_brancher' && x\.manque \? `Il manque : \$\{x\.manque\}` : e\.libelle;/);
+  // une seule liste : l'état vient de la préparation, le « pourquoi » de la piste, les déclenchements du compteur
+  assert.match(ecran, /function automatisationsUnifiees\(O, A, Pr\)/);
+  assert.match(ecran, /return Pr\.recettes\.map\(\(r\) => \{/, 'une ligne par automatisation, jamais une par piste');
+  assert.match(ecran, /ETAT_AUTOMATISATION\[a\.etat\]\.rang - ETAT_AUTOMATISATION\[b\.etat\]\.rang \|\| b\.heuresMois - a\.heuresMois/, 'à mettre en marche d’abord, puis le plus gros gain');
+  // le vocabulaire : plus de « piste » à l'écran, plus de tableau d'automatisations en double
+  assert.doesNotMatch(ecran, /texte: 'Pistes/);
+  assert.doesNotMatch(ecran, /'aria-labelledby': 'recettes-titre'/);
+  assert.doesNotMatch(ecran, /pistes automatisable/, 'le compteur qui ne se recoupait pas a disparu');
+  assert.doesNotMatch(ecran, /Pistes déjà automatisées/);
+  // ce qui n'est pas une automatisation est dit à part, replié
+  assert.match(ecran, /function autresGains\(O, admin\)/);
+  assert.match(ecran, /const restes = O\.opportunites\.filter\(\(o\) => !o\.recette\);/);
+  assert.match(ecran, /texte: 'À faire vous-même, une fois'/);
+  // la page se lit sans se perdre : le « pourquoi » de chaque ligne et le réglage du calcul sont repliés
+  assert.match(ecran, /h\('summary', \{\}, h\('span', \{ class: 'bz-repli__titre', texte: 'Pourquoi' \}\)/);
+  assert.match(ecran, /texte: 'Régler le calcul'/);
+  // « Tout automatiser » reboucle tant que de nouvelles automatisations deviennent prêtes
+  assert.match(ecran, /for \(let tour = 0; tour < 5; tour\+\+\) \{/);
+  assert.match(ecran, /if \(!\(await api\('GET', '\/automatisations\/preparation'\)\)\.recettes\.some\(\(x\) => x\.etat === 'prete'\)\) break;/);
 });

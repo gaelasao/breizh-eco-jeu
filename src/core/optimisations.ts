@@ -202,11 +202,13 @@ export function detecterOptimisations(e: EntreeOptimisations): { opportunites: O
   }
 
   // 12. Saisie manuelle et imports → connecter l'outil source
-  const manuels = e.objets.filter((o) => o.mode === 'reel' && (o.source.id === 'saisie' || o.source.id.startsWith('import:')));
-  if (manuels.length >= 5 || (e.connecteurs === 0 && e.objets.some((o) => o.mode === 'reel'))) {
+  // l'entreprise elle-même n'est pas une fiche qu'on ressaisit : elle ne compte pas
+  const manuels = e.objets.filter((o) => o.mode === 'reel' && o.famille !== 'organisation' && (o.source.id === 'saisie' || o.source.id.startsWith('import:')));
+  // au moins une fiche tenue à la main : sans cela, la piste s'affichait avec « 0 fiche saisie… qui vieillissent »
+  if (manuels.length >= 5 || (manuels.length > 0 && e.connecteurs === 0)) {
     ajouter({
       id: 'connecter', titre: 'Brancher vos outils au lieu de ressaisir', categorie: 'Données',
-      constat: e.connecteurs === 0 ? `Aucun outil branché : ${pluriel(manuels.length, 'fiche saisie ou importée', 'fiches saisies ou importées')} à la main, qui vieillissent.` : `${pluriel(manuels.length, 'fiche saisie ou importée', 'fiches saisies ou importées')} à la main.`,
+      constat: e.connecteurs === 0 ? `Aucun outil branché : ${pluriel(manuels.length, 'fiche saisie ou importée', 'fiches saisies ou importées')} à la main, ${manuels.length > 1 ? 'qui vieillissent' : 'qui vieillit'}.` : `${pluriel(manuels.length, 'fiche saisie ou importée', 'fiches saisies ou importées')} à la main.`,
       proposition: 'Reliez votre CRM, votre tableur ou votre base (Airtable, Notion, HubSpot, Google Sheets, Make…) : les changements passent dans les deux sens, en temps réel.',
       hypothese: '2 minutes par fiche à tenir à jour chaque mois en double saisie.',
       heuresMois: Math.max(1, (manuels.length * 2) / 60), difficulte: 'moyenne', objets: manuels.slice(0, 20).map((o) => o.id), recette: null,
