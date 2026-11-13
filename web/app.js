@@ -1091,7 +1091,7 @@ const vueAvecTitre = (v) => VUES_AVEC_TITRE.has(v) || estVueListe(v) || String(v
 const LIBELLE_TON = { critique: 'Critique', attention: 'À traiter', info: 'Information', ok: 'En ordre' };
 
 function planCourant() {
-  return planAujourdhui(E.monde, { reports: E.reports, filtre: dansFiltre });
+  return planAujourdhui(E.monde, { reports: E.reports, filtre: dansFiltre, vus: vusMiseEnRoute() });
 }
 function navigation() {
   return groupesNavigation(E.monde, { aFaire: planCourant().aFaire, vueAujourdhui: vueAujourdhui() });
@@ -2288,8 +2288,57 @@ function premiersPasCourant() {
   return premiersPas(E.monde, { carte: lireLocal('lb-carte-vue') === '1', sante: lireLocal('lb-sante-vue') === '1' });
 }
 
+// ---------------------------------------------------------------- mise en route : la prochaine étape (§4.20)
+/* Ce que les données ne prouvent pas (une carte regardée, un planning rempli, une invitation envoyée, une sauvegarde
+   sortie) est gardé sur cet appareil, comme les « Premiers pas ». « Pas maintenant » met une étape de côté : la
+   suivante prend sa place, et le fil ne s'arrête que quand il n'y a vraiment plus rien à proposer. */
+const CLE_ETAPES_PASSEES = 'lb-etapes-passees';
+const lireEtapesPassees = () => { try { const x = JSON.parse(lireLocal(CLE_ETAPES_PASSEES) ?? '[]'); return Array.isArray(x) ? x.filter((i) => typeof i === 'string') : []; } catch { return []; } };
+function vusMiseEnRoute() {
+  return {
+    carte: lireLocal('lb-carte-vue') === '1', sante: lireLocal('lb-sante-vue') === '1',
+    planning: lireLocal('lb-planning-fait') === '1', invitee: lireLocal('lb-invitation-faite') === '1',
+    sauvegarde: lireLocal('lb-sauvegarde-faite') === '1', passees: lireEtapesPassees(),
+  };
+}
+/** Une étape est tenue pour faite sur cet appareil (planning rempli, invitation envoyée, sauvegarde sortie). */
+function noterEtapeFaite(cle) {
+  if (lireLocal(cle) === '1') return;
+  ecrireLocal(cle, '1');
+  if (E.monde && $('#coque')) rafraichirAujourdhui();
+}
+/** « Pas maintenant » : l'étape est mise de côté et la suivante prend sa place. Annulable. */
+function passerEtape(e) {
+  const passees = [...new Set([...lireEtapesPassees(), e.id])].slice(-24);
+  ecrireLocal(CLE_ETAPES_PASSEES, JSON.stringify(passees));
+  rafraichirAujourdhui();
+  document.querySelector('.bz-carte--heros .bz-bouton')?.focus();
+  actionAnnulable({ texte: `Mis de côté : ${e.titre.toLocaleLowerCase('fr-FR')}.`, libelle: `« ${e.titre} » mis de côté`,
+    annuler: () => { ecrireLocal(CLE_ETAPES_PASSEES, JSON.stringify(lireEtapesPassees().filter((x) => x !== e.id))); rafraichirAujourdhui(); },
+    refaire: () => passerEtape(e) });
+}
+/** Où mène chaque étape de la mise en route (web/aujourdhui.js décide laquelle, l'écran sait où aller). */
+function faireEtape(e) {
+  const vers = {
+    nom: () => allerEtapePremiersPas('nom'),
+    carte: () => allerEtapePremiersPas('carte'),
+    donnees: () => ouvrirAssistant(),
+    equipe: () => allerEtapePremiersPas('equipe'),
+    sante: () => changerVue('sante'),
+    lieu: () => ouvrirSaisie({ type: E.monde.univers.types.find((t) => t.famille === 'lieu')?.id }),
+    planning: () => changerVue('planning'),
+    avis: () => changerVue('satisfaction'),
+    automatiser: () => changerVue('optimiser'),
+    invitee: () => changerVue('reglages:acces'),
+    sauvegarde: () => changerVue('reglages:sauvegardes'),
+    reseau: () => changerVue('nexus'),
+  };
+  vers[e.id]?.();
+}
+
 function faireAction(a) {
   if (a.type === 'connecter') return ouvrirAssistant();
+  if (a.type === 'etape') return faireEtape(a.etape);
   if (a.type === 'rien') return changerVue('sante');
   if (a.type === 'attente') return approuver(a.attente);
   // déjà prise en charge : on ouvre la tâche en cours, là où l'on est (ni nouvelle tâche, ni changement d'écran)
@@ -2328,21 +2377,43 @@ function remettre(a) {
 function carteHeros(a, { mode, niv }) {
   const id = `heros-${mode}`;
   const probleme = a.ton === 'critique' || a.ton === 'attention';
-  const surtitre = a.type === 'connecter' ? 'Pour commencer' : a.type === 'rien' ? 'Aujourd’hui' : 'À faire maintenant';
+  const surtitre = a.type === 'connecter' ? 'Pour commencer' : a.type === 'etape' ? 'Et maintenant' : a.type === 'rien' ? 'Aujourd’hui' : 'À faire maintenant';
   const reportable = a.type === 'situation' || a.type === 'attente';
   return h('article', {
     class: 'bz-carte bz-carte--heros', 'aria-labelledby': id, 'data-objet': a.objetId ?? null,
     onpointerenter: a.objetId ? () => surligner(a.objetId) : null, onpointerleave: a.objetId ? () => surligner(null) : null,
   },
-  h('p', { class: 'bz-carte__surtitre' }, probleme ? iconeEtat(a.ton, { taille: 'lg', decoratif: true }) : null, h('span', { texte: probleme ? `${surtitre} · ${LIBELLE_TON[a.ton]}` : surtitre })),
+  h('p', { class: 'bz-carte__surtitre' }, probleme ? iconeEtat(a.ton, { taille: 'lg', decoratif: true }) : null,
+    h('span', { texte: probleme ? `${surtitre} · ${LIBELLE_TON[a.ton]}` : a.type === 'etape' ? `${surtitre} · ${a.contexte}` : surtitre })),
   h(niv, { class: 'bz-carte__titre', id, texte: a.titre }),
   a.texte ? h('p', { class: 'bz-carte__texte', texte: a.texte }) : null,
+  a.sous ? h('p', { class: 'bz-carte__preuve', texte: a.sous }) : null,
   a.preuve ? h('p', { class: 'bz-carte__preuve', texte: texteProvenance(a.preuve) }) : null,
   a.bouton || reportable || a.type === 'connecter' ? h('div', { class: 'bz-groupe-boutons' },
     a.bouton ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: `${id}-principal`, 'aria-describedby': id, onclick: () => faireAction(a) },
       a.type === 'connecter' ? icone('plug') : null, a.bouton) : null,
     reportable ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', cle: `${id}-tard`, 'aria-describedby': id, onclick: () => reporter(a, mode, true) }, icone('clock'), 'Plus tard') : null,
+    // une étape n'est jamais imposée : « Pas maintenant » la met de côté et la suivante prend sa place
+    a.type === 'etape' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', cle: `${id}-passer`, 'aria-describedby': id, onclick: () => passerEtape(a.etape) }, 'Pas maintenant') : null,
     a.type === 'connecter' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', cle: `${id}-pas-a-pas`, onclick: () => changerVue('accueil') }, E.monde.organisation.demo ? 'Créer mon entreprise' : 'Compléter mon entreprise pas à pas') : null) : null);
+}
+
+/** « Pour aller plus loin » : la même prochaine étape, en une ligne, quand le héros porte déjà une urgence. */
+function ligneEtape(e, mode) {
+  const id = `etape-${mode}`;
+  return h('section', { class: 'bz-aujourdhui__section bz-aujourdhui__etape', 'aria-labelledby': id },
+    h('div', { class: 'bz-aujourdhui__tete' },
+      h('h2', { class: 'bz-t-titre-4', id, texte: 'Pour aller plus loin' }),
+      h('span', { class: 'bz-t-petit bz-texte-2', texte: `Étape ${e.faites + 1} sur ${e.total}` })),
+    h('ul', { class: 'bz-actions', role: 'list' },
+      h('li', { class: 'bz-action', 'data-ton': 'info' },
+        icone('flag', { classe: 'bz-action__icone', libelle: 'Prochaine étape' }),
+        h('div', { class: 'bz-action__texte' },
+          h('p', { class: 'bz-action__titre', id: `${id}-titre`, texte: e.titre }),
+          h('p', { class: 'bz-action__detail', texte: `${e.sert} Environ ${pluriel(e.minutes, 'minute', 'minutes')}.` })),
+        h('div', { class: 'bz-action__boutons' },
+          h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', cle: `etape-${mode}-${e.id}`, 'aria-describedby': `${id}-titre`, onclick: () => faireEtape(e) }, e.bouton),
+          h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', cle: `passer-${mode}-${e.id}`, 'aria-describedby': `${id}-titre`, onclick: () => passerEtape(e) }, 'Pas maintenant')))));
 }
 
 function ligneAction(a, mode) {
@@ -2557,6 +2628,8 @@ function contenuAujourdhui(mode) {
         barreProgression({ compacte: true }),
         h('a', { href: '#/matin', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', onclick: (e) => allerA('matin', e) }, 'Tout voir', icone('arrow-right', { taille: 'sm' })))
       : [
+        // le fil ne s'arrête pas aux cinq premières minutes : une étape, une seule, même quand il y a des urgences
+        plan.etape ? ligneEtape(plan.etape, mode) : null,
         tuiles || santeMontree ? h('section', { class: 'bz-aujourdhui__section', 'aria-labelledby': `bilan-${mode}` },
           h('h2', { class: 'bz-t-titre-4', id: `bilan-${mode}`, texte: 'En un coup d’œil' }),
           h('div', { class: 'bz-aujourdhui__bilan' }, tuiles, santeMontree ? anneau(m.sante, { taille: 120 }) : null)) : null,
@@ -4585,6 +4658,8 @@ async function affecterLot(lot, { annulable = true } = {}) {
   try {
     await api('POST', '/planning', { affectations: lot });
     for (const c of lot) attentePlanning.delete(PLAN.cleCase(c));
+    // « dire où chacun travaille » est fait : la mise en route passe à l'étape suivante
+    if (lot.some((c) => String(c.valeur).startsWith('lieu:') || String(c.valeur).startsWith('projet:'))) noterEtapeFaite('lb-planning-fait');
     if (annulable) actionAnnulable({ texte: `${texte.charAt(0).toUpperCase()}${texte.slice(1)}.`, libelle: `planning : ${texte}`, annuler: () => affecterLot(inverse, { annulable: false }) });
     else annoncer(`Annulé : ${texte}.`);
     clearTimeout(rafraichirPlanningTempo);
@@ -5964,7 +6039,7 @@ function inviterPersonne(p) {
       if (S.resultat) { D.fermer(); return; }
       if (!S.identifiant.trim()) { S.erreur = 'Indiquez son identifiant de connexion.'; D.rendre(); $('#invitation-identifiant')?.focus(); return; }
       S.envoi = true; D.rendre();
-      try { S.resultat = await api('POST', `/acces/${encodeURIComponent(p.id)}/invitation`, { identifiant: S.identifiant }); S.erreur = null; if (E.vue === 'reglages') rendreReglages('acces'); } catch (err) { S.erreur = err.message; }
+      try { S.resultat = await api('POST', `/acces/${encodeURIComponent(p.id)}/invitation`, { identifiant: S.identifiant }); S.erreur = null; noterEtapeFaite('lb-invitation-faite'); if (E.vue === 'reglages') rendreReglages('acces'); } catch (err) { S.erreur = err.message; }
       S.envoi = false; D.rendre();
     },
     contenu: () => ({
@@ -6274,6 +6349,7 @@ function formulaireExport(X, nomFichier, rendre, { principal = true } = {}) {
         const f = await api('POST', '/sauvegardes/export', { phrase: X.phrase, avecAcces: Boolean(X.avecAcces), ...(comptes ? { motDePasse: X.motDePasse, code: X.code || undefined } : {}) });
         telecharger(nomFichier, JSON.stringify(f), 'application/json');
         Object.assign(X, { phrase: '', confirmation: '', motDePasse: '', code: '', fait: true });
+        noterEtapeFaite('lb-sauvegarde-faite'); // une copie est sortie : la mise en route passe à l'étape suivante
       } catch (err) {
         if (err.session) return undefined;
         X.erreur = err.message;

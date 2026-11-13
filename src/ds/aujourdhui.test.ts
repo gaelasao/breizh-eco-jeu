@@ -9,11 +9,15 @@ import { fileURLToPath } from 'node:url';
 
 type Suivi = { tacheId: string; titre: string; echeance: string | null; responsable: string | null; nombre: number; texte: string };
 type Action = { cle: string; type: string; ton: string; titre: string; texte?: string; bouton?: string | null; direct?: string | null; objetId?: string | null; revient?: string; verifier?: boolean; suivi?: Suivi };
-type Plan = { heros: Action; pile: Action[]; autres: Action[]; enCours: Action[]; reportees: Action[]; aVerifier: Action[]; aFaire: number; actionsReelles: boolean; vide: boolean; sansSource: boolean };
+type Etape = { id: string; titre: string; sert: string; minutes: number; bouton: string; action: string; faites: number; total: number };
+type Plan = { heros: Action; pile: Action[]; autres: Action[]; enCours: Action[]; reportees: Action[]; aVerifier: Action[]; aFaire: number; actionsReelles: boolean; vide: boolean; sansSource: boolean; etape: Etape | null };
+type Vus = { carte?: boolean; sante?: boolean; planning?: boolean; invitee?: boolean; sauvegarde?: boolean; passees?: string[] };
 type Tuile = { cle: string; libelle: string; valeur: number | null; ton: string | null; vue: string };
 type Anneau = { score: number | null; arc: number; tour: number; provisoire: boolean; palier: { libelle: string; ton: string } | null; libelle: string; aria: string; part: number; arcCouverture: number; tourCouverture: number };
 type Module = {
-  planAujourdhui: (m: unknown, o?: { reports?: Record<string, string>; maintenant?: Date; filtre?: (o: unknown) => boolean }) => Plan;
+  planAujourdhui: (m: unknown, o?: { reports?: Record<string, string>; maintenant?: Date; filtre?: (o: unknown) => boolean; vus?: Vus }) => Plan;
+  prochaineEtape: (m: unknown, vus?: Vus) => Etape | null;
+  ETAPES_MISE_EN_ROUTE: ReadonlyArray<{ id: string; titre: string; sert: string; minutes: number; bouton: string; action: string }>;
   tuilesARegler: (m: unknown, o?: { maintenant?: Date }) => Tuile[];
   suiviDe: (objetId: string | null, m: unknown) => Suivi | null;
   anneauSante: (s: unknown) => Anneau;
@@ -56,6 +60,8 @@ function monde({ demo = false, admin = true, situations = [] as unknown[], objet
   };
 }
 const MATIN = new Date(2026, 10, 10, 9, 0);
+/** Mise en route terminée ou entièrement mise de côté : plus aucune étape n'est proposée. */
+const TOUT_VU: Vus = { passees: A.ETAPES_MISE_EN_ROUTE.map((e) => e.id) };
 
 test('héros : la chose la plus urgente d’abord (critique, puis à approuver, puis attention), une seule', () => {
   const m = monde({
@@ -114,7 +120,8 @@ test('« Connecter mes données » : héros d’un monde vide, première action 
   assert.equal(exemple.pile[0]?.type, 'connecter', 'tant qu’aucune source réelle n’est connectée');
   const lecteur = A.planAujourdhui(monde({ demo: true, admin: false }), { maintenant: MATIN });
   assert.ok(![lecteur.heros, ...lecteur.pile].some((a) => a.type === 'connecter'));
-  const rien = A.planAujourdhui(monde(), { maintenant: MATIN });
+  // plus rien d'urgent ET plus aucune étape à proposer (toutes mises de côté) : l'écran le dit, sans rien inventer
+  const rien = A.planAujourdhui(monde(), { maintenant: MATIN, vus: TOUT_VU });
   assert.equal(rien.heros.type, 'rien');
   assert.equal(rien.heros.titre, 'Rien d’urgent aujourd’hui.');
   assert.equal(rien.heros.bouton, 'Voir ma santé');
@@ -140,7 +147,7 @@ test('« Aujourd’hui » prend acte : une situation prise en charge par une tâ
     ({ id, famille: 'tache', type: 'tache', nom, champs: [{ id: 'concerne', valeur: concerne }, { id: 'statut', valeur: statut }, { id: 'echeance', valeur: echeance }, { id: 'responsable', valeur: responsable }] });
   const situations = [sit('f1', 'retard_paiement', 'critique', 'ouverte', 'Retard de paiement : 42 jours'), sit('a1', 'stock_minimum', 'attention', 'ouverte', 'Stock : 6 (minimum 20)')];
   const base = monde().objets;
-  const plan = (objets: unknown[]) => A.planAujourdhui(monde({ situations, objets }), { maintenant: MATIN });
+  const plan = (objets: unknown[]) => A.planAujourdhui(monde({ situations, objets }), { maintenant: MATIN, vus: TOUT_VU });
 
   // avant : la facture en retard est « À faire maintenant », avec « Créer une tâche »
   const avant = plan(base);
@@ -227,6 +234,51 @@ test('montants lisibles, jamais les années ni les numéros', () => {
   assert.equal(espaces(A.lisible('Encours : 6800 € (maximum 5000 €)')), 'Encours : 6 800 € (maximum 5 000 €)');
   assert.equal(A.lisible('Contrôle technique : 12/03/2026'), 'Contrôle technique : 12/03/2026');
   assert.equal(A.lisible('Facture F-2026-0412'), 'Facture F-2026-0412');
+});
+
+test('prochaine étape (§4.20) : une seule à la fois, celle qui fait le plus avancer, et plus rien quand tout est fait', () => {
+  const lieu = { id: 'l1', famille: 'lieu', type: 'siege', nom: 'Atelier', libelleType: 'Siège', champs: [] };
+  const vus = { carte: true, sante: true };
+  // le monde d'essai, avec un client en bonne et due forme (rôles tels que la passerelle les donne)
+  const objets = (monde().objets as { id: string }[]).map((o) => (o.id === 't1' ? { ...o, roles: [{ id: 'client', libelle: 'Client' }] } : o));
+  const monde2 = (ajouts: unknown[] = [], o = {}) => monde({ objets: [...objets, ...ajouts], ...o });
+  // après les cinq premiers pas, il reste des lieux à poser
+  const e1 = A.prochaineEtape(monde2(), vus);
+  assert.deepEqual([e1?.id, e1?.bouton, e1?.minutes], ['lieu', 'Ajouter un lieu', 2], 'une étape, avec son geste et sa durée');
+  assert.equal(e1?.total, 11, 'les étapes impossibles aujourd’hui ne sont pas comptées (pas de planning sans lieu)');
+  assert.ok((e1?.sert ?? '').length > 20 && e1?.sert.endsWith('.'), 'elle dit à quoi ça sert');
+
+  // le lieu posé, la suivante prend sa place ; une étape n'est jamais proposée avant d'avoir un sens
+  assert.equal(A.prochaineEtape(monde2([lieu]), vus)?.id, 'planning', 'des personnes et un lieu : on peut dire qui travaille où');
+  assert.equal(A.prochaineEtape(monde2([lieu]), { ...vus, planning: true })?.id, 'avis', 'puis le premier avis client');
+  // « Pas maintenant » met de côté : la suivante prend sa place, une par une, puis plus rien
+  assert.equal(A.prochaineEtape(monde2(), { ...vus, passees: ['lieu'] })?.id, 'avis');
+  assert.equal(A.prochaineEtape(monde2(), { ...vus, passees: ['lieu', 'avis'] })?.id, 'invitee');
+  assert.equal(A.prochaineEtape(monde2(), TOUT_VU), null, 'tout mis de côté : l’écran se tait');
+
+  // les cinq premiers pas sont les cinq premières étapes : jamais deux fils à la fois
+  assert.deepEqual(A.ETAPES_MISE_EN_ROUTE.slice(0, 5).map((e) => e.id), ['nom', 'carte', 'donnees', 'equipe', 'sante']);
+  assert.equal(A.prochaineEtape(monde2(), {})?.id, 'carte', 'tant qu’ils ne sont pas faits, c’est le premier pas qui est proposé');
+  // ni en démonstration, ni pour qui n'administre pas
+  assert.equal(A.prochaineEtape(monde({ demo: true }), vus), null);
+  assert.equal(A.prochaineEtape(monde({ admin: false }), vus), null);
+
+  // l'écran : héros quand rien n'est urgent, ligne « Pour aller plus loin » quand une urgence occupe la tête
+  const calme = A.planAujourdhui(monde2(), { maintenant: MATIN, vus });
+  assert.deepEqual([calme.heros.type, calme.heros.titre, calme.heros.bouton, calme.etape], ['etape', 'Ajouter un lieu de travail', 'Ajouter un lieu', null]);
+  assert.match(espaces(calme.heros.texte ?? ''), /Environ 2 minutes\.$/);
+  const urgent = A.planAujourdhui(monde2([], { situations: [sit('f1', 'retard_paiement', 'critique')] }), { maintenant: MATIN, vus });
+  assert.equal(urgent.heros.objetId, 'f1', 'une urgence passe toujours avant');
+  assert.equal(urgent.etape?.id, 'lieu', 'l’étape reste proposée, en seconde ligne');
+  // monde vide : « Connecter mes données » porte déjà l'étape, elle n'est pas dite deux fois
+  const vide = A.planAujourdhui(monde({ objets: [{ id: 'org', famille: 'organisation', champs: [] }] }), { maintenant: MATIN, vus });
+  assert.deepEqual([vide.heros.type, vide.etape], ['connecter', null]);
+
+  // l'écran dessine bien la carte et la ligne, avec « Pas maintenant »
+  const app = readFileSync(`${RACINE}web/app.js`, 'utf8');
+  assert.match(app, /if \(a\.type === 'etape'\) return faireEtape\(a\.etape\);/);
+  assert.match(app, /plan\.etape \? ligneEtape\(plan\.etape, mode\) : null/);
+  assert.match(app, /onclick: \(\) => passerEtape\(a\.etape\) \}, 'Pas maintenant'\)/);
 });
 
 test('« Premiers pas » (§4.20) : 5 objectifs réels, aucun en démonstration, durée restante accordée', () => {

@@ -797,7 +797,8 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
         sante: sante ? { score: sante.score, couverture: sante.couverture, fiabilite: sante.fiabilite, domaines: sante.domaines.map((d) => ({ id: d.id, libelle: d.libelle, icone: d.icone, score: d.score, couverture: d.couverture })), priorites: sante.priorites.map((x) => ({ id: x.id, libelle: x.libelle, score: x.score, mesure: x.mesure })) } : null,
         satisfaction,
         synchro: app.synchro.resume(),
-        optimisations: opt ? { heuresMois: opt.heuresMois, euroMois: opt.euroMois, pistes: opt.opportunites.filter((x) => !x.active).length } : null,
+        // `pretes` : automatisations prêtes à mettre en marche — « Aujourd'hui » en fait une étape de la mise en route
+        optimisations: opt ? { heuresMois: opt.heuresMois, euroMois: opt.euroMois, pistes: opt.opportunites.filter((x) => !x.active).length, pretes: app.automatisations.preparation(profil).pretes } : null,
         tempsReel: true,
         version: VERSION,
         // « Envie de structurer votre entreprise ? » : numéro de l'éditeur, null tant qu'il n'est pas rempli (pas d'encart)

@@ -3,6 +3,7 @@
    (1) la chose à faire maintenant (carte héros), (2) une pile de 3 à 5 actions, (3) une rangée de tuiles homogènes
    (des choses à régler, jamais un total) et l'anneau de santé ; le reste est replié par app.js.
    « Plus tard » renvoie une action au lendemain : reports = { clé: 'AAAA-MM-JJ' (jour où elle revient) }. */
+import { MARQUE } from './bz/marque.js';
 import { nombre, pluriel } from './bz/typo.js';
 import { sansDemo, tacheDue, tachesOuvertes } from './navigation.js';
 import { viaEnClair } from './reglages.js';
@@ -86,13 +87,15 @@ function actionDAttente(a, m) {
 }
 
 /**
- * Plan de l'écran : planAujourdhui(monde, { reports, maintenant, filtre }) →
- * { heros, pile (≤ 5), autres, enCours, reportees, aVerifier, aFaire, vide, sansSource, actionsReelles }.
+ * Plan de l'écran : planAujourdhui(monde, { reports, maintenant, filtre, vus }) →
+ * { heros, pile (≤ 5), autres, enCours, reportees, aVerifier, aFaire, vide, sansSource, actionsReelles, etape }.
  * Ordre : critique, puis à approuver, puis attention, puis information ; à gravité égale, l'ordre du serveur.
  * enCours : situations ouvertes déjà prises en charge par une tâche. Elles quittent « À faire maintenant », la pile
  * et le compteur (aFaire) : l'écran prend acte de ce qui a été fait, et ne le redemande pas.
+ * etape : la prochaine étape de la mise en route (une seule, ou null) — héros quand rien n'est urgent, ligne
+ * « Pour aller plus loin » sinon. Le fil ne s'arrête donc pas à la cinquième minute (§4.20).
  */
-export function planAujourdhui(m, { reports = {}, maintenant = new Date(), filtre = () => true } = {}) {
+export function planAujourdhui(m, { reports = {}, maintenant = new Date(), filtre = () => true, vus = {} } = {}) {
   const jour = jourLocal(maintenant);
   const objets = m.objets ?? [];
   const objet = (id) => objets.find((o) => o.id === id);
@@ -116,9 +119,13 @@ export function planAujourdhui(m, { reports = {}, maintenant = new Date(), filtr
     texte: vide ? 'Votre carte est vide. Connectez un fichier ou un logiciel : elle se remplit toute seule.' : 'Remplacez l’exemple par votre entreprise : un tableau copié-collé, un fichier CSV, Google Sheets ou un logiciel.',
     bouton: 'Connecter mes données',
   } : null;
+  // la prochaine étape de la mise en route ; « Connecter mes données » a déjà sa carte : on ne la dit pas deux fois
+  const suivante = prochaineEtape(m, vus);
+  const etape = suivante && !(suivante.id === 'donnees' && connecter) ? suivante : null;
   let heros;
   if (vide && connecter) heros = connecter;
   else if (visibles.length) heros = visibles[0];
+  else if (etape) heros = actionDEtape(etape, enCours.length);
   else {
     heros = {
       cle: 'rien', type: 'rien', ton: 'ok', icone: ICONE_TON.ok, titre: enCours.length ? 'Tout est pris en charge.' : 'Rien d’urgent aujourd’hui.',
@@ -139,6 +146,106 @@ export function planAujourdhui(m, { reports = {}, maintenant = new Date(), filtr
     aFaire: visibles.length,
     actionsReelles: visibles.length > 0,
     vide, sansSource,
+    etape: etape && heros.type !== 'etape' ? etape : null,
+  };
+}
+
+// ---------------------------------------------------------------- mise en route : la prochaine étape, une seule
+/* Après les cinq premières minutes, le fil ne doit pas s'arrêter : il reste des lieux à poser, un planning à remplir,
+   un logiciel à brancher, un collègue à inviter. UNE seule étape est proposée à la fois — la première non faite de
+   la liste ci-dessous, dans l'ordre de ce qui fait le plus avancer — et plus aucune quand tout est fait ou passé.
+   Chaque étape dit ce qu'elle apporte, en combien de temps, et porte une seule action. Rien n'est imposé :
+   « Pas maintenant » la met de côté (sur cet appareil) et la suivante prend sa place. */
+
+/** Ce que la mise en route regarde, compté en un passage sur ce que le profil voit. */
+function etatMiseEnRoute(m, vus) {
+  const objets = (m.objets ?? []).filter((o) => o.famille !== 'organisation');
+  const personnes = objets.filter((o) => o.famille === 'personne');
+  const sat = m.satisfaction ?? null;
+  const clients = Object.values(sat?.clients ?? {});
+  return {
+    nom: Boolean(m.organisation?.nom),
+    carte: Boolean(vus.carte),
+    donnees: (m.synchro?.actifs ?? 0) > 0 || objets.some((o) => ['tiers', 'ressource', 'commande'].includes(o.famille)),
+    personnes: personnes.length,
+    lieux: objets.filter((o) => o.famille === 'lieu').length,
+    tiersClients: objets.filter((o) => o.famille === 'tiers' && (o.roles ?? []).some((r) => (r?.id ?? r) === 'client')).length,
+    // « où chacun travaille » : une affectation du jour suffit à le prouver ; sinon, la trace gardée sur cet appareil
+    affectes: personnes.filter((o) => o.jour && (o.jour.type === 'lieu' || o.jour.type === 'projet')).length,
+    planningFait: Boolean(vus.planning),
+    sante: Boolean(vus.sante),
+    scoreSante: Boolean(m.sante),
+    avis: clients.some((c) => c?.envoyeLe || c?.note !== null),
+    pretes: Number(m.optimisations?.pretes) || 0,
+    invitee: Boolean(vus.invitee),
+    sauvegarde: Boolean(vus.sauvegarde),
+    relie: Boolean(m.pavillon) && m.pavillon.apparence !== 'endormi',
+  };
+}
+
+/**
+ * Les étapes de la mise en route, dans l'ordre. Les cinq premières sont celles des « Premiers pas » (§4.20) : l'écran
+ * ne propose jamais deux fils à la fois. - fait : ce que les données prouvent ; possible : ce qui aurait un sens
+ * aujourd'hui (pas de planning sans lieu, pas d'avis sans client) ; action : lue par app.js, qui sait où aller.
+ */
+export const ETAPES_MISE_EN_ROUTE = Object.freeze([
+  { id: 'nom', titre: 'Nommer votre entreprise', minutes: 1, bouton: 'Donner un nom', action: 'nom',
+    sert: 'Son nom apparaît sur la carte, sur vos documents et sur vos sauvegardes.', fait: (f) => f.nom },
+  { id: 'carte', titre: 'Découvrir votre carte', minutes: 1, bouton: 'Voir ma carte', action: 'carte',
+    sert: 'Chaque client, chaque lieu y a sa place : votre entreprise se lit d’un coup d’œil.', fait: (f) => f.carte },
+  { id: 'donnees', titre: 'Connecter vos données', minutes: 3, bouton: 'Connecter mes données', action: 'donnees',
+    sert: 'Un fichier ou un logiciel que vous avez déjà, et la carte se remplit toute seule.', fait: (f) => f.donnees },
+  { id: 'equipe', titre: 'Ajouter votre équipe', minutes: 2, bouton: 'Ajouter mon équipe', action: 'equipe',
+    sert: 'Qui travaille avec vous : c’est la base du planning et du partage des tâches.', fait: (f) => f.personnes > 0 },
+  { id: 'sante', titre: 'Voir votre santé', minutes: 1, bouton: 'Voir ma santé', action: 'sante',
+    sert: 'Un score sur 100, calculé sur vos données, et vos premières priorités.', fait: (f) => f.sante, possible: (f) => f.scoreSante },
+  { id: 'lieu', titre: 'Ajouter un lieu de travail', minutes: 2, bouton: 'Ajouter un lieu', action: 'lieu',
+    sert: 'Votre siège, votre atelier, vos chantiers : la carte les place, et le planning peut dire qui y travaille.', fait: (f) => f.lieux > 0 },
+  { id: 'planning', titre: 'Dire où chacun travaille', minutes: 3, bouton: 'Ouvrir le planning', action: 'planning',
+    sert: 'Une case par personne et par jour. Les jours où il manque du monde se voient avant d’être un problème.',
+    fait: (f) => f.affectes > 0 || f.planningFait, possible: (f) => f.personnes > 0 && f.lieux > 0 },
+  { id: 'avis', titre: 'Demander un premier avis client', minutes: 2, bouton: 'Demander un avis', action: 'avis',
+    sert: 'Deux questions envoyées à un client. Sa satisfaction se suit ensuite mois après mois.',
+    fait: (f) => f.avis, possible: (f) => f.tiersClients > 0 },
+  { id: 'automatiser', titre: 'Mettre en marche vos automatisations', minutes: 2, bouton: 'Voir ce qui est prêt', action: 'automatiser',
+    sert: 'Elles surveillent vos données et préparent les relances et les tâches à votre place.',
+    fait: (f) => f.pretes === 0, possible: (f) => f.pretes > 0 },
+  { id: 'invitee', titre: 'Inviter une personne', minutes: 3, bouton: 'Inviter quelqu’un', action: 'invitee',
+    sert: 'Chacun voit ce qui le concerne, avec ses droits. Vous gardez la main sur tout.',
+    fait: (f) => f.invitee, possible: (f) => f.personnes > 0 },
+  { id: 'sauvegarde', titre: 'Sortir une première sauvegarde', minutes: 2, bouton: 'Faire une sauvegarde', action: 'sauvegarde',
+    sert: 'Un fichier à vous, à mettre à l’abri : vos données ne tiennent plus à ce seul ordinateur.',
+    fait: (f) => f.sauvegarde, possible: (f) => f.donnees || f.personnes > 0 },
+  { id: 'reseau', titre: `Relier votre entreprise à ${MARQUE.reseau}`, minutes: 3, bouton: 'Voir le réseau', action: 'reseau',
+    sert: 'Les besoins près de chez vous, les appels d’offres et les achats groupés. C’est gratuit, avec votre SIRET.',
+    fait: (f) => f.relie },
+]);
+
+/**
+ * prochaineEtape(monde, vus) → UNE étape, la première non faite (et possible aujourd'hui), ou null quand il n'y a
+ * vraiment plus rien à proposer. vus : ce que cet appareil a vu ou mis de côté
+ * ({ carte, sante, planning, invitee, sauvegarde, passees: [identifiants] }). Fonction pure.
+ * L'étape porte aussi son rang (`faites` sur `total`), pour dire où l'on en est sans jamais presser.
+ */
+export function prochaineEtape(m, vus = {}) {
+  if (!m || m.organisation?.demo || !m.profil?.peutAdministrer) return null;
+  const f = etatMiseEnRoute(m, vus);
+  const passees = new Set(Array.isArray(vus.passees) ? vus.passees : []);
+  const utiles = ETAPES_MISE_EN_ROUTE.filter((e) => (e.possible ? e.possible(f) : true) || e.fait(f));
+  const faites = utiles.filter((e) => e.fait(f)).length;
+  const e = utiles.find((x) => !x.fait(f) && !passees.has(x.id));
+  if (!e) return null;
+  return { id: e.id, titre: e.titre, sert: e.sert, minutes: e.minutes, bouton: e.bouton, action: e.action, faites, total: utiles.length };
+}
+
+/** La prochaine étape en carte héros : une action principale, et « Pas maintenant » qui passe à la suivante. */
+function actionDEtape(e, enCours) {
+  return {
+    cle: `etape:${e.id}`, type: 'etape', ton: 'info', icone: 'flag', etape: e,
+    titre: e.titre, texte: `${e.sert} Environ ${pluriel(e.minutes, 'minute', 'minutes')}.`,
+    contexte: `Étape ${e.faites + 1} sur ${e.total}`,
+    bouton: e.bouton,
+    sous: enCours ? `${pluriel(enCours, 'action est en cours', 'actions sont en cours')} : il reste à attendre le résultat.` : null,
   };
 }
 
