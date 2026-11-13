@@ -441,7 +441,7 @@ export class Alertes {
     this.#admin(p);
     const c = this.#trouver(id);
     const texte = uneLigne(`Message d’essai de Living Business : si vous lisez ceci, les alertes arrivent bien.${this.#lien(null)}`);
-    const r = await this.#envoyer(c, texte, true);
+    const r = await this.#envoyer(c, texte, false);
     this.#changement();
     return { ok: r.ok, message: r.ok ? `C’est parti : regardez ${c.canal === 'telegram' ? 'Telegram' : c.canal === 'whatsapp' ? 'WhatsApp' : 'votre service'}. Si rien n’arrive, c’est que le message a été accepté puis bloqué plus loin.` : r.detail, canal: this.#vue(c) };
   }
