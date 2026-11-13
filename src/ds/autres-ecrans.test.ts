@@ -223,7 +223,9 @@ test('quêtes du jour : tirées des vraies quêtes ouvertes, titre en verbe, « 
   assert.equal(stock?.total, 3, '1 sur 3');
   assert.equal(stock?.xp, 2 * J.RECOMPENSE.attention);
   assert.deepEqual(stock?.preuve, { description: 'Stock bas', valeur: 6, seuil: 20, source: 'Tableur', observeLe: '2026-11-10T08:00:00Z', objectif: '≥ 20' });
-  assert.equal(q[0]?.titre, 'Relancer la facture Facture 12');
+  // le nom porte déjà le mot « Facture » : le titre ne le dit pas deux fois
+  assert.equal(q[0]?.titre, 'Relancer Facture 12');
+  assert.equal(J.titreQuete('retard_paiement', ['F-041']), 'Relancer la facture F-041', 'un numéro seul garde son mot');
   assert.equal(J.titreQuete('stock_minimum', ['Panneaux (fictifs)']), 'Réapprovisionner Panneaux', 'sans la mention de démonstration');
   assert.equal(J.quetesDuJour({ ...monde, quetes: monde.quetes.filter((x) => x.statut !== 'ouverte') }).length, 0, 'rien d’ouvert : aucune quête inventée');
   assert.equal(J.quetesDuJour(monde, { max: 1 }).length, 1);

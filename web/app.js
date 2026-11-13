@@ -271,7 +271,7 @@ async function demarrer() {
     // première arrivée (§2.6) : « Degemer mat » (bienvenue), une seule fois
     E.premiereArrivee = false;
     const prenom = prenomDe(E.session?.nom ?? '');
-    informer(`Degemer mat${prenom ? `, ${prenom}` : ''}. Votre port est prêt. Commençons par vos clients.`, 'ok');
+    informer(`Degemer mat${prenom ? `, ${prenom}` : ''}. Votre carte est prête. Commençons par vos clients.`, 'ok');
   }
 }
 
@@ -1553,8 +1553,9 @@ function rendreBanniere() {
       // sur téléphone, une seule ligne (« Entreprise exemple. ») : l'en-tête et le bandeau ne mangent pas l'écran
       h('p', { class: 'bz-bandeau__texte' }, h('span', { class: 'bz-bandeau__long', texte: 'Vous explorez une entreprise ' }), h('span', { class: 'bz-bandeau__court', texte: 'Entreprise ' }), 'exemple.'),
       h('div', { class: 'bz-bandeau__actions' },
-        // sur téléphone, ces deux-là sont ailleurs (première action d'« Aujourd'hui », palette) : le bandeau reste fin
-        admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm bz-bandeau__secondaire', onclick: () => ouvrirAssistant(), texte: 'Utiliser mes données' }) : null,
+        // le passage à ses propres données reste à portée partout, en deux mots sur téléphone
+        admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => ouvrirAssistant() },
+          h('span', { class: 'bz-bandeau__long', texte: 'Utiliser mes données' }), h('span', { class: 'bz-bandeau__court', texte: 'Mes données' })) : null,
         admin && m.organisation.exemples ? h('label', { class: 'bz-select bz-bandeau__secondaire' },
           h('span', { class: 'bz-visuellement-cache', texte: 'Changer d’exemple' }),
           h('select', { class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', onchange: (e) => changerExemple(e.target.value) },
@@ -2910,7 +2911,7 @@ async function rendreListe(vue) {
     remplir($('#page'), h('div', { class: 'bz-ecran bz-liste' }, videRubrique(rubriqueDeVue(vue), {
       titre: o ? null : `Aucune fiche dans ${libelleListe.toLowerCase()} pour le moment.`,
       action: boutonConnecter(cible),
-      secondaire: cible.type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirSaisie(cible) }, 'Ajouter à la main (enregistré sur cet appareil)') : null,
+      secondaire: cible.type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirSaisie(cible) }, 'Ajouter à la main') : null,
     })));
     return;
   }
@@ -3733,16 +3734,17 @@ function ciblesImport() {
   const u = E.monde.univers;
   const typeTiers = u.types.find((t) => t.famille === 'tiers')?.id;
   const tiers = ['client', 'fournisseur', 'partenaire', 'prospect'].map((r) => u.roles.find((x) => x.id === r)).filter(Boolean)
-    .map((r) => ({ cle: `role:${r.id}`, libelle: r.pluriel, sous: 'entreprises, particuliers, collectivités', type: typeTiers, roles: [r.id] }));
+    .map((r) => ({ cle: `role:${r.id}`, libelle: r.pluriel, singulier: r.libelle ?? r.pluriel, sous: 'entreprises, particuliers, collectivités', type: typeTiers, roles: [r.id] }));
   const autres = u.types.filter((t) => !['tiers', 'organisation', 'evenement', 'indicateur'].includes(t.famille))
-    .map((t) => ({ cle: `type:${t.id}`, libelle: t.pluriel, sous: { personne: 'équipe', lieu: 'vos sites', ressource: 'stock et matériel', commande: 'ventes et achats', projet: 'affaires en cours', tache: 'à faire' }[t.famille] ?? '', type: t.id, roles: [] }));
+    .map((t) => ({ cle: `type:${t.id}`, libelle: t.pluriel, singulier: t.libelle ?? t.pluriel, sous: { personne: 'équipe', lieu: 'vos sites', ressource: 'stock et matériel', commande: 'ventes et achats', projet: 'affaires en cours', tache: 'à faire' }[t.famille] ?? '', type: t.id, roles: [] }));
   return [...tiers, ...autres];
 }
 /** Cible complète (libellé, clé) depuis { type, roles } passé par une liste ou par « Compléter mon entreprise ». */
 function cibleDe(cible) {
   if (!cible) return null;
   const c = ciblesImport().find((x) => x.type === cible.type && (x.roles?.[0] ?? null) === (cible.roles?.[0] ?? null));
-  return c ?? { cle: `type:${cible.type}`, libelle: E.monde.univers.types.find((t) => t.id === cible.type)?.pluriel ?? 'Données', sous: '', type: cible.type, roles: cible.roles ?? [] };
+  const t = E.monde.univers.types.find((x) => x.id === cible.type);
+  return c ?? { cle: `type:${cible.type}`, libelle: t?.pluriel ?? 'Données', singulier: t?.libelle ?? t?.pluriel ?? 'Donnée', sous: '', type: cible.type, roles: cible.roles ?? [] };
 }
 
 function nouvelAssistant(etape = 'choisir', cible = null) {
@@ -4237,8 +4239,11 @@ function corpsColonnes(A) {
 }
 function corpsPret(A) {
   const r = A.resultat;
+  // on dit ce qui a été ajouté, pas « des éléments » : « 5 clients ajoutés à votre carte. »
+  const bas = (t) => String(t ?? '').toLocaleLowerCase('fr-FR');
+  const quoi = A.cible ? accord(r.crees, bas(A.cible.singulier ?? A.cible.libelle), bas(A.cible.libelle)) : '';
   return [
-    resultatAssistant(r.crees ? 'ok' : 'attention', `${pluriel(r.crees, 'élément ajouté', 'éléments ajoutés')} à votre carte.`, {
+    resultatAssistant(r.crees ? 'ok' : 'attention', quoi ? `${nombre(r.crees)} ${quoi} ${accord(r.crees, 'ajouté', 'ajoutés')} à votre carte.` : `${pluriel(r.crees, 'élément ajouté', 'éléments ajoutés')} à votre carte.`, {
       detail: r.totalRejets ? `${pluriel(r.totalRejets, 'ligne écartée', 'lignes écartées')} : voici pourquoi.` : 'Toutes les lignes ont été reprises.' }),
     r.rejets.length ? h('ul', { class: 'bz-liste-simple' }, r.rejets.map((x) => h('li', { class: 'bz-t-petit' }, h('strong', { texte: `Ligne ${x.ligne} : ` }), x.erreurs.join(' ; ')))) : null,
   ];

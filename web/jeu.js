@@ -14,7 +14,8 @@ export const RECOMPENSE = Object.freeze({ critique: 60, attention: 40 });
 /** Titres en verbe d'action, par règle : pour un objet, puis pour plusieurs. */
 const VERBES = {
   stock_minimum: { un: (n) => `Réapprovisionner ${n}`, plusieurs: (k) => `Réapprovisionner ${pluriel(k, 'article', 'articles')}`, icone: 'boxes' },
-  retard_paiement: { un: (n) => `Relancer la facture ${n}`, plusieurs: (k) => `Relancer ${pluriel(k, 'facture en retard', 'factures en retard')}`, icone: 'receipt' },
+  // le nom commence souvent déjà par « Facture » : « Relancer la facture Facture F-041 » n'a jamais été écrit par personne
+  retard_paiement: { un: (n) => (/^factures?\b/i.test(n) ? `Relancer ${n}` : `Relancer la facture ${n}`), plusieurs: (k) => `Relancer ${pluriel(k, 'facture en retard', 'factures en retard')}`, icone: 'receipt' },
   retard_projet: { un: (n) => `Rattraper le retard de ${n}`, plusieurs: (k) => `Rattraper le retard de ${pluriel(k, 'projet', 'projets')}`, icone: 'hourglass' },
   encours_client: { un: (n) => `Réduire l’encours de ${n}`, plusieurs: (k) => `Réduire l’encours de ${pluriel(k, 'client', 'clients')}`, icone: 'wallet' },
   avis_bas: { un: (n) => `Reprendre contact avec ${n}`, plusieurs: (k) => `Reprendre contact avec ${pluriel(k, 'client déçu', 'clients déçus')}`, icone: 'smile' },
