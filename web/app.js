@@ -6167,6 +6167,37 @@ function connecterOAuth(source, config, suivi, droits = 'lecture') {
   return annuler;
 }
 
+/**
+ * « Choisir ce que je récupère » : reprend un compte déjà connecté à l'étape « Que voulez-vous récupérer ? », sans
+ * refaire la connexion. Rien n'a encore été importé ; rien ne le sera avant la validation.
+ */
+async function reprendreConnexion(c, s) {
+  await chargerConnecter();
+  try { if (!E.sources) E.sources = await api('GET', '/sources'); } catch (e) { informer(e.message, 'erreur'); return; }
+  const source = s ?? E.sources.find((x) => x.id === c.source);
+  if (!source) return;
+  const compte = CONNECTER.catalogue(E.sources, [], { pasAPas: false }).find((x) => x.genre === 'compte' && x.contenus.some((y) => y.source === c.source));
+  E.assistant = nouvelAssistant('choisir');
+  monterAssistant();
+  const A = E.assistant;
+  A.parcours = 'outil';
+  A.outil = nouvelOutil(compte ? null : source, compte ?? null);
+  const C = A.outil;
+  if (compte) choisirContenu(C, compte.contenus.find((y) => y.source === c.source));
+  C.cree = c;
+  C.nom = c.nom;
+  C.config = { ...c.config };
+  C.mode = c.oauth ? 'oauth' : 'cle';
+  C.oauth = c.oauth ? { statut: 'connecte', compte: null } : null;
+  C.droits = c.sens === 'lecture' ? 'lecture' : 'ecriture';
+  C.sens = c.sens;
+  C.intervalle = c.intervalleS;
+  A.etape = 'recuperer';
+  rendreAssistant();
+  const premiere = listesOutil(C)[0];
+  if (premiere) chargerChoix(C, premiere);
+  chargerCatalogue();
+}
 /** « Se reconnecter » (connexion expirée, autre compte) : nouvelle connexion, puis le connecteur la reprend. */
 function seReconnecter(c, s, apres) {
   const config = s.oauth.champ && c.config[s.oauth.champ] ? { [s.oauth.champ]: c.config[s.oauth.champ] } : {};
@@ -6190,12 +6221,13 @@ async function rendreOutils() {
   E.sources = sources;
   const types = E.monde.univers.types;
   const ETAT = { ok: ['ok', 'Synchronisé'], erreur: ['critique', 'Erreur'] };
+  const etatDe = (c) => (c.aChoisir ? ['info', 'Connecté'] : ETAT[c.statut] ?? ['info', 'Jamais synchronisé']);
   remplir(zoneReglages(), h('div', { class: 'bz-pile' },
     h('p', { class: 'bz-t-petit bz-texte-2 bz-reglages__intro' }, liste.length ? h('span', { class: 'bz-compteur', texte: String(liste.length) }) : null, ' Chaque logiciel connecté se synchronise tout seul : ce qui change chez lui apparaît sur votre carte, et ce que vous changez ici repart chez lui si vous l’avez choisi. Les connexions sont chiffrées sur votre serveur.'),
     liste.length ? h('ul', { class: 'bz-liste-simple', role: 'list' }, liste.map((c) => {
       const s = sources.find((x) => x.id === c.source);
       const famille = s ? CONNECTER.catalogue([s], [], { pasAPas: false })[0] : null;
-      const [ton, etat] = ETAT[c.statut] ?? ['info', 'Jamais synchronisé'];
+      const [ton, etat] = etatDe(c);
       const idTitre = `outil-${c.id}`;
       return h('li', {}, h('section', { class: 'bz-carte', 'aria-labelledby': idTitre },
         h('div', { class: 'bz-carte__tete' },
@@ -6203,20 +6235,24 @@ async function rendreOutils() {
             h('span', { class: 'bz-logiciel__icone', 'aria-hidden': 'true' }, icone(famille?.icone ?? 'plug')),
             h('span', { class: 'bz-logiciel__texte' },
               h('h3', { class: 'bz-logiciel__nom', id: idTitre, texte: c.nom }),
-              h('span', { class: 'bz-logiciel__description', texte: `${s?.nom ?? c.source} · ${types.find((t) => t.id === c.typeObjet)?.pluriel ?? c.typeObjet}${c.roles.length ? ` (${c.roles.join(', ')})` : ''} · ${LIBELLE_SENS[c.sens]}` }))),
+              h('span', { class: 'bz-logiciel__description', texte: c.aChoisir ? `${s?.nom ?? c.source} · rien de choisi pour l’instant`
+                : `${s?.nom ?? c.source} · ${types.find((t) => t.id === c.typeObjet)?.pluriel ?? c.typeObjet}${c.roles.length ? ` (${c.roles.join(', ')})` : ''} · ${LIBELLE_SENS[c.sens]}` }))),
           h('span', { class: `bz-badge bz-badge--${ton}` }, iconeEtat(ton, { taille: 'sm', decoratif: true }), etat)),
         c.message ? resultatAssistant('critique', c.message) : null,
+        // compte branché sans rien avoir choisi : il est là, visible, et rien n'est entré dans le jeu
+        c.aChoisir ? resultatAssistant('info', 'Connecté. Rien n’a encore été importé.', { detail: 'Votre compte est branché et la connexion est gardée. Il reste à choisir ce que vous voulez récupérer.',
+          actions: h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--sm', onclick: () => reprendreConnexion(c, s) }, icone('list-checks'), 'Choisir ce que je récupère')) }) : null,
         // fiches reliées à l'outil seulement parce qu'elles portent le même nom : un administrateur tranche (rien ne part avant)
         c.aConfirmer ? resultatAssistant('attention', `${pluriel(c.aConfirmer, 'fiche reliée', 'fiches reliées')} par le nom seulement : rien ne part vers ${c.nom} pour ${c.aConfirmer > 1 ? 'elles' : 'elle'} tant que vous n’avez pas confirmé.`, {
           actions: h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => confirmerRapprochements(c, () => rendreOutils()) }, icone('link'), 'Vérifier') }) : null,
         // « En temps réel » quand l'outil prévient le jeu de ses changements (par Breizhcosystem), sinon sa fréquence de relecture
-        h('p', { class: 'bz-t-petit', texte: `${pluriel(c.liens, 'fiche liée', 'fiches liées')} · ${c.derniereSynchro ? `synchronisé ${dateRelative(c.derniereSynchro)}` : 'pas encore synchronisé'}${s?.lecture === 'appel' ? ` · ${c.frequence ?? `Toutes les ${c.intervalleS >= 60 ? `${Math.round(c.intervalleS / 60)} minutes` : `${c.intervalleS} secondes`}`}` : ' · reçoit en direct'}` }),
+        c.aChoisir ? null : h('p', { class: 'bz-t-petit', texte: `${pluriel(c.liens, 'fiche liée', 'fiches liées')} · ${c.derniereSynchro ? `synchronisé ${dateRelative(c.derniereSynchro)}` : 'pas encore synchronisé'}${s?.lecture === 'appel' ? ` · ${c.frequence ?? `Toutes les ${c.intervalleS >= 60 ? `${Math.round(c.intervalleS / 60)} minutes` : `${c.intervalleS} secondes`}`}` : ' · reçoit en direct'}` }),
         c.entree ? h('div', { class: 'bz-pile' }, h('p', { class: 'bz-t-petit', texte: 'Adresse d’entrée (Make, Zapier, n8n) :' }), blocCode(`${location.origin}${c.entree}`, 'Copier l’adresse')) : null,
         c.historique.length ? h('ul', { class: 'bz-liste-simple bz-t-petit', 'aria-label': 'Derniers échanges' }, c.historique.slice(0, 4).map((x) => h('li', {}, icone(x.sens === 'entrant' ? 'arrow-down' : 'arrow-up', { taille: 'sm', libelle: x.sens === 'entrant' ? 'Reçu' : 'Envoyé' }), ` ${dateHeure(x.le)} · ${x.detail}`))) : null,
         h('div', { class: 'bz-groupe-boutons' },
-          s?.lecture === 'appel' || c.sens !== 'lecture' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: async (e) => { e.currentTarget.setAttribute('aria-busy', 'true'); try { await api('POST', `/synchro/${c.id}/maintenant`); informer('Synchronisation faite.', 'ok'); } catch (err) { informer(err.message, 'erreur'); } rendreOutils(); } }, icone('refresh-cw'), 'Synchroniser maintenant') : null,
+          !c.aChoisir && (s?.lecture === 'appel' || c.sens !== 'lecture') ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: async (e) => { e.currentTarget.setAttribute('aria-busy', 'true'); try { await api('POST', `/synchro/${c.id}/maintenant`); informer('Synchronisation faite.', 'ok'); } catch (err) { informer(err.message, 'erreur'); } rendreOutils(); } }, icone('refresh-cw'), 'Synchroniser maintenant') : null,
           c.oauth && s?.oauth ? h('button', { type: 'button', class: `bz-bouton ${c.statut === 'erreur' ? 'bz-bouton--principal' : 'bz-bouton--secondaire'}`, onclick: () => seReconnecter(c, s, () => rendreOutils()) }, icone('log-in'), 'Se reconnecter') : null,
-          h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: async () => { await api('PUT', `/synchro/${c.id}`, { actif: !c.actif }); rendreOutils(); } }, icone(c.actif ? 'pause' : 'play'), c.actif ? 'Mettre en pause' : 'Réactiver'),
+          c.aChoisir ? null : h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: async () => { await api('PUT', `/synchro/${c.id}`, { actif: !c.actif }); rendreOutils(); } }, icone(c.actif ? 'pause' : 'play'), c.actif ? 'Mettre en pause' : 'Réactiver'),
           h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--critique', onclick: async () => {
             if (!(await confirmerDialogue({ titre: `Débrancher ${c.nom} ?`, texte: 'La synchronisation s’arrête et la clé enregistrée est effacée ; l’accès est révoqué chez l’outil quand c’est possible. Les fiches déjà importées restent sur votre carte.', confirmer: 'Déconnecter', annuler: 'Garder', danger: true }))) return;
             try {
@@ -6289,6 +6325,22 @@ function demarrerCompte(A, compte) {
   A.parcours = 'outil';
   allerEtape('connexion');
 }
+/**
+ * Le compte vient d'être connecté (l'outil a vraiment accordé l'accès) : il est enregistré TOUT DE SUITE, en pause et
+ * sans rien importer, pour qu'il figure dans « Mes logiciels connectés » même si la personne s'arrête là. Avant, une
+ * connexion qui n'allait pas jusqu'à l'import ne laissait aucune trace : trois comptes connectés d'affilée, un seul
+ * retrouvé ensuite. La référence à usage unique est alors échangée contre l'identifiant du branchement.
+ */
+async function enregistrerConnexion(C) {
+  if (C.cree || !C.config.jeton) return;
+  try {
+    C.cree = await api('POST', '/synchro/connexion', { source: C.s.id, nom: C.nom, config: C.config });
+    delete C.config.jeton; // consommée : la suite se sert du branchement enregistré (son secret y est chiffré)
+  } catch (e) {
+    if (!e.session && E.assistant) E.assistant.erreur = e.message;
+  }
+  majOutil(C);
+}
 function arreterOAuth(C) { C.annulerOAuth?.(); C.annulerOAuth = null; }
 /** Connexion obtenue mais pas (encore) utilisée : le serveur l'oublie tout de suite. */
 function oublierConnexion(C) {
@@ -6302,7 +6354,7 @@ async function chargerChoix(C, ch) {
   C.choix[ch.id] = { chargement: true, options: [], erreur: null };
   majOutil(C);
   try {
-    const r = await api('POST', '/synchro/choix', { source: C.s.id, champ: ch.id, config: C.config });
+    const r = await api('POST', '/synchro/choix', { source: C.s.id, champ: ch.id, config: C.config, ...(C.cree ? { id: C.cree.id } : {}) });
     if (C.ferme) return;
     C.choix[ch.id] = { chargement: false, options: r.options, erreur: null };
     if (r.options.length === 1 && !C.config[ch.id]) { C.config[ch.id] = r.options[0].valeur; suiteChoix(C, ch); }
@@ -6343,6 +6395,7 @@ function seConnecterOutil(C) {
       C.choix = {};
       // connecter n'importe rien : ce que le compte contient se demande à l'étape suivante, quand la personne l'a voulu
       annoncer(`Connecté à ${nomOutilDe(C)}. Rien n’a encore été importé.`);
+      enregistrerConnexion(C);
     } else if (r.code === 'oauth_indisponible') {
       // outil pas encore ouvert sur le relais : la clé (mode avancé) reste possible, sans l'éditeur
       C.annulerOAuth = null; s.oauth = null;
@@ -6384,7 +6437,7 @@ async function connecterMicrosoft(C) {
       if (C.ferme || C.connexion?.id !== d.id) return;
       const r = await api('POST', `/synchro/microsoft/connexion/${d.id}`);
       if (r.statut === 'attente') continue;
-      if (r.statut === 'connecte') { C.config.jeton = r.jeton; C.connexion = { ...C.connexion, statut: 'connecte' }; annoncer('Connecté à Microsoft.'); }
+      if (r.statut === 'connecte') { C.config.jeton = r.jeton; C.connexion = { ...C.connexion, statut: 'connecte' }; annoncer('Connecté à Microsoft. Rien n’a encore été importé.'); enregistrerConnexion(C); }
       else { C.connexion = null; if (E.assistant) E.assistant.erreur = r.message; }
       majOutil(C);
       return;
@@ -6629,7 +6682,7 @@ async function chargerApercu(C) {
   C.erreurApercu = null;
   majOutil(C);
   try {
-    const r = await api('POST', '/synchro/apercu', { source: C.s.id, config: C.config, typeObjet: C.cible.type });
+    const r = await api('POST', '/synchro/apercu', { source: C.s.id, config: C.config, typeObjet: C.cible.type, ...(C.cree ? { id: C.cree.id } : {}) });
     if (C.ferme) return;
     C.apercu = r;
     C.mapping = { ...r.mapping };
@@ -6706,12 +6759,17 @@ function corpsColonnesOutil(C) {
       h('input', { id: 'outil-nom', class: 'bz-champ__saisie', type: 'text', maxlength: '80', autocomplete: 'off', value: C.nom, oninput: (e) => (C.nom = e.target.value) })),
   ];
 }
+/** La personne a tout vu et tout validé : c'est ici, et nulle part avant, que les fiches entrent dans le jeu. */
 async function activerOutil(C) {
   const A = E.assistant;
   if (!A || A.envoi) return;
   A.envoi = true; A.erreur = null; majOutil(C);
+  const reglages = { nom: C.nom, config: C.config, typeObjet: C.cible.type, roles: C.cible.roles ?? [], mapping: C.mapping, sens: C.sens, intervalleS: C.intervalle };
   try {
-    C.cree = await api('POST', '/synchro', { source: C.s.id, nom: C.nom, config: C.config, typeObjet: C.cible.type, roles: C.cible.roles ?? [], mapping: C.mapping, sens: C.sens, intervalleS: C.intervalle });
+    // compte déjà enregistré à la connexion : on complète ce branchement-là, on n'en crée pas un second
+    C.cree = C.cree?.id
+      ? await api('PUT', `/synchro/${C.cree.id}`, { ...reglages, actif: true })
+      : await api('POST', '/synchro', { source: C.s.id, ...reglages });
     if (C.s.lecture === 'appel') await api('POST', `/synchro/${C.cree.id}/maintenant`).catch(() => {});
     A.etape = 'pret';
     await charger();

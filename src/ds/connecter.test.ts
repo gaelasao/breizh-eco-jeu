@@ -117,9 +117,13 @@ test('connecter n’est pas importer : l’étape « Que récupérer ? » est en
   assert.doesNotMatch(connexion, /selectCible\(/, 'on ne demande plus ce que contient l’outil AVANT de connecter');
   // le seul appel qui crée un branchement reste l'import, après la correspondance des colonnes
   assert.match(app, /boutonPrincipal\(`Importer \$\{pluriel\(A\.outil\?\.apercu\?\.enregistrements \?\? 0, 'fiche', 'fiches'\)\} dans le jeu`, \(\) => activerOutil\(A\.outil\)/);
-  const avantImport = app.slice(app.indexOf('function versRecuperer(C)'), app.indexOf('async function activerOutil(C)'));
-  assert.ok(!/api\('POST', '\/synchro'[^/]/.test(avantImport), 'aucun branchement créé avant l’import');
+  const avantImport = app.slice(app.indexOf('function versRecuperer(C)'), app.indexOf('/** La personne a tout vu et tout validé'));
+  assert.ok(!/api\('POST', '\/synchro'[^/]/.test(avantImport), 'aucun branchement actif créé avant l’import');
   assert.match(avantImport, /api\('POST', '\/synchro\/apercu'/, 'seulement un aperçu, en lecture');
+  // le compte connecté est tout de même enregistré, en pause : il figure dans la liste même si on s’arrête là
+  assert.match(app, /C\.cree = await api\('POST', '\/synchro\/connexion', \{ source: C\.s\.id, nom: C\.nom, config: C\.config \}\)/);
+  assert.match(app, /C\.cree = C\.cree\?\.id\s*\n\s*\? await api\('PUT', `\/synchro\/\$\{C\.cree\.id\}`, \{ \.\.\.reglages, actif: true \}\)/, 'on complète ce branchement, on n’en crée pas un second');
+  assert.match(app, /c\.aChoisir \? resultatAssistant\('info', 'Connecté\. Rien n’a encore été importé\.'/, 'la liste le dit');
   // l'écran « Que récupérer ? » montre ce que le compte contient, ce que ça devient, et un aperçu
   const recuperer = app.slice(app.indexOf('function corpsRecuperer(C)'), app.indexOf('function blocSens(C)'));
   assert.match(recuperer, /tableauApercu\(a\)/, 'un aperçu de quelques lignes');

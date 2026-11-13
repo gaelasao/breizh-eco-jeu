@@ -820,6 +820,8 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
     if (methode === 'POST' && chemin === '/synchro/apercu') return envoyer(res, 200, await app.synchro.apercu(profil, await lireCorps(req)));
     if (methode === 'POST' && chemin === '/synchro/outils-mcp') return envoyer(res, 200, await app.synchro.outilsMcp(profil, await lireCorps(req)));
     if (methode === 'POST' && chemin === '/synchro') return envoyer(res, 200, app.synchro.creer(profil, await lireCorps(req)));
+    // compte tout juste connecté : il figure dans la liste sans que rien n'ait été importé, en attendant qu'on choisisse
+    if (methode === 'POST' && chemin === '/synchro/connexion') return envoyer(res, 200, app.synchro.connecter(profil, await lireCorps(req)));
     if (methode === 'POST' && chemin === '/synchro/microsoft/connexion') return envoyer(res, 200, await app.synchro.connexionMicrosoft(profil, await lireCorps(req)));
     const mxMs = /^\/synchro\/microsoft\/connexion\/([A-Za-z0-9_-]{22})$/.exec(chemin);
     if (methode === 'POST' && mxMs) return envoyer(res, 200, await app.synchro.suivreMicrosoft(profil, mxMs[1]));

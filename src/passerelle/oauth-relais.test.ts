@@ -654,3 +654,39 @@ test('relais et confidentialité (rgpd-10) : seule la liste des outils ouverts e
   await app.synchro.demarrerOAuth(p, { source: 'hubspot', config: {}, droits: 'tout' });
   assert.equal(sim.relais.demarrages.at(-1)?.droits, 'lecture');
 });
+
+test('trois comptes connectés d’affilée : les trois restent dans la liste, sans que rien ait été importé', async () => {
+  const sim = simulation(() => null);
+  const { app, p } = await monter(sim.f);
+  // Notion, Google (feuille de calcul) et Microsoft (classeur Excel), l'un après l'autre, sans rien choisir ensuite
+  const notion = await connecter(app, p, sim, 'notion', 'notion', { acces: 'ntn-a', rafraichissement: 'ntn-r', expire: dans(3600) });
+  app.synchro.connecter(p, { source: 'notion', nom: 'Notion', config: { jeton: notion } });
+  const google = await connecter(app, p, sim, 'sheets', 'google', { acces: 'g-a', rafraichissement: 'g-r', expire: dans(3600) });
+  app.synchro.connecter(p, { source: 'sheets', nom: 'Google', config: { jeton: google } });
+  const microsoft = await connecter(app, p, sim, 'excel365', 'microsoft', { acces: 'ms-a', rafraichissement: 'ms-r', expire: dans(3600) });
+  app.synchro.connecter(p, { source: 'excel365', nom: 'Microsoft', config: { jeton: microsoft } });
+
+  const liste = app.synchro.lister(p);
+  assert.deepEqual(liste.map((c) => c.source).sort(), ['excel365', 'notion', 'sheets'], 'les trois comptes sont listés');
+  assert.equal(new Set(liste.map((c) => c.id)).size, 3, 'trois branchements distincts : aucun identifiant écrasé');
+  for (const c of liste) {
+    assert.equal(c.aChoisir, true, 'connecté, rien de choisi');
+    assert.equal(c.actif, false, 'en pause : rien n’est lu ni écrit');
+    assert.equal(c.statut, 'jamais');
+    assert.ok(c.aSecret, 'la connexion est gardée, chiffrée');
+  }
+  // rien n'est entré dans le jeu
+  assert.equal(app.synchro.resume().actifs, 0);
+  await assert.rejects(app.synchro.synchroniser(liste[0]!.id, p), (e: any) => e.code === 'rien_a_recuperer');
+
+  // la personne choisit enfin ce qu'elle récupère dans l'un d'eux : lui seul devient un vrai branchement
+  const notionId = liste.find((c) => c.source === 'notion')!.id;
+  const apres = app.synchro.modifier(p, notionId, {
+    config: { base: 'a'.repeat(32) }, typeObjet: 'entreprise', roles: ['client'], mapping: { Nom: '__nom' }, sens: 'lecture', intervalleS: 300, actif: true,
+  });
+  assert.equal(apres.aChoisir, false);
+  assert.equal(apres.actif, true);
+  assert.equal(apres.id, notionId, 'le même branchement, complété — pas un second');
+  assert.equal(app.synchro.lister(p).length, 3);
+  assert.deepEqual(app.synchro.lister(p).filter((c) => c.aChoisir).map((c) => c.source).sort(), ['excel365', 'sheets']);
+});
