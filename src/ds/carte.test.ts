@@ -239,6 +239,34 @@ test('carte : la vie ambiante se calme avec l’éloignement, jusqu’à l’ima
   assert.match(scene, /else if \(ambiance && vie > 0\)/, 'vie éteinte : aucune image de plus n’est demandée');
 });
 
+test('carte : aucune surface posée sur une autre — marquages en décalque, voirie à quatre niveaux, contours écartés', () => {
+  const scene = lire('web/scene.js');
+  // marquages au sol : une peinture (décalque), jamais une plaque posée à quelques centimètres
+  assert.match(scene, /const matMarquage = \(c\) => mat\(c, \{ polygonOffset: true/);
+  assert.match(scene, /polygonOffsetFactor: DECALQUE, polygonOffsetUnits: DECALQUE/);
+  assert.doesNotMatch(scene, /B\(2\.8, 0\.02, 0\.55\)|B\(0\.55, 0\.02, 2\.8\)/, 'passage piéton : plus de bandes en relief');
+  assert.doesNotMatch(scene, /B\(3, 0\.02, 0\.15\)|B\(0\.15, 0\.02, 3\)/, 'axe de chaussée : plus de bandes en relief');
+  // les lots acceptent le décalque et l'écartement du contour (sinon chaque marquage serait un appel de dessin)
+  assert.doesNotMatch(scene, /if \(m\.isShaderMaterial \|\| m\.polygonOffset/, 'un décalque se cuit en lot comme le reste');
+  assert.match(scene, /decalque: m\.polygonOffset \? \(m\.polygonOffsetFactor \?\? -1\) : 0/);
+  // voirie : quatre niveaux distincts à un carrefour (deux trottoirs, deux enrobés)
+  const niveaux = /const Y_TROTTOIR = \{ eo: ([\d.]+), ns: ([\d.]+) \};\s*\n\s*const Y_ENROBE = \{ eo: ([\d.]+), ns: ([\d.]+) \};/.exec(scene);
+  assert.ok(niveaux, 'niveaux de voirie déclarés');
+  const [to, tn, eo, en] = niveaux.slice(1, 5).map(Number) as [number, number, number, number];
+  assert.equal(new Set([to, tn, eo, en]).size, 4, 'aucun niveau partagé');
+  assert.ok(tn < to && to < eo && eo < en, 'trottoir nord-sud < trottoir est-ouest < enrobé est-ouest < enrobé nord-sud');
+  // 2 cm : au-delà de ce que le tampon de profondeur confond au bout du plateau (1,2 cm avec un plan proche à 1 m)
+  for (const [a, b] of [[en, eo], [eo, to], [to, tn]] as [number, number][]) assert.ok(a - b > 0.019, `écart de ${a} à ${b} trop fin`);
+  assert.match(scene, /new THREE\.PerspectiveCamera\(32, 1, 1, 1400\)/, 'plan proche à 1 m');
+  // contour permanent : écarté le long des normales, jamais une mise à l'échelle (les faces minces restaient collées)
+  assert.doesNotMatch(scene, /scale\.setScalar\(1\.015\)/);
+  assert.match(scene, /matContour\.customProgramCacheKey = \(\) => 'contour'/);
+  assert.match(scene, /transformed \+= normalize\(normal\) \* \$\{EPAISSEUR_CONTOUR/);
+  // littoral : la plage repose sur la pelouse, la houle s'éteint au rivage, l'écume reste au-dessus des vagues
+  assert.match(scene, /float bordMer = smoothstep\(-12\.0, -2\.0, position\.z\);/);
+  assert.match(scene, /const Y_ECUME = -0\.2;/);
+});
+
 test('carte : scene.js pilote camera-controls 3.1.2, rend à la demande, sans MapControls ni boucle permanente', () => {
   const scene = lire('web/scene.js');
   assert.match(scene, /import CameraControls from '\/vendor\/camera-controls@3\.1\.2\.js'/);

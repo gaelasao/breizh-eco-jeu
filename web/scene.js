@@ -89,6 +89,13 @@ function mat(c, o = {}) {
   }
   return mats.get(k);
 }
+/**
+ * Marquage au sol (axes de chaussée, passages piétons, allées d'entrepôt) : une peinture, pas une dalle posée sur
+ * l'enrobé. Le décalage de profondeur la place devant la surface qui la porte quelle que soit la distance ; sans lui,
+ * une plaque à 2 cm tient de près mais se met à clignoter en vue éloignée, où le tampon de profondeur ne distingue
+ * plus qu'un centimètre et demi.
+ */
+const matMarquage = (c) => mat(c, { polygonOffset: true, polygonOffsetFactor: DECALQUE, polygonOffsetUnits: DECALQUE });
 // Bâtiments de l'entreprise : MeshToonMaterial à 3 paliers (0,55 ; 0,8 ; 1,0) et contour permanent (§5.4)
 let rampeToon = null;
 function rampe() {
@@ -147,6 +154,10 @@ const basesVariantes = new WeakMap(); // variante → matériau d'origine (les l
    maillages d'origine restent dans la scène, sur un calque que la caméra ne dessine pas, pour le pointage, la sélection
    et les volumes. */
 const CALQUE_ORIGINES = 1;
+/** Épaisseur du contour permanent des bâtiments de l'entreprise (§5.4), en mètres : un trait d'encre régulier. */
+const EPAISSEUR_CONTOUR = 0.03;
+/** Marquages au sol (lignes, passages piétons, allées d'entrepôt) : décalque, jamais une surface posée sur une autre. */
+const DECALQUE = -4;
 const LARGEUR_ETATS = 256;
 const HAUTEUR_ETATS = 16; // 4 096 objets
 const uLot = {
@@ -221,9 +232,11 @@ function adapterNormalesGtao(m) {
 const matsLots = new Map();
 /** Matériau d'un lot : mêmes réglages que l'original, couleur blanche (elle vient des sommets). */
 function matLot(s) {
-  const k = `${s.type}|${s.carte?.uuid ?? '-'}|${s.cote}|${s.plat}|${s.alpha}|${s.kaykit}`;
+  const k = `${s.type}|${s.carte?.uuid ?? '-'}|${s.cote}|${s.plat}|${s.alpha}|${s.kaykit}|${s.contour ? 'c' : ''}|${s.decalque}`;
   if (!matsLots.has(k)) {
     const o = { vertexColors: true, side: s.cote, map: s.carte, alphaTest: s.alpha };
+    // décalque (marquages au sol) : tiré vers la caméra dans le tampon de profondeur, il ne peut pas se battre
+    if (s.decalque) Object.assign(o, { polygonOffset: true, polygonOffsetFactor: s.decalque, polygonOffsetUnits: s.decalque });
     const m = s.type === 'toon' ? new THREE.MeshToonMaterial({ ...o, gradientMap: rampe() })
       : s.type === 'basic' ? new THREE.MeshBasicMaterial(o)
         : s.type === 'standard' ? new THREE.MeshStandardMaterial({ ...o, flatShading: s.plat })
@@ -234,7 +247,9 @@ function matLot(s) {
       avecMursEtMasque(sh, GLSL_LOT_V);
       sh.vertexShader = sh.vertexShader
         .replace('#include <color_vertex>', GLSL_LOT_COULEUR)
-        .replace(GLSL_LOT_MUR, `${GLSL_LOT_MUR}\n  vPosLot = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
+        // contour permanent : coque écartée de la même épaisseur partout, le long des normales (jamais une mise à
+        // l'échelle, qui laisse les faces minces collées à l'objet et les fait scintiller en vue éloignée)
+        .replace(GLSL_LOT_MUR, `${GLSL_LOT_MUR}${s.contour ? `\n  transformed += normalize(normal) * ${EPAISSEUR_CONTOUR.toFixed(3)};` : ''}\n  vPosLot = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
       sh.fragmentShader = `${GLSL_LOT_F}\n${MOTIFS}\n${sh.fragmentShader}`
         .replace('#include <map_fragment>', `#ifdef USE_MAP
   diffuseColor *= mix(vec4(1.0), texture2D(map, vMapUv), vPeint);
@@ -249,7 +264,7 @@ function matLot(s) {
         .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vRugo.y;')
         .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += vEmis + vec3(0.08 * vSurvol) + allumeLot * uCouleurFenetres;');
     };
-    m.customProgramCacheKey = () => `lot|${s.type}|${s.kaykit ? 'k' : ''}`;
+    m.customProgramCacheKey = () => `lot|${s.type}|${s.kaykit ? 'k' : ''}${s.contour ? 'c' : ''}`;
     matsLots.set(k, m);
   }
   return matsLots.get(k);
@@ -279,13 +294,14 @@ function decrireLot(mesh, roles) {
   if (!g?.attributes?.position || !g.attributes.normal) return null;
   const verre = m === matVerre || m === matVerreAllume;
   if (!verre && (m.transparent || m.depthWrite === false)) return null;
-  if (m.isShaderMaterial || m.polygonOffset || m.depthTest === false || m.toneMapped === false || m.fog === false || m.wireframe) return null;
+  if (m.isShaderMaterial || m.depthTest === false || m.toneMapped === false || m.fog === false || m.wireframe) return null;
   const type = verre ? 'verre' : m.isMeshToonMaterial ? 'toon' : m.isMeshBasicMaterial ? 'basic' : m.isMeshStandardMaterial ? 'standard' : m.isMeshLambertMaterial ? 'lambert' : null;
   if (!type) return null;
   const cle = m.customProgramCacheKey?.() ?? '';
   const kaykit = cle === 'kaykit';
+  const contour = cle === 'contour';
   const sol = cle.startsWith('sol-') ? Number.parseInt(cle.slice(4), 10) : 0;
-  if (Object.hasOwn(m, 'onBeforeCompile') && !kaykit && !sol) return null; // shader propre (mer, fanions) : laissé tel quel
+  if (Object.hasOwn(m, 'onBeforeCompile') && !kaykit && !sol && !contour) return null; // shader propre (mer, fanions) : laissé tel quel
   if (m.map && !g.attributes.uv) return null;
   const role = verre ? 'ciel-horizon' : roles.get(m);
   let jour;
@@ -304,7 +320,7 @@ function decrireLot(mesh, roles) {
   }
   const emis = m.emissive ? m.emissive.clone().multiplyScalar(m.emissiveIntensity ?? 1).toArray() : [0, 0, 0];
   return {
-    sorte: { type, carte: m.map ? carteLot(m.map) : null, cote: m.side, plat: Boolean(m.flatShading), alpha: m.alphaTest ?? 0, kaykit },
+    sorte: { type, carte: m.map ? carteLot(m.map) : null, cote: m.side, plat: Boolean(m.flatShading), alpha: m.alphaTest ?? 0, kaykit, contour, decalque: m.polygonOffset ? (m.polygonOffsetFactor ?? -1) : 0 },
     ombre: mesh.castShadow && !verre, jour, nuit, emis, sol, rugo: m.roughness ?? 0.85, metal: m.metalness ?? 0,
     carteSource: m.map ?? null, couleursSommets: m.vertexColors && g.attributes.color ? g.attributes.color : null,
   };
@@ -458,6 +474,8 @@ const geo = (k, f) => (geos.has(k) ? geos.get(k) : (geos.set(k, f()), geos.get(k
 const B = (l, h, p) => geo(`B${l}|${h}|${p}`, () => new THREE.BoxGeometry(l, h, p).translate(0, h / 2, 0));
 const CY = (rh, rb, h, s = 14) => geo(`C${rh}|${rb}|${h}|${s}`, () => new THREE.CylinderGeometry(rh, rb, h, s).translate(0, h / 2, 0));
 const SP = (r, s = 12) => geo(`S${r}|${s}`, () => new THREE.SphereGeometry(r, s, Math.max(6, Math.round(s * 0.7))));
+/** Plaque horizontale (marquage au sol) : un seul plan, sans épaisseur ni tranches à faire scintiller. */
+const PL = (l, p) => geo(`P${l}|${p}`, () => new THREE.PlaneGeometry(l, p).rotateX(-Math.PI / 2));
 function piece(g, m, x = 0, y = 0, z = 0, ombre = true) {
   const me = new THREE.Mesh(g, m);
   me.position.set(x, y, z);
@@ -1117,8 +1135,8 @@ function batimentPropre(lieu, nbPersonnes = 6, accent = P.cadre) {
   if (icone === 'entrepot') {
     res = coque(26, 16, 7.5, { sol: 'beton', murs: 'entrepot', accent });
     for (let i = 0; i < 8; i++) rayons.push(new THREE.Vector3(-9 + (i % 4) * 4.4, 0.18, i < 4 ? -4.8 : -0.6));
-    for (const x of [-11, 11]) res.g.add(piece(B(0.12, 0.01, 15), mat(0xe8c12a), x, 0.19, 0, false));
-    res.g.add(piece(B(24, 0.01, 0.12), mat(0xe8c12a), 0, 0.19, 1.8, false));
+    for (const x of [-11, 11]) res.g.add(piece(PL(0.12, 15), matMarquage(0xe8c12a), x, 0.18, 0, false));
+    res.g.add(piece(PL(24, 0.12), matMarquage(0xe8c12a), 0, 0.18, 1.8, false));
     const table = new THREE.Group();
     table.add(piece(B(3, 0.9, 1), mat(P.bois), 0, 0, 0));
     for (let i = 0; i < 4; i++) table.add(piece(B(0.5, 0.4, 0.5), mat(P.carton), -1.1 + i * 0.7, 0.9, 0));
@@ -1137,7 +1155,7 @@ function batimentPropre(lieu, nbPersonnes = 6, accent = P.cadre) {
     for (const x of [5.5, 8.5]) machines.push(new THREE.Vector3(x, 0.18, -4.5));
     for (let i = 0; i < 4; i++) rayons.push(new THREE.Vector3(-7 + i * 4.4, 0.18, 1.5));
     for (let i = 0; i < Math.max(0, nbPersonnes - 3); i++) postes.push({ pos: new THREE.Vector3(-6 + i * 1.9, 0.18, 4.8), rot: Math.PI, assis: false });
-    res.g.add(piece(B(20, 0.01, 0.12), mat(0xe8c12a), 0, 0.19, -1.8, false));
+    res.g.add(piece(PL(20, 0.12), matMarquage(0xe8c12a), 0, 0.18, -1.8, false));
     res.courrier = new THREE.Vector3(9, 0.18, 5.6);
     parkings.push(new THREE.Vector3(-6, 0, 11.5), new THREE.Vector3(2, 0, 11.5), new THREE.Vector3(9, 0, 11.5));
   } else if (icone === 'magasin') {
@@ -1827,7 +1845,9 @@ export async function creerScene(conteneur, options) {
 
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xffffff, 200, 400);
-  const camera = new THREE.PerspectiveCamera(32, 1, 0.5, 1400);
+  /* Plan proche à 1 m (la caméra ne s'approche jamais à moins de 6 m de sa cible) : le tampon de profondeur distingue
+     alors 1,2 cm à l'autre bout du plateau, au lieu de 2,4 cm. C'est ce qui sépare un marquage de sa chaussée. */
+  const camera = new THREE.PerspectiveCamera(32, 1, 1, 1400);
   const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 1.0);
   scene.add(hemi);
   const soleil = new THREE.DirectionalLight(0xffffff, 1.6);
@@ -1901,7 +1921,9 @@ export async function creerScene(conteneur, options) {
   const matMer = suivre(nouveau({ roughness: 0.3 }), 'mer');
   matMer.onBeforeCompile = (sh) => {
     sh.uniforms.uTemps = uTemps;
-    sh.vertexShader = `uniform float uTemps;\n${sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed.y += sin(position.x * 0.18 + uTemps * 0.9) * 0.1 + cos(position.z * 0.23 + uTemps * 0.7) * 0.08;')}`;
+    // la houle s'éteint en approchant du rivage : au ras du quai l'eau est plate, elle ne monte plus par-dessus
+    // l'écume ni ne découvre le fond, et la ligne de côte reste nette
+    sh.vertexShader = `uniform float uTemps;\n${sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  float bordMer = smoothstep(-12.0, -2.0, position.z);\n  transformed.y += (sin(position.x * 0.18 + uTemps * 0.9) * 0.1 + cos(position.z * 0.23 + uTemps * 0.7) * 0.08) * bordMer;')}`;
   };
   matMer.customProgramCacheKey = () => 'mer';
   const mer = new THREE.Mesh(new THREE.PlaneGeometry(larg, z1 - zCote, 48, 12).rotateX(-Math.PI / 2), matMer);
@@ -1909,10 +1931,13 @@ export async function creerScene(conteneur, options) {
   mer.receiveShadow = PROFIL.ombres > 0;
   mer.userData.garder = true;
   scene.add(mer);
+  // écume : juste au-dessus de la crête des vagues (−0,35 + 0,18), sinon la houle la recouvrait et la faisait clignoter
   const ecume = mat('ecume');
-  statique.add(piece(B(larg, 0.06, 1.1), ecume, 0, -0.32, zCote + 0.4, false));
-  for (const [x, z, l, p] of [[0, zCote + 5.2, 35, 0.8], [-17.4, zCote + 2, 0.8, 6.6], [17.4, zCote + 2, 0.8, 6.6], [0, zCote + 16, 4, 0.8]]) statique.add(piece(B(l, 0.06, p), ecume, x, -0.32, z, false));
-  statique.add(piece(B(larg, 0.3, 4), mat(P.sable), 0, -0.3, zCote - 2, false));
+  const Y_ECUME = -0.2;
+  statique.add(piece(B(larg, 0.05, 1.1), ecume, 0, Y_ECUME, zCote + 0.4, false));
+  for (const [x, z, l, p] of [[0, zCote + 5.2, 35, 0.8], [-17.4, zCote + 2, 0.8, 6.6], [17.4, zCote + 2, 0.8, 6.6], [0, zCote + 16, 4, 0.8]]) statique.add(piece(B(l, 0.05, p), ecume, x, Y_ECUME, z, false));
+  // la plage repose sur la pelouse, elle ne la double pas : à hauteur égale, les deux se disputaient 192 m de rivage
+  statique.add(piece(B(larg, 0.34, 4), mat(P.sable), 0, -0.3, zCote - 2, false));
   statique.add(piece(B(34, 0.8, 6), mat(P.beton), 0, -0.5, zCote + 2));
   statique.add(piece(B(3, 0.3, 11), matTex('parquet', 1, 4), 0, -0.25, zCote + 10));
   // sols des quartiers (§5.5) : équipe en pelouse au centre, quais en planches, clients en pavés, fournisseurs en enrobé
@@ -1925,16 +1950,33 @@ export async function creerScene(conteneur, options) {
   const centreVille = new THREE.Group();
   statique.add(centreVille);
   const auCentre = (x, z) => x > CENTRE.x0 && x < CENTRE.x1 && z > CENTRE.z0 && z < CENTRE.z1;
+  /* Voirie : quatre niveaux distincts, jamais deux surfaces au même, sinon elles se disputent le pixel et grésillent
+     dès qu'on s'éloigne (le tampon de profondeur ne sépare plus qu'un centimètre et demi à 360 m). De bas en haut à
+     un carrefour : trottoir nord-sud, trottoir est-ouest, enrobé est-ouest, enrobé nord-sud. Les marquages, eux, sont
+     des décalques : ils se posent sur la chaussée sans jamais la concurrencer. */
+  const Y_TROTTOIR = { eo: 0.14, ns: 0.10 };
+  const Y_ENROBE = { eo: 0.16, ns: 0.18 };
+  const Y_MARQUAGE = 0.18;
+  const marquage = matMarquage(P.ligne);
+  const largeurRoute = (horiz, v) => ROUTES.find((r) => (horiz ? r.a[1] === v && r.b[1] === v : r.a[0] === v && r.b[0] === v))?.l ?? 7;
+  const dansCarrefour = (x, z) => CARREFOURS.some(([cx, cz]) => Math.abs(x - cx) < 7 && Math.abs(z - cz) < 7);
   const troncon = (cible, ax, az, bx, bz, l) => {
     const horiz = az === bz;
     const long = horiz ? Math.abs(bx - ax) : Math.abs(bz - az);
     if (long < 0.5) return;
     const cx = (ax + bx) / 2;
     const cz = (az + bz) / 2;
-    const y = horiz ? 0.05 : 0.06;
-    cible.add(piece(horiz ? B(long, 0.16, l + 4.4) : B(l + 4.4, 0.16, long), matTex('pave', horiz ? long / 3 : 2, horiz ? 2 : long / 3), cx, 0, cz, false));
-    cible.add(piece(horiz ? B(long, 0.12, l) : B(l, 0.12, long), matTex('asphalte', horiz ? long / 6 : l / 6, horiz ? l / 6 : long / 6, { roughness: 0.95 }), cx, y, cz, false));
-    for (let t = -long / 2 + 3; t < long / 2 - 2; t += 6) cible.add(piece(horiz ? B(3, 0.02, 0.15) : B(0.15, 0.02, 3), mat(P.ligne), horiz ? cx + t : cx, y + 0.12, horiz ? cz : cz + t, false));
+    const trottoir = horiz ? Y_TROTTOIR.eo : Y_TROTTOIR.ns;
+    const enrobe = horiz ? Y_ENROBE.eo : Y_ENROBE.ns;
+    cible.add(piece(horiz ? B(long, trottoir, l + 4.4) : B(l + 4.4, trottoir, long), matTex('pave', horiz ? long / 3 : 2, horiz ? 2 : long / 3), cx, 0, cz, false));
+    cible.add(piece(horiz ? B(long, 0.12, l) : B(l, 0.12, long), matTex('asphalte', horiz ? long / 6 : l / 6, horiz ? l / 6 : long / 6, { roughness: 0.95 }), cx, enrobe - 0.12, cz, false));
+    // axe de la chaussée : jamais au milieu d'un carrefour, où il n'y a pas de ligne médiane
+    for (let t = -long / 2 + 3; t < long / 2 - 2; t += 6) {
+      const x = horiz ? cx + t : cx;
+      const z = horiz ? cz : cz + t;
+      if (dansCarrefour(x, z)) continue;
+      cible.add(piece(horiz ? PL(3, 0.15) : PL(0.15, 3), marquage, x, Y_MARQUAGE, z, false));
+    }
   };
   for (const r of ROUTES) {
     const [ax, az] = r.a;
@@ -1949,10 +1991,23 @@ export async function creerScene(conteneur, options) {
       troncon(statique, ax, CENTRE.z1, ax, bz, r.l);
     } else troncon(statique, ax, az, bx, bz, r.l);
   }
+  /* Passages piétons : une peinture sur la chaussée, en décalque, juste après le coin du trottoir, et dans la largeur
+     de la route qu'ils traversent — pas une bande qui déborde sur le trottoir. */
   for (const [cx, cz] of CARREFOURS) {
-    for (const [dx, dz, vertical] of [[6.5, 0, false], [-6.5, 0, false], [0, 6.5, true], [0, -6.5, true]]) {
-      const cible = auCentre(cx + dx, cz + dz) ? centreVille : statique;
-      for (let k = -3; k <= 3; k++) cible.add(piece(vertical ? B(0.55, 0.02, 2.8) : B(2.8, 0.02, 0.55), mat(P.ligne), cx + dx + (vertical ? k * 1.1 : 0), 0.19, cz + dz + (vertical ? 0 : k * 1.1), false));
+    const lEO = largeurRoute(true, cz);
+    const lNS = largeurRoute(false, cx);
+    for (const nordSud of [false, true]) {
+      const route = nordSud ? lNS : lEO; // route traversée : le passage tient dans sa largeur
+      const recul = (nordSud ? lEO : lNS) / 2 + 2.8; // après le coin du trottoir de la route croisée
+      const nb = Math.max(3, Math.round((route - 1) / 1.1));
+      for (const sens of [1, -1]) {
+        const cible = auCentre(cx + (nordSud ? 0 : sens * recul), cz + (nordSud ? sens * recul : 0)) ? centreVille : statique;
+        for (let k = 0; k < nb; k++) {
+          const ecart = (k - (nb - 1) / 2) * 1.1;
+          cible.add(piece(nordSud ? PL(0.55, 2.8) : PL(2.8, 0.55), marquage,
+            cx + (nordSud ? ecart : sens * recul), Y_MARQUAGE, cz + (nordSud ? sens * recul : ecart), false));
+        }
+      }
     }
   }
   const rnd = alea(42);
@@ -3065,7 +3120,12 @@ export async function creerScene(conteneur, options) {
     disqueContact.renderOrder = 1;
     scene.add(disqueContact);
   }
+  /* Contour permanent (§5.4) : coque inversée écartée de 3 cm le long des normales. Une mise à l'échelle laisserait
+     les faces minces (murs, vitrages, casquettes) collées à l'objet : elles se disputaient le pixel avec lui et
+     grésillaient le long de chaque arête dès qu'on s'éloignait. */
   const matContour = suivre(new THREE.MeshBasicMaterial({ side: THREE.BackSide }), 'contour');
+  matContour.onBeforeCompile = (sh) => { sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>\n  transformed += normalize(normal) * ${EPAISSEUR_CONTOUR.toFixed(3)};`); };
+  matContour.customProgramCacheKey = () => 'contour';
   const matSurbrillance = suivre(new THREE.MeshBasicMaterial({ side: THREE.BackSide }), 'surbrillance');
   // contour de sélection : la coque est gonflée le long des normales (8 cm), quelle que soit la taille de la pièce
   matSurbrillance.onBeforeCompile = (sh) => { sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed += normalize(normal) * 0.08;'); };
@@ -3079,7 +3139,6 @@ export async function creerScene(conteneur, options) {
       for (const x of [...m.children]) {
         if (!x.isMesh || x.material.transparent || x.material === matVerre) continue;
         const c = new THREE.Mesh(x.geometry, matContour);
-        c.scale.setScalar(1.015);
         c.userData.coque = true;
         c.castShadow = false;
         x.add(c);
