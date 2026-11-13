@@ -7639,17 +7639,18 @@ async function rendreSante() {
     S.forces?.length ? h('p', { class: 'bz-t-petit bz-texte-2' }, h('strong', { texte: 'Vos points forts : ' }), S.forces.map((c) => c.libelle).join(', '), '.') : null);
 
   const ligneCritere = (c) => {
-    const st = M.statutDe(c.statut);
+    const groupe = M.groupeDeCritere(c);
+    const st = M.statutDe(groupe);
     // critère réservé (motifs d'absence, droit RH) : ni mesure, ni action, la raison est dite
     const action = c.statut !== 'bon' && !c.reserve ? M.actionCritere(c, ctx) : null;
-    return h('li', { class: 'bz-critere', 'data-statut': c.statut },
+    return h('li', { class: 'bz-critere', 'data-statut': groupe },
       h('div', { class: 'bz-critere__tete' },
         h('span', { class: 'bz-critere__nom', texte: c.libelle }),
         h('span', { class: 'bz-critere__note bz-t-chiffre', 'data-certitude': c.score === null ? 'absent' : null, texte: c.score === null ? '—' : nombre(c.score) },
-          c.score === null ? h('span', { class: 'bz-visuellement-cache', texte: ' Pas encore renseigné' }) : h('span', { class: 'bz-visuellement-cache', texte: ' sur 100' }))),
+          c.score === null ? h('span', { class: 'bz-visuellement-cache', texte: ` ${st.titre}` }) : h('span', { class: 'bz-visuellement-cache', texte: ' sur 100' }))),
       c.score === null ? null : barreScore(c.score, st.ton),
       h('p', { class: 'bz-t-petit bz-texte-2', texte: c.mesure ?? (c.reserve ? `${c.source}.` : `À connecter : ${c.source}`) }),
-      c.statut === 'faible' || c.statut === 'moyen' ? h('p', { class: 'bz-t-petit', texte: c.conseil }) : null,
+      c.statut === 'faible' || c.statut === 'moyen' || c.aLancer ? h('p', { class: 'bz-t-petit', texte: c.conseil }) : null,
       action && actionPermise(action) ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien bz-critere__action', onclick: () => faireActionSante(action) }, action.libelle, icone('arrow-right', { taille: 'sm' })) : null);
   };
 

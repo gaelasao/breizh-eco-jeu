@@ -39,6 +39,8 @@ export interface CritereSante {
    * droit RH). Ni note ni mesure : il ne pèse ni dans son domaine ni dans la note globale.
    */
   reserve?: true;
+  /** Pratique pas encore lancée sur une entreprise de moins d'un mois : « À lancer », jamais « 0 sur 100 ». */
+  aLancer?: true;
 }
 
 export interface DomaineResultat {
@@ -118,6 +120,12 @@ interface Definition {
   conseil: string;
   /** Le critère lit les motifs d'absence du planning : réservé aux profils qui ont le droit de les voir. */
   motifs?: true;
+  /**
+   * Le critère mesure une pratique qu'il faut d'abord lancer (demander des avis, brancher un outil, mettre une
+   * automatisation en marche). À zéro sur une entreprise qui vient d'être créée, ce n'est pas une mauvaise note :
+   * c'est qu'on n'a pas commencé. Il est alors « À lancer », sans note, jusqu'au premier mois de données.
+   */
+  aLancer?: true;
   mesurer: (c: Contexte) => Mesure;
 }
 
@@ -317,7 +325,7 @@ const DEFINITIONS: readonly Definition[] = [
   },
   {
     id: 'clients_ecoutes', domaine: 'commercial', libelle: 'Clients interrogés dans l’année', mauvais: 0.1, bon: 0.6,
-    source: 'Avis clients', conseil: 'Envoyez le formulaire de satisfaction à tous les clients sans avis (un clic, page Satisfaction).',
+    source: 'Avis clients', conseil: 'Envoyez le formulaire de satisfaction à tous les clients sans avis (un clic, page Satisfaction).', aLancer: true,
     mesurer: (c) => {
       const cl = clients(c);
       if (!cl.length) return inconnu;
@@ -354,7 +362,7 @@ const DEFINITIONS: readonly Definition[] = [
   },
   {
     id: 'prospection', domaine: 'commercial', libelle: 'Prospects en cours', mauvais: 0.05, bon: 0.3,
-    source: 'Tiers au rôle « prospect »', conseil: 'Gardez au moins un prospect pour trois clients : Breizhcosystem vous propose des entreprises qui ont besoin de vous.',
+    source: 'Tiers au rôle « prospect »', conseil: 'Gardez au moins un prospect pour trois clients : Breizhcosystem vous propose des entreprises qui ont besoin de vous.', aLancer: true,
     mesurer: (c) => {
       const cl = clients(c).length;
       if (!cl) return inconnu;
@@ -482,7 +490,7 @@ const DEFINITIONS: readonly Definition[] = [
   },
   {
     id: 'participation', domaine: 'social', libelle: 'Participation au baromètre', mauvais: 0.1, bon: 0.6,
-    source: 'Baromètre (90 jours) et effectif', conseil: 'Envoyez le baromètre à toute l’équipe : il est anonyme et prend 30 secondes.',
+    source: 'Baromètre (90 jours) et effectif', conseil: 'Envoyez le baromètre à toute l’équipe : il est anonyme et prend 30 secondes.', aLancer: true,
     mesurer: (c) => {
       const eff = personnesEnPoste(c.objets).length;
       if (!eff) return inconnu;
@@ -632,7 +640,7 @@ const DEFINITIONS: readonly Definition[] = [
   // ------------------------------------------------------------------ outils & automatisation
   {
     id: 'outils_branches', domaine: 'automatisation', libelle: 'Outils branchés', mauvais: 0, bon: 3,
-    source: 'Réglages → Outils branchés', conseil: 'Branchez au moins votre comptabilité, votre CRM et votre banque : plus de double saisie.',
+    source: 'Réglages → Outils branchés', conseil: 'Branchez au moins votre comptabilité, votre CRM et votre banque : plus de double saisie.', aLancer: true,
     mesurer: (c) => (c.modules ? { valeur: c.modules.connecteursActifs, mesure: `${c.modules.connecteursActifs} ${pl(c.modules.connecteursActifs, 'logiciel connecté', 'logiciels connectés')}` } : inconnu),
   },
   {
@@ -646,7 +654,7 @@ const DEFINITIONS: readonly Definition[] = [
   },
   {
     id: 'automatisations', domaine: 'automatisation', libelle: 'Automatisations actives', mauvais: 0, bon: 5,
-    source: 'Page Optimiser', conseil: 'Activez les automatisations proposées : relances, réapprovisionnement, papiers, satisfaction.',
+    source: 'Page Optimiser', conseil: 'Activez les automatisations proposées : relances, réapprovisionnement, papiers, satisfaction.', aLancer: true,
     mesurer: (c) => (c.modules ? { valeur: c.modules.automatisationsActives, mesure: `${c.modules.automatisationsActives} ${pl(c.modules.automatisationsActives, 'automatisation active', 'automatisations actives')}` } : inconnu),
   },
   {
@@ -663,6 +671,14 @@ export const SOURCE_RESERVEE = 'Réservé aux profils qui voient les motifs d’
 
 const statutDe = (s: number | null): CritereSante['statut'] => (s === null ? 'inconnu' : s >= 75 ? 'bon' : s >= 45 ? 'moyen' : 'faible');
 
+/** Au-delà de ce nombre de jours de données, un zéro redevient une note : la pratique aurait eu le temps d'être lancée. */
+export const JOURS_AVANT_NOTE = 30;
+/** Jours de données de l'entreprise : du plus ancien objet connu à aujourd'hui (0 le jour de l'installation). */
+export function joursDeDonnees(objets: readonly ObjetMetier[], maintenant: Date): number {
+  const dates = objets.map((o) => Date.parse(o.majLe)).filter((d) => Number.isFinite(d));
+  return dates.length ? Math.max(0, (maintenant.getTime() - Math.min(...dates)) / JOUR) : 0;
+}
+
 export function evaluerSante(e: EntreeSante): ResultatSante {
   const auj = Date.parse(`${e.maintenant.toISOString().slice(0, 10)}T00:00:00Z`);
   const index = new Map<string, ObjetMetier[]>();
@@ -674,6 +690,7 @@ export function evaluerSante(e: EntreeSante): ResultatSante {
     objets: e.objets, parType: (t) => index.get(t) ?? [], parId: new Map(e.objets.map((o) => [o.id, o])),
     org: e.objets.find((o) => o.famille === 'organisation'), auj, planning: e.planning, modules: e.modules, ageMaxMs: e.ageMaxMs, maintenant: e.maintenant,
   };
+  const jeune = joursDeDonnees(e.objets, e.maintenant) < JOURS_AVANT_NOTE;
   const criteres: CritereSante[] = DEFINITIONS.map((d) => {
     // motifs d'absence réservés : critère « inconnu » pour ce profil (masquer les cases donnerait 0 %, une fausse bonne note)
     if (d.motifs && e.motifsAbsence === false) {
@@ -682,6 +699,10 @@ export function evaluerSante(e: EntreeSante): ResultatSante {
     let m: Mesure;
     try { m = d.mesurer(c); } catch { m = inconnu; }
     const score = m.valeur === null || !Number.isFinite(m.valeur) ? null : echelle(m.valeur, d.mauvais, d.bon);
+    // entreprise toute neuve : une pratique pas encore lancée est « À lancer », pas « 0 sur 100 » — et elle ne pèse pas
+    if (d.aLancer && score === 0 && jeune) {
+      return { id: d.id, domaine: d.domaine, libelle: d.libelle, poids: d.poids ?? 1, score: null, mesure: 'À lancer', valeur: null, statut: 'inconnu', source: d.source, conseil: d.conseil, aLancer: true };
+    }
     return { id: d.id, domaine: d.domaine, libelle: d.libelle, poids: d.poids ?? 1, score, mesure: score === null ? null : m.mesure, valeur: score === null ? null : m.valeur, statut: statutDe(score), source: d.source, conseil: d.conseil };
   });
   const domaines: DomaineResultat[] = DOMAINES.map((d) => {

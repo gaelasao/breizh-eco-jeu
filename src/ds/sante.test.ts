@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-type Critere = { id: string; domaine: string; libelle: string; poids: number; score: number | null; mesure: string | null; statut: string; source: string; conseil: string };
+type Critere = { id: string; domaine: string; libelle: string; poids: number; score: number | null; mesure: string | null; statut: string; source: string; conseil: string; aLancer?: true };
 type Action = { libelle: string; cible: string } | null;
 type Module = {
   DOMAINES: Record<string, { libelle: string; icone: string }>;
@@ -13,6 +13,7 @@ type Module = {
   actionCritere: (c: Partial<Critere>, ctx?: { admin?: boolean; demo?: boolean }) => Action;
   prioritesSante: (S: unknown, ctx?: { admin?: boolean; demo?: boolean }) => Array<{ cle: string; titre: string; action: Action; ton: string | null }>;
   groupesCriteres: (d: unknown) => Array<{ id: string; titre: string; criteres: Critere[] }>;
+  groupeDeCritere: (c: unknown) => string;
   resumeDomaine: (d: unknown) => { score: number | null; texte: string; aCorriger: number };
   enteteSante: (S: unknown) => { score: number | null; provisoire: boolean; titre: string; couverture: string };
   serieTendance: (t: unknown, auj: string) => { x: number[]; y: Array<number | null> };
@@ -110,4 +111,42 @@ test('tendance : un x par jour sur 90 jours, null (jamais 0) pour un jour sans r
   assert.equal(M.resumeTendance({ jours: 90, points: [{ jour: '2026-11-10', score: 60 }] }).vide, true);
   assert.equal(M.resumeTendance({ jours: 90, points: [] }).vide, true);
   assert.deepEqual(M.lignesTendance(t).map((l) => l.jour), ['2026-11-10', '2026-11-08', '2026-08-13'], 'tableau équivalent, du plus récent au plus ancien');
+});
+
+test('entreprise toute neuve : « À lancer », jamais « 0 sur 100 » pour une pratique pas encore commencée', async () => {
+  const { evaluerSante, JOURS_AVANT_NOTE, joursDeDonnees } = await import('../core/sante.ts');
+  const objet = (id: string, famille: string, type: string, nom: string, jours: number) => ({
+    id, orgId: 'o', famille, type, roles: famille === 'tiers' ? ['client'] : [], nom, champs: {},
+    provenance: 'declare', source: { id: 'saisie', libelle: 'Saisie', derniereSynchro: null },
+    majLe: new Date(Date.parse('2026-11-10T09:00:00Z') - jours * 86_400_000).toISOString(), disponibilite: 'disponible', mode: 'reel',
+  }) as never;
+  const maintenant = new Date('2026-11-10T09:00:00Z');
+  const evaluer = (jours: number) => evaluerSante({
+    objets: [objet('org', 'organisation', 'mon_entreprise', 'Kerlann', jours), objet('c1', 'tiers', 'entreprise', 'Cave du Port', jours)],
+    planning: new Map(), maintenant, ageMaxMs: 365 * 86_400_000, modules: { connecteursActifs: 0, connecteursEnErreur: 0, automatisationsActives: 0, heuresRecuperables: null },
+  });
+  const critere = (S: ReturnType<typeof evaluerSante>, id: string) => S.domaines.flatMap((d) => d.criteres).find((x) => x.id === id);
+  // deux minutes après l'installation : aucun avis demandé, aucun outil branché — ce ne sont pas des notes de zéro
+  const neuve = evaluer(0);
+  assert.ok(joursDeDonnees([objet('org', 'organisation', 'mon_entreprise', 'K', 0)] as never, maintenant) < 1);
+  for (const id of ['clients_ecoutes', 'outils_branches', 'automatisations']) {
+    const c2 = critere(neuve, id);
+    assert.deepEqual([c2?.score, c2?.statut, c2?.mesure, c2?.aLancer], [null, 'inconnu', 'À lancer', true], id);
+  }
+  assert.ok(!neuve.priorites.some((x) => x.id === 'clients_ecoutes'), 'aucune priorité rouge sur une pratique pas commencée');
+  // passé le premier mois de données, le zéro redevient une note : la pratique aurait eu le temps d'être lancée
+  const rodee = evaluer(JOURS_AVANT_NOTE + 1);
+  assert.deepEqual([critere(rodee, 'clients_ecoutes')?.score, critere(rodee, 'clients_ecoutes')?.statut], [0, 'faible']);
+  assert.equal(critere(rodee, 'clients_ecoutes')?.aLancer, undefined);
+  // l'écran les range dans leur propre groupe, « À lancer », sans ton d'alerte
+  assert.deepEqual(M.STATUTS.map((x) => x.id), ['faible', 'moyen', 'bon', 'a_lancer', 'inconnu']);
+  assert.equal(M.STATUTS.find((x) => x.id === 'a_lancer')?.ton, null);
+  assert.equal(M.groupeDeCritere({ statut: 'inconnu', aLancer: true }), 'a_lancer');
+  assert.equal(M.groupeDeCritere({ statut: 'faible' }), 'faible');
+  const groupes = M.groupesCriteres({ criteres: [{ ...c('clients_ecoutes', 'commercial', null), aLancer: true as const }, c('ruptures', 'operations', 10)] });
+  assert.deepEqual(groupes.map((g) => [g.id, g.criteres.length]), [['faible', 1], ['a_lancer', 1]]);
+  // et la priorité correspondante dit quoi commencer, pas quoi connecter
+  const prio = M.prioritesSante(sante([{ ...c('clients_ecoutes', 'commercial', null), aLancer: true as const }]), { admin: true });
+  assert.equal(prio[0]?.titre, 'clients_ecoutes : à lancer');
+  assert.deepEqual(prio[0]?.action, { libelle: 'Envoyer les formulaires', cible: 'vue:satisfaction' });
 });
