@@ -790,7 +790,7 @@ export class Alertes {
     const code = typeof err.code === 'number' ? err.code : 0;
     // 190 : jeton expiré ou révoqué ; 132xxx : modèle inconnu, non approuvé ou mal rempli ; 401/403 : accès refusé
     const definitif = statut === 401 || statut === 403 || code === 190 || (code >= 132_000 && code < 133_000);
-    return { ok: false, detail: `${message}${definitif ? '' : ''}`, definitif };
+    return { ok: false, detail: message, definitif };
   }
 
   /** Webhook à soi : le corps est signé comme les envois entrants (`t=<secondes>,v1=<HMAC-SHA256 de « t.corps »>`). */
