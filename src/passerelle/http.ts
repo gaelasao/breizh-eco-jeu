@@ -76,6 +76,8 @@ export const ECRITURES_CLE_MAX = 600;
 const ECRITURES_CLE_FENETRE_MS = 10 * 60_000;
 /** Une tâche répétitive déclarée tient en quelques centaines d'octets : corps limité à 8 ko. */
 const LIMITE_TACHE = 8_000;
+/** Réglages d'alertes (sujets cochés, heures, jeton d'un canal) : quelques centaines d'octets aussi. */
+const LIMITE_ALERTES = 8_000;
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
@@ -220,6 +222,8 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
    */
   const reserveeAuxPersonnes = (methode: string, chemin: string): boolean => {
     if (chemin === '/cles' || chemin.startsWith('/cles/') || chemin === '/acces' || chemin.startsWith('/acces/')) return true;
+    // alertes : les canaux portent des jetons (robot Telegram, Meta) et sortent du jeu — ils se règlent à l'écran
+    if (chemin === '/alertes' || chemin.startsWith('/alertes/')) return true;
     if (methode === 'GET') return false;
     if (chemin.startsWith('/securite/') || chemin === '/mises-a-jour') return true;
     if (chemin === '/nexus' || chemin === '/nexus/adresse' || chemin === '/nexus/liaison' || chemin === '/nexus/partage') return true;
@@ -949,6 +953,29 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       const dest = r.identifiant.includes('@') ? encodeURIComponent(r.identifiant) : '';
       return envoyer(res, 200, { lien, expire: r.expire, identifiant: r.identifiant, mailto: `mailto:${dest}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}` });
     }
+    // ---- alertes en temps réel sur un canal de l'entreprise (Telegram, WhatsApp Business, webhook)
+    if (chemin === '/alertes') {
+      if (methode === 'GET') return envoyer(res, 200, app.alertes.reglages(profil));
+      if (methode === 'PUT') return envoyer(res, 200, app.alertes.regler(profil, await lireCorps(req, LIMITE_ALERTES)));
+      throw new ErreurApi(405, 'methode');
+    }
+    // branchement Telegram : le jeton reste dans la passerelle, le navigateur n'a qu'une référence à usage unique
+    if (methode === 'POST' && chemin === '/alertes/telegram/robot') return envoyer(res, 200, await app.alertes.robotTelegram(profil, await lireCorps(req, LIMITE_ALERTES)));
+    if (methode === 'POST' && chemin === '/alertes/telegram/conversation') return envoyer(res, 200, await app.alertes.conversationTelegram(profil, await lireCorps(req, LIMITE_ALERTES)));
+    if (methode === 'POST' && chemin === '/alertes/canaux') {
+      const r = app.alertes.ajouterCanal(profil, await lireCorps(req, LIMITE_ALERTES));
+      tracerSecurite(profil, 'alertes.canal_branche', `canal d’alerte « ${r.nom} » branché (${r.resume})`);
+      return envoyer(res, 200, r);
+    }
+    let ma = /^\/alertes\/canaux\/(al-[a-f0-9]{12})$/.exec(chemin);
+    if (methode === 'PUT' && ma) return envoyer(res, 200, app.alertes.modifierCanal(profil, ma[1], await lireCorps(req, LIMITE_ALERTES)));
+    if (methode === 'DELETE' && ma) {
+      const r = app.alertes.supprimerCanal(profil, ma[1]);
+      tracerSecurite(profil, 'alertes.canal_retire', 'canal d’alerte retiré : plus rien ne part vers lui');
+      return envoyer(res, 200, r);
+    }
+    ma = /^\/alertes\/canaux\/(al-[a-f0-9]{12})\/essai$/.exec(chemin);
+    if (methode === 'POST' && ma) return envoyer(res, 200, await app.alertes.essai(profil, ma[1]));
     if (methode === 'POST' && chemin === '/monde/exemple') return envoyer(res, 200, monde.changerExemple(profil, sid, ((await lireCorps(req)) as { jeu?: unknown }).jeu));
     if (methode === 'POST' && chemin === '/monde/vider-demo') return envoyer(res, 200, monde.viderDemo(profil, sid, await lireCorps(req), app.comptes.profilsAvecCompte()));
     throw new ErreurApi(404, 'introuvable');
