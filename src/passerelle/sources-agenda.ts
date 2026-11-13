@@ -27,13 +27,11 @@ type Config = Readonly<Record<string, string>>;
 const GOOGLE = 'https://www.googleapis.com/calendar/v3';
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 
-/** Périodes proposées, en jours à partir d'aujourd'hui (celle d'avant compte autant que celle d'après). */
-export const PERIODES = Object.freeze([
-  { valeur: '30', libelle: 'Les 30 prochains jours' },
-  { valeur: '90', libelle: 'Les 90 prochains jours' },
-  { valeur: '180', libelle: 'Les 6 prochains mois' },
-  { valeur: '365', libelle: 'Les 12 prochains mois' },
-]);
+/**
+ * Périodes proposées, en jours à partir d'aujourd'hui. Les valeurs se nomment (`periode90`) plutôt que de valoir un
+ * nombre nu : elles portent ainsi leur libellé français dans `LIBELLES_CHOIX`, comme les autres connecteurs.
+ */
+export const PERIODES = Object.freeze(['periode30', 'periode90', 'periode180', 'periode365']);
 const PERIODE_DEFAUT = 90;
 /** Jours déjà passés gardés : de quoi retrouver un rendez-vous d'hier sans charger des années d'archives. */
 const PASSE_JOURS = 30;
@@ -42,8 +40,8 @@ const MAX = 1000;
 
 /** Nombre de jours de la période choisie, borné. */
 export function joursPeriode(cfg: Config): number {
-  const n = Number((cfg.periode ?? '').trim());
-  return Number.isFinite(n) && n >= 1 && n <= 365 ? Math.round(n) : PERIODE_DEFAUT;
+  const n = Number(/^periode(\d{1,3})$/.exec((cfg.periode ?? '').trim())?.[1] ?? NaN);
+  return Number.isFinite(n) && n >= 1 && n <= 365 ? n : PERIODE_DEFAUT;
 }
 
 /** Bornes de la lecture : [début, fin], en ISO 8601 avec décalage (les deux API l'exigent). */
@@ -112,7 +110,7 @@ function finParDefaut(debut: { valeur: string; journee: boolean }): { valeur: st
 
 const CHAMPS_COMMUNS = [
   { id: 'agenda', libelle: 'Agenda', aide: 'Lequel de vos agendas ? Choisissez-le dans la liste.', obligatoire: true, liste: true },
-  { id: 'periode', libelle: 'Période', aide: 'Jusqu’où regarder dans le futur. Les 30 derniers jours sont toujours lus.', choix: PERIODES.map((p) => p.valeur), obligatoire: true },
+  { id: 'periode', libelle: 'Période', aide: 'Jusqu’où regarder dans le futur. Les 30 derniers jours sont toujours lus.', choix: PERIODES, obligatoire: true },
 ] as const;
 
 // ---------------------------------------------------------------- Google Agenda

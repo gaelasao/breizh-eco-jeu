@@ -578,11 +578,43 @@ export class Monde {
       options,
       cibles,
       totaux,
+      rendezVous: this.#rendezVous(p, e, jours),
       modifiable: p.peutPreparer,
       motifsAbsence: voitMotifsAbsence(p),
       alertes: this.#alertesPlanning(e, p),
       simulation: e.simulation,
     };
+  }
+
+  /**
+   * Rendez-vous de la semaine affichée, un par jour de la grille (agenda branché, ou saisis dans le jeu). Ils ne
+   * touchent pas aux cases : une case dit où quelqu'un passe sa journée, un rendez-vous dit ce qui est prévu à une
+   * heure. Les deux se lisent ensemble, en haut de la même colonne.
+   */
+  #rendezVous(p: Profil, e: Espace, jours: readonly string[]) {
+    const dedans = new Set(jours);
+    const res: { id: string; jour: string; titre: string; debut: string; fin: string | null; heure: string | null; lieu: string | null; pour: { id: string; nom: string } | null; avec: { id: string; nom: string } | null; etat: string | null; lien: string | null; mode: string }[] = [];
+    const texte = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null);
+    const vu = (id: unknown): { id: string; nom: string } | null => {
+      const o = typeof id === 'string' ? e.objets.get(id) : undefined;
+      return o && this.#visible(p, o, e.objets) ? { id: o.id, nom: o.nom } : null;
+    };
+    for (const o of e.objets.values()) {
+      if (o.type !== 'rendez_vous' || !this.#visible(p, o, e.objets)) continue;
+      const debut = texte(o.champs.debut);
+      const jour = debut?.slice(0, 10) ?? '';
+      if (!debut || !dedans.has(jour)) continue;
+      // « 2026-11-20T09:00 » → « 9 h 00 » ; une journée entière n'a pas d'heure
+      const m = /T(\d{2}):(\d{2})/.exec(debut);
+      res.push({
+        id: o.id, jour, titre: o.nom, debut, fin: texte(o.champs.fin),
+        heure: m ? `${Number(m[1])} h ${m[2]}` : null,
+        lieu: texte(o.champs.lieu), pour: vu(o.champs.pour), avec: vu(o.champs.avec),
+        etat: texte(o.champs.etat), lien: texte(o.champs.lien), mode: o.mode,
+      });
+      if (res.length >= 500) break;
+    }
+    return res.sort((a, b) => a.debut.localeCompare(b.debut) || a.titre.localeCompare(b.titre, 'fr'));
   }
 
   /**

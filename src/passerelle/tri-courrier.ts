@@ -12,17 +12,21 @@ import { normaliser } from './csv.ts';
 export const BACS = ['paiements', 'fournisseurs', 'clients', 'administratif', 'équipe', 'publicité', 'autre'] as const;
 export type Bac = (typeof BACS)[number];
 
-/** Une règle par bac : le premier dont les mots-clés apparaissent l'emporte. */
+/**
+ * Une règle par bac : le premier dont les mots-clés apparaissent l'emporte.
+ * Les motifs s'écrivent SANS ESPACE : `normaliser` retire accents, espaces et ponctuation, si bien que « mise en
+ * demeure » devient « miseendemeure ». Les motifs à espaces n'ont jamais pu correspondre à rien.
+ */
 const REGLES: readonly (readonly [Bac, RegExp])[] = [
-  ['paiements', /facture|paiement|reglement|virement|rib|relance|impaye|avoir|echeance/],
-  ['fournisseurs', /livraison|commande fournisseur|retard|stock|approvision|tarif fournisseur|expedition/],
+  ['paiements', /facture|paiement|reglement|virement|rib|relance|impaye|avoir|echeance|miseendemeure/],
+  ['fournisseurs', /livraison|commandefournisseur|retard|stock|approvision|tariffournisseur|expedition/],
   ['clients', /devis|commande|reclamation|client|rendezvous|projet|chantier|intervention|sav/],
   ['administratif', /urssaf|attestation|kbis|impots|assurance|mairie|prefecture|contrat|juridique/],
   ['équipe', /candidature|cv|conge|arret|planning|recrutement|salarie|formation/],
-  ['publicité', /promotion|offre speciale|newsletter|desinscri|salon|publicite/],
+  ['publicité', /promotion|offrespeciale|newsletter|desinscri|salon|publicite/],
 ];
 
-const URGENT = /urgent|immediat|aujourdhui|mise en demeure|dernier rappel|bloque|annul/;
+const URGENT = /urgent|immediat|aujourdhui|miseendemeure|dernierrappel|bloque|annul/;
 
 /** Bac proposé pour un texte (expéditeur + objet, et le corps quand on l'a). « autre » si rien ne ressort. */
 export function bacDe(texte: string): Bac {

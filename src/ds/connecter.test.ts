@@ -25,6 +25,8 @@ type Module = {
   filtrer: (cat: Entree[], o?: { famille?: string | null; recherche?: string }) => Sections;
   famillesPresentes: (cat: Entree[]) => Array<{ id: string }>;
   cibleProbable: (nom: string, cibles: ReadonlyArray<{ libelle: string }>) => { libelle: string } | null;
+  cibleFixe: (id: string) => string | null;
+  sensAvantConnexion: (id: string) => { lecture: string; deux: string } | null;
   parcoursDe: (x: Partial<Entree> | null) => string;
   progression: (p: string, e: string) => { index: number; total: number; libelle: string; texte: string };
   abandonAConfirmer: (o: { etape?: string; connexionEnCours?: boolean; saisie?: boolean }) => boolean;
@@ -77,6 +79,37 @@ test('un compte, pas un connecteur : Google et Microsoft n’ont qu’une entré
   // un compte dont aucun outil n'est ouvert reste proposé par sa clé, jamais en un clic
   const sansRelais = M.catalogue(sourcesReelles(), CONNECTEURS).filter((x) => x.genre === 'compte');
   assert.ok(sansRelais.every((x) => !x.unClic && x.section === 'cle'));
+});
+
+test('agenda et courrier : proposés dans le compte dès que le relais les ouvre, absents sinon', () => {
+  // l'éditeur a tout ouvert sauf Gmail (portée « restreinte » chez Google, pas encore vérifiée)
+  const cat = M.catalogue(sourcesReelles(['sheets', 'agendagoogle', 'excel365', 'agendamicrosoft', 'outlook']), CONNECTEURS);
+  const comptes = cat.filter((x) => x.genre === 'compte');
+  const contenus = (id: string) => comptes.find((x) => x.id === id)?.contenus ?? [];
+  assert.deepEqual(contenus('google').map((c) => [c.id, c.disponible]), [['sheets', true], ['agenda', true], ['messagerie', false]],
+    'Gmail fermé chez l’éditeur : l’entrée n’est pas proposée');
+  // Excel, Dynamics et Business Central restent branchables par une clé ; l'agenda et le courrier, eux, n'ont que le clic
+  assert.deepEqual(contenus('microsoft').map((c) => [c.id, c.disponible, c.unClic]),
+    [['excel365', true, true], ['agenda', true, true], ['messagerie', true, true], ['dynamics365', true, false], ['businesscentral', true, false]]);
+  // rien dans « Que voulez-vous brancher ? » ne mène à un refus : tout ce qui est proposé s'ouvre vraiment
+  for (const c of [...contenus('google'), ...contenus('microsoft')]) if (c.disponible) assert.ok(c.unClic || c.cle, `${c.id} : une voie qui marche`);
+  // un agenda ou une boîte ne figure jamais à part : il appartient à son compte
+  for (const id of ['agendagoogle', 'agendamicrosoft', 'gmail', 'outlook']) assert.ok(!cat.some((x) => x.genre === 'outil' && x.id === id), `${id} : pas d’entrée séparée`);
+  assert.equal(M.compteDe('agendagoogle')?.id, 'google');
+  assert.equal(M.compteDe('outlook')?.id, 'microsoft');
+  // ce qui entre est connu d'avance : aucune cible à choisir, aucune colonne à associer, une étape de moins
+  assert.equal(M.cibleFixe('agendagoogle'), 'rendez_vous');
+  assert.equal(M.cibleFixe('gmail'), 'courrier');
+  assert.equal(M.cibleFixe('sheets'), null, 'une feuille de calcul peut contenir n’importe quoi : on demande');
+  assert.deepEqual(M.PARCOURS.outilDirect?.map(([k]) => k), ['choisir', 'connexion', 'recuperer', 'pret']);
+  assert.equal(normaliser(M.progression('outilDirect', 'recuperer').texte), 'Étape 3 sur 4 · Que récupérer ?');
+  // « dans les deux sens » se choisit AVANT la connexion : c'est lui qui décide des droits demandés
+  for (const id of ['agendagoogle', 'agendamicrosoft', 'gmail', 'outlook']) {
+    const s = M.sensAvantConnexion(id);
+    assert.ok(s?.lecture && s.deux, `${id} : les deux choix sont dits`);
+    assert.doesNotMatch(`${s.lecture} ${s.deux}`, /portée|scope|droit d’écriture/, `${id} : dit en français courant`);
+  }
+  assert.equal(M.sensAvantConnexion('sheets'), null);
 });
 
 test('trois sections : « En un clic » n’affiche que ce que le relais ouvre vraiment ; ce qui ne marche pas n’apparaît pas', () => {

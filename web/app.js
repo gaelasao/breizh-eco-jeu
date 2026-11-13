@@ -4433,8 +4433,31 @@ function dessinerPlanning() {
       h('span', { class: 'bz-barre-action__titre bz-t-label', texte: pluriel(sel.cases.size, 'case sélectionnée', 'cases sélectionnées') }),
       h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'affecter-selection', onclick: (e) => ouvrirChoixCase(e.currentTarget, [...sel.cases].map(caseDeCle)) }, icone('square-pen'), 'Affecter…'),
       h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => { viderSelection(); dessinerPlanning(); } }, icone('x'), 'Désélectionner')) : null,
+    rendezVousPlanning(P),
     projetsPlanning(P),
     h('div', { class: 'bz-menu bz-planning__choix', id: 'planning-choix', popover: 'auto', role: 'dialog', 'aria-labelledby': 'planning-choix-titre' })));
+}
+
+/**
+ * Les rendez-vous de la semaine, jour par jour. Ils viennent de l'agenda branché (Google, Microsoft) ou du jeu, et ne
+ * touchent pas aux cases : une case dit où quelqu'un passe sa journée, un rendez-vous dit ce qui est prévu à une heure.
+ */
+function rendezVousPlanning(P) {
+  const liste = P.rendezVous ?? [];
+  if (!liste.length) return null;
+  const parJour = P.jours.map((j) => [j, liste.filter((r) => r.jour === j)]).filter(([, l]) => l.length);
+  return h('section', { class: 'bz-planning__section', 'aria-labelledby': 'planning-rdv-titre' },
+    h('h2', { class: 'bz-t-titre-4', id: 'planning-rdv-titre' }, h('span', { texte: 'Rendez-vous' }),
+      liste.some((r) => r.mode === 'demo') ? badgeExemple() : null),
+    h('ul', { class: 'bz-criteres__liste', role: 'list' }, parJour.map(([j, l]) => h('li', { class: 'bz-critere' },
+      h('p', { class: 'bz-t-label' }, h('span', { texte: j === P.aujourdhui ? `Aujourd’hui · ${PLAN.jourLong(j)}` : PLAN.jourLong(j) })),
+      h('ul', { class: 'bz-liste-simple', role: 'list' }, l.map((r) => h('li', {},
+        r.heure ? h('span', { class: 'bz-t-identifiant bz-texte-2', texte: `${r.heure} ` }) : h('span', { class: 'bz-t-micro bz-texte-2', texte: 'toute la journée · ' }),
+        h('button', { type: 'button', class: 'bz-lien', onclick: () => selectionner(r.id), texte: sansDemo(r.titre) }),
+        r.etat === 'à confirmer' ? h('span', { class: 'bz-badge bz-badge--attention' }, icone('circle-help', { taille: 'sm' }), 'À confirmer') : null,
+        r.lieu ? h('span', { class: 'bz-t-micro bz-texte-2', texte: ` · ${r.lieu}` }) : null,
+        r.avec ? h('span', { class: 'bz-t-micro bz-texte-2', texte: ` · avec ${sansDemo(r.avec.nom)}` }) : null,
+        r.pour ? h('span', { class: 'bz-t-micro bz-texte-2', texte: ` · ${sansDemo(r.pour.nom)}` }) : null)))))));
 }
 
 const caseDeCle = (k) => { const [employe, date] = k.split('|'); return { employe, date }; };
@@ -4810,6 +4833,59 @@ function deleguerCourrier(o) {
   });
 }
 
+/**
+ * « Rattacher à… » : ce qui donne sa valeur au reflet d'une boîte mail. Un message rattaché à un client apparaît sur
+ * la fiche de ce client, et un message rattaché à une commande sur celle de la commande. Même mécanique que
+ * « Déléguer » : une seule liste, écrite par « objet.modifier », annulable.
+ */
+function rattacherCourrier(o) {
+  const nom = (x) => sansDemo(x.nom);
+  const tiers = E.monde.objets.filter((x) => x.famille === 'tiers').sort((a, b) => nom(a).localeCompare(nom(b), 'fr'));
+  const affaires = E.monde.objets.filter((x) => x.famille === 'commande' || x.famille === 'projet').sort((a, b) => nom(a).localeCompare(nom(b), 'fr'));
+  // un tiers va dans « Client ou fournisseur », une commande ou une affaire dans « Concerne » : deux champs, une liste
+  const champDe = (id) => (tiers.some((x) => x.id === id) ? 'tiers' : 'concerne');
+  const actuel = o.champs.find((x) => x.id === 'tiers')?.lien?.id ?? o.champs.find((x) => x.id === 'concerne')?.lien?.id ?? '';
+  const S = { choix: actuel, erreur: null, envoi: false };
+  const D = dialogueVivant({
+    titre: 'Rattacher ce courrier', surtitre: 'Courrier', taille: 'sm',
+    onsubmit: async () => {
+      if (!S.choix) { S.erreur = 'Choisissez un client, un fournisseur ou une commande.'; D.rendre(); return; }
+      S.envoi = true; D.rendre();
+      try {
+        const champ = champDe(S.choix);
+        const a = await ecrireChamp(o, champ, S.choix);
+        if (a.etat === 'echouee' || a.etat === 'resultat_inconnu') throw Object.assign(new Error(a.message ?? 'Rattachement refusé.'), { statut: 409 });
+        // l'autre champ est vidé : un courrier est rattaché à une chose, pas à deux
+        const autre = champ === 'tiers' ? 'concerne' : 'tiers';
+        if (o.champs.find((x) => x.id === autre)?.lien?.id) await ecrireChamp(o, autre, null).catch(() => undefined);
+        D.fermer();
+        const quoi = nom([...tiers, ...affaires].find((x) => x.id === S.choix) ?? { nom: '' });
+        if (a.etat === 'en_attente') informer('Rattachement envoyé pour approbation.', '');
+        else actionAnnulable({ texte: `Courrier rattaché à ${quoi}.`, libelle: `rattachement du courrier à ${quoi}`, annuler: async () => { await ecrireChamp(o, champ, actuel || null); await charger(); } });
+        await charger();
+      } catch (e) { S.envoi = false; S.erreur = e.message; D.rendre(); }
+    },
+    contenu: () => ({
+      corps: [
+        h('div', { class: 'bz-champ' },
+          h('label', { class: 'bz-champ__libelle', for: 'rattacher-a', texte: 'À quel client, fournisseur ou commande ?' }),
+          h('div', { class: 'bz-select' },
+            h('select', { id: 'rattacher-a', class: 'bz-champ__saisie', 'aria-invalid': S.erreur ? 'true' : null, 'aria-describedby': S.erreur ? 'rattacher-erreur' : null, onchange: (e) => { S.choix = e.target.value; S.erreur = null; } },
+              h('option', { value: '', texte: 'Choisir' }),
+              tiers.length ? h('optgroup', { label: 'Clients et fournisseurs' }, tiers.map((x) => h('option', { value: x.id, selected: x.id === S.choix, texte: nom(x) }))) : null,
+              affaires.length ? h('optgroup', { label: 'Commandes et affaires' }, affaires.map((x) => h('option', { value: x.id, selected: x.id === S.choix, texte: nom(x) }))) : null),
+            icone('chevron-down', { taille: 'sm' })),
+          S.erreur ? h('p', { class: 'bz-champ__erreur', id: 'rattacher-erreur', role: 'alert' }, icone('circle-alert', { taille: 'sm' }), h('span', { texte: S.erreur })) : null),
+        h('p', { class: 'bz-t-petit', texte: 'Le courrier apparaîtra sur sa fiche. Vous pourrez annuler.' }),
+      ],
+      pied: [
+        h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => D.fermer() }, 'Annuler'),
+        h('button', { type: 'submit', class: 'bz-bouton bz-bouton--principal', 'aria-busy': S.envoi ? 'true' : null }, icone('link'), 'Rattacher'),
+      ],
+    }),
+  });
+}
+
 /** Crée une tâche liée au courrier, avec l'action proposée comme titre (formulaire de la fiche). */
 async function tacheDepuisCourrier(o) {
   await selectionner(o.id);
@@ -4888,6 +4964,9 @@ async function rendreCourrier() {
           l.traite ? h('span', { class: 'bz-badge bz-badge--ok' }, icone('circle-check', { taille: 'sm' }), 'Traité') : null,
           l.destinataire ? h('span', { class: 'bz-t-micro bz-texte-2', texte: `Pour ${l.destinataire.nom}` }) : null),
         l.action && !l.traite ? h('p', { class: 'bz-t-petit bz-texte-2 bz-ligne-icone' }, icone('lightbulb', { taille: 'sm' }), h('span', { texte: `Proposé : ${l.action}` })) : null,
+        // message venu d'une boîte branchée : le texte reste chez la messagerie, on l'y ouvre pour le lire et répondre
+        l.messagerie ? h('p', { class: 'bz-t-petit' }, h('a', { class: 'bz-bouton bz-bouton--lien', href: l.messagerie.url, target: '_blank', rel: 'noopener noreferrer' },
+          icone('external-link', { taille: 'sm' }), `Ouvrir dans ${l.messagerie.nom}`)) : null,
         erreurs.has(l.id) ? h('p', { class: 'bz-champ__erreur', role: 'alert' }, icone('circle-alert', { taille: 'sm' }), h('span', { texte: erreurs.get(l.id) }),
           h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => statutCourrier(o, !l.traite) }, 'Réessayer')) : null),
       h('div', { class: 'bz-courrier__actions' },
@@ -4896,8 +4975,10 @@ async function rendreCourrier() {
         menuActions({ id: `menu-courrier-${idDom(l.id)}`, libelle: `Actions pour le courrier de ${l.expediteur}`, items: [
           peut ? { libelle: l.traite ? 'Remettre à traiter' : 'Marquer comme traité', icone: l.traite ? 'rotate-ccw' : 'check', faire: () => statutCourrier(o, !l.traite) } : null,
           peut ? { libelle: 'Déléguer à…', icone: 'forward', faire: () => deleguerCourrier(o) } : null,
+          peut ? { libelle: 'Rattacher à un client, une commande…', icone: 'link', faire: () => rattacherCourrier(o) } : null,
           peut ? { libelle: 'Créer une tâche', icone: 'list-checks', faire: () => tacheDepuisCourrier(o) } : null,
           l.tiers ? { libelle: `Voir ${l.tiers.nom}`, icone: 'contact', faire: () => selectionner(l.tiers.id) } : null,
+          l.concerne ? { libelle: `Voir ${l.concerne.nom}`, icone: 'package', faire: () => selectionner(l.concerne.id) } : null,
           { libelle: 'Ouvrir la fiche', icone: 'panel-left', faire: () => selectionner(l.id) },
         ] })));
     const li = h('li', { class: 'bz-courrier__ligne', 'data-traite': l.traite ? '' : null, 'data-urgent': l.urgent && !l.traite ? '' : null, 'data-courant': E.selection === l.id ? '' : null },
@@ -4933,7 +5014,7 @@ async function rendreCourrier() {
     h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Ajouter un courrier : coller un mail' }), h('span', { class: 'bz-repli__note', texte: 'tri par mots-clés, sans IA' }), icone('chevron-down', { taille: 'sm' })),
     h('div', { class: 'bz-repli__corps bz-pile' },
       h('p', { class: 'bz-t-petit', texte: 'Collez un mail : Living Business propose le bac, l’urgence, la personne et l’action.' }),
-      h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Votre boîte mail ne se connecte pas encore directement. Pour recevoir vos mails tout seuls, il faut aujourd’hui un outil d’automatisation (Make, Zapier ou n8n) : Connecter mes données, puis « Mode avancé ».' }),
+      h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Pour que vos messages arrivent tout seuls : « Connecter mes données », puis votre compte Google ou Microsoft. Le texte des messages, lui, ne quitte jamais votre messagerie.' }),
       h('div', { class: 'bz-champ' },
         h('label', { class: 'bz-champ__libelle', for: 'courrier-colle', texte: 'Texte du mail' }),
         h('textarea', { id: 'courrier-colle', class: 'bz-champ__saisie', rows: '6', placeholder: 'De : …\nObjet : …\nTexte du mail', oninput: (e) => (C.tri.texte = e.target.value) }, C.tri.texte)),

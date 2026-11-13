@@ -35,23 +35,15 @@ const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 
 /** Combien de messages récents le reflet montre (un appel par message chez Gmail : on reste raisonnable). */
-export const COMBIEN = Object.freeze([
-  { valeur: '25', libelle: 'Les 25 derniers messages' },
-  { valeur: '50', libelle: 'Les 50 derniers messages' },
-  { valeur: '100', libelle: 'Les 100 derniers messages' },
-]);
+export const COMBIEN = Object.freeze(['messages25', 'messages50', 'messages100']);
 const COMBIEN_DEFAUT = 50;
 
 /** Ce que le jeu fait chez l'outil quand un courrier passe à « traité ». */
-export const QUAND_TRAITE = Object.freeze([
-  { valeur: 'rien', libelle: 'Rien : la boîte n’est pas touchée' },
-  { valeur: 'lu', libelle: 'Marquer le message comme lu' },
-  { valeur: 'archiver', libelle: 'Marquer comme lu et archiver le message' },
-]);
+export const QUAND_TRAITE = Object.freeze(['rien', 'lu', 'archiver']);
 
 export function combien(cfg: Config): number {
-  const n = Number((cfg.combien ?? '').trim());
-  return Number.isFinite(n) && n >= 1 && n <= 200 ? Math.round(n) : COMBIEN_DEFAUT;
+  const n = Number(/^messages(\d{1,3})$/.exec((cfg.combien ?? '').trim())?.[1] ?? NaN);
+  return Number.isFinite(n) && n >= 1 && n <= 200 ? n : COMBIEN_DEFAUT;
 }
 
 const estObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -112,8 +104,8 @@ function lienOutil(x: unknown, hotes: readonly string[]): string {
 }
 
 const CHAMPS_COMMUNS = [
-  { id: 'combien', libelle: 'Messages montrés', aide: 'Les plus récents de votre boîte de réception.', choix: COMBIEN.map((c) => c.valeur), obligatoire: true },
-  { id: 'quandTraite', libelle: 'Quand un courrier passe à « traité »', aide: 'Ce que Living Business fait alors dans votre boîte. Sans synchronisation « dans les deux sens », rien n’est fait.', choix: QUAND_TRAITE.map((c) => c.valeur) },
+  { id: 'combien', libelle: 'Messages montrés', aide: 'Les plus récents de votre boîte de réception.', choix: COMBIEN, obligatoire: true },
+  { id: 'quandTraite', libelle: 'Quand un courrier passe à « traité »', aide: 'Ce que Living Business fait alors dans votre boîte. Sans synchronisation « dans les deux sens », rien n’est fait.', choix: QUAND_TRAITE },
 ] as const;
 
 /** Faut-il toucher à la boîte, et jusqu'où ? */
