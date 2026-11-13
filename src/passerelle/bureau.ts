@@ -47,7 +47,7 @@ export function effacerInstance(dossier: string): void {
   try { unlinkSync(fichierInstance(dossier)); } catch { /* déjà retiré */ }
 }
 
-const processusVivant = (pid: number) => {
+export const processusVivant = (pid: number) => {
   try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; }
 };
 
@@ -84,6 +84,13 @@ export function ouvrirNavigateur(url: string, plateforme: NodeJS.Platform = proc
     return false;
   }
 }
+
+/**
+ * Le jeu tourne-t-il depuis l'application Mac (Living Business.app : Node.js dans Contents/MacOS) ? Il se lance alors
+ * d'un double-clic sur l'application, et le secours s'ouvre en la lançant avec la touche ⌥ (Option).
+ */
+export const dansApplicationMac = (executable: string = process.execPath, plateforme: NodeJS.Platform = process.platform) =>
+  plateforme === 'darwin' && /\.app\/Contents\/MacOS\/node$/.test(executable);
 
 /** Le dossier contient-il une installation ? */
 export const installationPresente = (dossier: string) => existsSync(join(dossier, 'monde.json'));

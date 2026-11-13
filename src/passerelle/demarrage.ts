@@ -1,6 +1,7 @@
 /**
  * Lancement automatique à l'ouverture de session (sans droits administrateur, sans service système) :
- * - Mac : agent `~/Library/LaunchAgents/bzh.breizh-eco.living-business.plist` (relancé s'il plante) ;
+ * - Mac : agent `~/Library/LaunchAgents/bzh.breizh-eco.living-business.plist` (relancé s'il plante) ; l'étiquette est
+ *   aussi l'identifiant de l'application Mac (Info.plist de Living Business.app), dont l'agent lance le Node.js inclus ;
  * - Windows : raccourci `.cmd` dans le dossier Démarrage de l'utilisateur (fenêtre réduite) ;
  * - Linux : entrée `~/.config/autostart/living-business.desktop`.
  * Le contenu est fixe : seuls les chemins du programme et des données y figurent (échappés selon le format).
@@ -87,6 +88,13 @@ export function contenuDemarrage(plateforme: NodeJS.Platform, c: CibleDemarrage)
   ].join('\n');
 }
 
+/**
+ * Application Mac ouverte sans avoir été déplacée : macOS la lance depuis une copie provisoire (« App Translocation »,
+ * chemin en …/AppTranslocation/…) qui disparaît au redémarrage. Un lancement automatique ne doit jamais y pointer.
+ */
+export const cheminProvisoireMac = (c: CibleDemarrage) => [c.node, c.lanceur].some((x) => x.includes('/AppTranslocation/'));
+export const RAISON_PROVISOIRE_MAC = 'Living Business est ouvert depuis un emplacement provisoire de macOS, qui disparaît au redémarrage : glissez l’application dans le dossier Applications, ouvrez-la de là, puis activez ce réglage.';
+
 /** Chemins refusés dans un fichier de démarrage Windows (ils casseraient le script). */
 const cheminWindowsSur = (x: string) => !/["%\r\n]/.test(x);
 
@@ -104,6 +112,7 @@ export function regleDemarrage(s: Systeme, actif: boolean, c: CibleDemarrage): v
     return;
   }
   if (s.plateforme === 'win32' && ![c.node, c.lanceur, c.donnees].every(cheminWindowsSur)) throw new Error('Chemin du dossier incompatible (guillemet ou %) : déplacez Living Business.');
+  if (s.plateforme === 'darwin' && cheminProvisoireMac(c)) throw new Error(RAISON_PROVISOIRE_MAC);
   mkdirSync(dirname(f), { recursive: true });
   writeFileSync(f, contenuDemarrage(s.plateforme, c), { mode: 0o644 });
 }
@@ -112,6 +121,8 @@ export function regleDemarrage(s: Systeme, actif: boolean, c: CibleDemarrage): v
 export function reparerDemarrage(s: Systeme, c: CibleDemarrage): boolean {
   const f = fichierDemarrage(s);
   if (!f || !existsSync(f)) return false;
+  // une copie provisoire de l'application Mac ne remplace jamais le chemin de celle qui est rangée dans Applications
+  if (s.plateforme === 'darwin' && cheminProvisoireMac(c)) return false;
   const attendu = contenuDemarrage(s.plateforme, c);
   const actuel = readFileSync(f, 'utf8');
   if (actuel === attendu) return false;

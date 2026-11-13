@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const RACINE = fileURLToPath(new URL('../../', import.meta.url));
 /** Variables du système ou posées par le jeu lui-même, pas des réglages de l'opérateur. */
-const SYSTEME = new Set(['PATH', 'HOME', 'APPDATA', 'CREDENTIALS_DIRECTORY', 'LB_PAQUET']);
+const SYSTEME = new Set(['PATH', 'HOME', 'APPDATA', 'CREDENTIALS_DIRECTORY', 'LB_PAQUET', 'LB_APPLICATION_PID']);
 
 function fichiers(dossier: string): string[] {
   return readdirSync(dossier, { withFileTypes: true }).flatMap((e) => {

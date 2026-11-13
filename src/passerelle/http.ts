@@ -16,6 +16,7 @@ import type { Profil } from '../demo/donnees.ts';
 import { Application, DUREES_PROPOSEES } from './application.ts';
 import type { Compte } from './comptes.ts';
 import { CodeInstallation, ipClient, Verrous } from './en-ligne.ts';
+import { dansApplicationMac } from './bureau.ts';
 import { nomsMachine, type Reseau } from './reseau.ts';
 import { estEcritureMcp, examinerMcp, statutMcpModerne, traiterMcp } from './mcp.ts';
 import { CANAL, ErreurApi, Monde } from './monde.ts';
@@ -309,7 +310,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       aideSecours: opts.enLigne
         ? 'sur le serveur, lancez « sudo living-business-secours » : le lien de réinitialisation s’affiche (15 minutes, une fois)'
         : process.env.LB_PAQUET === '1'
-          ? 'double-cliquez sur « Secours mot de passe » dans le dossier de Living Business'
+          ? (dansApplicationMac() ? 'ouvrez Living Business en maintenant la touche ⌥ (Option) enfoncée, puis « Ouvrir la page de secours »' : 'double-cliquez sur « Secours mot de passe » dans le dossier de Living Business')
           : 'lancez « npm run secours » dans le dossier du jeu',
     };
   };

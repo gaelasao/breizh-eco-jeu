@@ -43,6 +43,30 @@ test('lancement automatique : fichiers Mac / Windows / Linux, chemins échappés
   assert.throws(() => regleDemarrage({ plateforme: 'win32', maison: tmpdir(), appdata: join(tmpdir(), 'x') }, true, { ...cible, donnees: 'C:\\100%' }), /incompatible/);
 });
 
+test('lancement automatique, application Mac : l’agent lance le Node.js de Living Business.app, jamais depuis une copie provisoire', () => {
+  const maison = mkdtempSync(join(tmpdir(), 'lb-maison-mac-'));
+  try {
+    const s = { plateforme: 'darwin' as const, maison };
+    const appli = '/Applications/Living Business.app';
+    const installee = { node: `${appli}/Contents/MacOS/node`, lanceur: `${appli}/Contents/Resources/app/src/lanceur.ts`, donnees: '/Users/anna/Library/Application Support/Living Business' };
+    regleDemarrage(s, true, installee);
+    const agent = readFileSync(fichierDemarrage(s) as string, 'utf8');
+    assert.match(agent, /<key>Label<\/key><string>bzh\.breizh-eco\.living-business<\/string>/);
+    assert.match(agent, /<array>\n {4}<string>\/Applications\/Living Business\.app\/Contents\/MacOS\/node<\/string>\n {4}<string>--disable-warning=ExperimentalWarning<\/string>\n {4}<string>\/Applications\/Living Business\.app\/Contents\/Resources\/app\/src\/lanceur\.ts<\/string>\n {4}<string>--arriere-plan<\/string>/);
+    assert.match(agent, /<key>WorkingDirectory<\/key><string>\/Applications\/Living Business\.app\/Contents\/Resources\/app<\/string>/);
+    // ouverte sans avoir été déplacée (Téléchargements) : macOS la lance d'un emplacement provisoire, refusé avec la raison
+    const provisoire = '/private/var/folders/xy/T/AppTranslocation/0A1B2C3D/d/Living Business.app';
+    const copie = { ...installee, node: `${provisoire}/Contents/MacOS/node`, lanceur: `${provisoire}/Contents/Resources/app/src/lanceur.ts` };
+    assert.throws(() => regleDemarrage(s, true, copie), /emplacement provisoire de macOS[\s\S]*dossier Applications/);
+    assert.equal(reparerDemarrage(s, copie), false, 'la copie provisoire ne remplace pas le chemin de l’application rangée');
+    assert.equal(readFileSync(fichierDemarrage(s) as string, 'utf8'), agent);
+    regleDemarrage(s, false, copie);
+    assert.equal(demarrageActif(s), false, 'retirer reste possible');
+    assert.throws(() => regleDemarrage(s, true, copie), /emplacement provisoire/);
+    assert.equal(demarrageActif(s), false, 'rien d’inscrit');
+  } finally { rmSync(maison, { recursive: true, force: true }); }
+});
+
 test('lancement automatique : activer, retirer, remettre à jour seulement pour la même entreprise', () => {
   const maison = mkdtempSync(join(tmpdir(), 'lb-maison-'));
   try {

@@ -127,3 +127,15 @@ test('CI : paquets d’essai hors tag, provenance contrôlée avant la publicati
   assert.match(pub, /grep -qx "etiquette \$GITHUB_REF_NAME" PROVENANCE\.txt/);
   assert.match(pub, /gh release create [^\n]*dist\/PROVENANCE\.txt/);
 });
+
+test('CI : paquets fabriqués sur macOS (application Mac), contrôles et publication sur Ubuntu, CI et installation en ligne sur Ubuntu', () => {
+  const texte = (nom: string) => flux.find((f) => f.nom === nom)?.texte ?? '';
+  const paquets = jobs(texte('paquets.yml'));
+  assert.match(paquets.get('fabriquer') ?? '', /^ {4}runs-on: macos-\d+$/m, 'osacompile, codesign et ditto');
+  assert.match(paquets.get('fabriquer') ?? '', /test "\$\(zipinfo -1 "\$z" \| cut -d\/ -f1 \| sort -u\)" = "Living Business\.app"/, 'zip Mac : l’application seule');
+  assert.match(paquets.get('fabriquer') ?? '', /codesign --verify --deep --strict "\$d\/Living Business\.app"/);
+  assert.match(paquets.get('publier') ?? '', /^ {4}runs-on: ubuntu-/m);
+  for (const f of ['ci.yml', 'installation-en-ligne.yml']) {
+    for (const [n, corps] of jobs(texte(f))) assert.doesNotMatch(corps, /runs-on: macos/, `${f} › ${n} : reste sur Ubuntu`);
+  }
+});
