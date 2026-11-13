@@ -74,6 +74,10 @@ export interface DefRegleEcheance {
   critiqueApresJours?: number;
   /** Préavis : signaler « à traiter » N jours AVANT l'échéance (contrôle technique, attestation…). */
   avantJours?: number;
+  /** Champ nombre qui porte le préavis propre à l'objet : il remplace `avantJours` quand il est renseigné. */
+  champAvantJours?: string;
+  /** Champ texte qui porte l'intitulé donné par l'entreprise : il remplace `libelle` quand il est rempli. */
+  champLibelle?: string;
 }
 
 export interface Univers {
@@ -196,6 +200,8 @@ export function validerUnivers(x: unknown): Univers {
     }
     if (r.critiqueApresJours !== undefined && !(Number.isInteger(r.critiqueApresJours) && (r.critiqueApresJours as number) >= 0)) p.push(`échéance ${r.id} : seuil critique invalide`);
     if (r.avantJours !== undefined && !(Number.isInteger(r.avantJours) && (r.avantJours as number) >= 0 && (r.avantJours as number) <= 365)) p.push(`échéance ${r.id} : préavis invalide`);
+    if (r.champAvantJours !== undefined && !numerique(champs.get(r.champAvantJours as string))) p.push(`échéance ${r.id} : champ de préavis non numérique`);
+    if (r.champLibelle !== undefined && champs.get(r.champLibelle as string)?.type !== 'texte') p.push(`échéance ${r.id} : champ d’intitulé non textuel`);
   }
 
   if (p.length > 0) throw new ErreurUnivers(p);

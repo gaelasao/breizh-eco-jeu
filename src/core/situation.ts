@@ -4,7 +4,7 @@
  * Une source périmée ou déconnectée ne rend jamais une situation « verte ».
  */
 import { fraicheur, type Fraicheur, type ObjetMetier, type Provenance, type Source, type Valeur } from './model.ts';
-import type { DefRegleSeuil, Univers } from './univers.ts';
+import type { DefRegleEcheance, DefRegleSeuil, Univers } from './univers.ts';
 import { mesure, pluriel } from './texte.ts';
 
 export type Gravite = 'info' | 'attention' | 'critique';
@@ -99,6 +99,23 @@ const nombre = (x: unknown): number | null => (typeof x === 'number' && Number.i
 
 const JOUR = 86_400_000;
 
+/**
+ * Préavis retenu : celui que l'objet porte lui-même (« prévenir 45 jours avant »), sinon celui de la règle.
+ * Une valeur abîmée ou hors bornes est ignorée : la règle reprend la main, l'alerte ne disparaît jamais.
+ */
+function preavis(r: DefRegleEcheance, o: ObjetMetier): number | undefined {
+  if (r.champAvantJours === undefined) return r.avantJours;
+  const n = nombre(o.champs[r.champAvantJours]);
+  return n !== null && n >= 0 && n <= 365 ? Math.round(n) : r.avantJours;
+}
+
+/** Intitulé retenu : celui que l'entreprise a écrit sur l'objet (« Vidange hydraulique »), sinon celui de la règle. */
+function intitule(r: DefRegleEcheance, o: ObjetMetier): string {
+  if (r.champLibelle === undefined) return r.libelle;
+  const v = o.champs[r.champLibelle];
+  return typeof v === 'string' && v.trim().length > 0 ? v.trim().slice(0, 60) : r.libelle;
+}
+
 /** Échéance dépassée et objet non terminé ⇒ situation ouverte (preuve : jours de retard, seuil 0). */
 export function evaluerEcheance(u: Univers, o: ObjetMetier, responsable: string | null, ctx: ContexteRegle): Situation[] {
   const res: Situation[] = [];
@@ -111,11 +128,13 @@ export function evaluerEcheance(u: Univers, o: ObjetMetier, responsable: string 
     if (Number.isNaN(t)) continue;
     if (r.termine && r.termine.valeurs.includes(String(o.champs[r.termine.champ] ?? ''))) continue;
     const f = fraicheur(o.majLe, ctx.maintenant, ctx.ageMaxMs);
+    const avantJours = preavis(r, o);
+    const libelle = intitule(r, o);
     if (t >= aujourdhui) {
       const restant = Math.round((t - aujourdhui) / JOUR);
-      if (r.avantJours !== undefined && restant <= r.avantJours) {
+      if (avantJours !== undefined && restant <= avantJours) {
         res.push({
-          objetId: o.id, regle: r.id, description: `${r.libelle} : ${restant === 0 ? 'échéance aujourd’hui' : restant === 1 ? 'échéance demain' : `échéance dans ${pluriel(restant, 'jour', 'jours')}`}`, gravite: 'attention',
+          objetId: o.id, regle: r.id, description: `${libelle} : ${restant === 0 ? 'échéance aujourd’hui' : restant === 1 ? 'échéance demain' : `échéance dans ${pluriel(restant, 'jour', 'jours')}`}`, gravite: 'attention',
           statut: f === 'fraiche' ? 'ouverte' : 'a_verifier', responsable,
           preuve: { valeur: -restant, seuil: 0, source: o.source, observeLe: o.majLe, provenance: o.provenance, fraicheur: f },
         });
@@ -127,7 +146,7 @@ export function evaluerEcheance(u: Univers, o: ObjetMetier, responsable: string 
       objetId: o.id,
       regle: r.id,
       // « échéance » porte l'accord (« Document : échéance dépassée de 6 jours ») : le libellé peut être masculin
-      description: `${r.libelle} : échéance dépassée de ${pluriel(jours, 'jour', 'jours')}`,
+      description: `${libelle} : échéance dépassée de ${pluriel(jours, 'jour', 'jours')}`,
       gravite: r.critiqueApresJours !== undefined && jours > r.critiqueApresJours ? 'critique' : 'attention',
       statut: f === 'fraiche' ? 'ouverte' : 'a_verifier',
       responsable,
