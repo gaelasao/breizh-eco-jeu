@@ -327,11 +327,16 @@ export class RelaisOAuth {
     return { statut: r.status, json };
   }
 
-  /** Outils ouverts en « Se connecter avec… » ; liste vide si Breizhcosystem n'est pas réglé ou injoignable (jamais d'erreur). */
+  /**
+   * Outils ouverts en « Se connecter avec… » ; liste vide si Breizhcosystem n'est pas réglé, ou si le relais n'a
+   * jamais pu être lu (jamais d'erreur : les clés restent proposées). Une panne PASSAGÈRE ne retire pas les boutons :
+   * la dernière liste lue pour cette adresse est gardée, et un nouvel essai est fait une minute plus tard.
+   */
   async fournisseurs(): Promise<FournisseurOAuth[]> {
     const adresse = this.#adresse();
     if (!adresse) return [];
     if (this.#liste && this.#liste.adresse === adresse && this.#liste.jusqua > Date.now()) return this.#liste.fournisseurs;
+    const precedente = this.#liste?.lue && this.#liste.adresse === adresse ? this.#liste.fournisseurs : null;
     let fournisseurs: FournisseurOAuth[] = [];
     let ok = false;
     try {
@@ -341,7 +346,8 @@ export class RelaisOAuth {
         fournisseurs = [...new Set(json.fournisseurs.slice(0, 50).map((x) => (estObj(x) ? x.id : null)).filter(estFournisseur))];
       }
     } catch { /* relais injoignable : les clés restent proposées */ }
-    this.#liste = { adresse, fournisseurs, jusqua: Date.now() + (ok ? 5 * 60_000 : 60_000), lue: ok };
+    if (!ok && precedente) fournisseurs = precedente;
+    this.#liste = { adresse, fournisseurs, jusqua: Date.now() + (ok ? 5 * 60_000 : 60_000), lue: ok || Boolean(precedente) };
     return fournisseurs;
   }
 
