@@ -3,3 +3,4 @@
 # qu'un seul paquet, et les numéros ne font que monter. Corriger une publication = nouveau numéro (npm version patch).
 0.1.0 303e911d5723f5e8ea8e0c0c03e64b78b040d47e679222fcbff312aa8523af65 2026-11-13
 0.1.1 fbf275559ed53f3470669f8dd1da3cf8525abf504baadc5a424f9176b9843e40 2026-11-13
+0.1.2 796dc3e1c8132db0b0cdc0f9abc262df5760d72670ef2bc4c0db94983b434ba6 2026-11-13
