@@ -12,7 +12,7 @@ import { join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CHEMIN_TEXTE_LICENCE, CODE_SOURCE, FICHIER_LICENCE, FICHIER_NOTICE, IDENTIFIANT_LICENCE } from '../src/passerelle/licence.ts';
 import { fichiersStatiques } from '../src/passerelle/statiques.ts';
-import { assembler, CIBLES } from './paquets.ts';
+import { assembler, CIBLES, racinePaquet } from './paquets.ts';
 
 const RACINE = new URL('../', import.meta.url);
 const octets = (f: string) => readFileSync(new URL(f, RACINE));
@@ -101,7 +101,7 @@ test('paquets : chaque paquet embarque LICENSE (texte officiel, inchangé) et la
   const sortie = mkdtempSync(join(tmpdir(), 'lb-logiciel-libre-'));
   try {
     for (const c of CIBLES) {
-      const d = assembler(c, sortie, '9.9.9', null);
+      const d = racinePaquet(c, assembler(c, sortie, '9.9.9', null));
       for (const f of [join(d, FICHIER_LICENCE), join(d, 'app', FICHIER_LICENCE)]) {
         assert.equal(sha256(readFileSync(f)), EMPREINTE_AGPL, `${c} : ${f.slice(d.length + 1)} est le texte officiel de la GNU AGPL version 3`);
       }

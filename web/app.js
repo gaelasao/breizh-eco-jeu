@@ -5650,7 +5650,7 @@ async function rendreCles() {
       blocCode(`claude mcp add --transport http living-business ${url} --header "Authorization: Bearer ${jeton}"`, 'Copier la commande'),
       h('p', { class: 'bz-t-label', texte: 'Claude Desktop (claude_desktop_config.json)' }),
       blocCode(configDesktop, 'Copier la configuration'),
-      h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Remplacez « /chemin/vers/Living Business » par le dossier de Living Business sur cet ordinateur (celui qui contient LISEZMOI.txt). Sans Node.js installé, remplacez aussi « node » par ce dossier suivi de /app/node (\\app\\node.exe sous Windows).' })),
+      h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Remplacez « /chemin/vers/Living Business » par le dossier de Living Business sur cet ordinateur (celui qui contient LISEZMOI.txt). Sans Node.js installé, remplacez aussi « node » par ce dossier suivi de /app/node (\\app\\node.exe sous Windows). Application Mac : le dossier est « /Applications/Living Business.app/Contents/Resources » et Node.js « /Applications/Living Business.app/Contents/MacOS/node ».' })),
     sectionReglage('cles-api', 'API pour Make, Zapier, n8n et les scripts', null, blocCode(`curl ${location.origin}/api/v1/monde -H "Authorization: Bearer ${jeton}"`, 'Copier')),
     sectionReglage('cles-actives', `Clés actives · ${cles.length}`, null,
       cles.length ? h('div', { class: 'bz-tableau-cadre' }, h('table', { class: 'bz-tableau bz-tableau--empile' },

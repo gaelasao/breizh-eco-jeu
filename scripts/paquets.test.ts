@@ -9,7 +9,10 @@ import { adresseNexus, nexusDuPaquet } from '../src/passerelle/bureau.ts';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { CODE_SOURCE } from '../src/passerelle/licence.ts';
-import { assembler, CIBLES, lireArguments, notice, sbomDependances, sbomPaquet } from './paquets.ts';
+import { ETIQUETTE } from '../src/passerelle/demarrage.ts';
+import { APPLICATION_MAC, assembler, CIBLES, compresser, infoPlist, lireArguments, macosMinimum, notice, racinePaquet, sbomDependances, sbomPaquet } from './paquets.ts';
+
+const surMac = process.platform === 'darwin';
 
 /** Liste récursive des fichiers d'un dossier. */
 function fichiers(d: string, base = d): string[] {
@@ -20,7 +23,7 @@ test('paquet : lanceurs double-clic, notice, fichiers d’exécution seulement (
   const sortie = mkdtempSync(join(tmpdir(), 'lb-paquet-'));
   try {
     for (const c of CIBLES) {
-      const d = assembler(c, sortie, '9.9.9', null);
+      const d = racinePaquet(c, assembler(c, sortie, '9.9.9', null));
       const liste = fichiers(d);
       assert.ok(!liste.some((f) => f.endsWith('.test.ts')), 'aucun test dans le paquet');
       assert.ok(!liste.some((f) => /(^|[/\\])donnees[/\\]|monde\.json$|cle-secrets$/.test(f)), 'aucune donnée dans le paquet');
@@ -32,8 +35,14 @@ test('paquet : lanceurs double-clic, notice, fichiers d’exécution seulement (
       assert.ok(!liste.some((f) => f.includes('fontsource')), 'plus d’Inter Fontsource ni de Barlow');
       assert.equal(JSON.parse(readFileSync(join(d, 'app', 'package.json'), 'utf8')).type, 'module');
       const notice = readFileSync(join(d, 'LISEZMOI.txt'), 'utf8');
-      assert.match(notice, /RIEN À INSTALLER/);
-      if (c.startsWith('win')) {
+      assert.match(notice, c.startsWith('darwin') ? /INSTALLER \(rien d’autre à installer\)/ : /RIEN À INSTALLER/);
+      if (c.startsWith('darwin')) {
+        // une application : ni lanceur .command, ni installateur de serveur, ni Node.js hors de Contents/MacOS
+        assert.deepEqual(readdirSync(join(d, '..', '..', '..')), [APPLICATION_MAC], 'le paquet Mac ne contient que l’application');
+        assert.ok(!liste.some((f) => /\.command$|installer-jeu\.sh$/.test(f)), 'ni .command ni installer-jeu.sh');
+        assert.ok(existsSync(join(d, 'living-business.icns')), 'icône');
+        assert.match(notice, /~\/Bibliothèque\/Application Support\/Living Business/);
+      } else if (c.startsWith('win')) {
         const cmd = readFileSync(join(d, 'Living Business.cmd'), 'utf8');
         assert.match(cmd, /\r\n/, 'fins de ligne Windows');
         assert.match(cmd, /node\.exe" --disable-warning=ExperimentalWarning src\\lanceur\.ts %\*/);
@@ -149,7 +158,11 @@ test('paquet : script d’installation sur un serveur (installer-jeu.sh) inclus,
   if (!existsSync(source)) { t.skip('deploiement/installer-jeu.sh absent'); return; }
   const sortie = mkdtempSync(join(tmpdir(), 'lb-paquet-installateur-'));
   try {
-    const avec = assembler('darwin-arm64', sortie, '9.9.9', null, { nexus: 'https://reseau.example' });
+    // l'application Mac n'en a pas l'usage : le jeu donne la commande qui le télécharge, à lancer sur le serveur
+    const mac = assembler('darwin-arm64', sortie, '9.9.9', null, { nexus: 'https://reseau.example', applet: false });
+    assert.ok(!fichiers(mac).some((f) => f.endsWith('installer-jeu.sh')), 'pas d’installer-jeu.sh dans l’application Mac');
+    assert.ok(existsSync(join(racinePaquet('darwin-arm64', mac), 'app', 'deploiement', 'signataires-editeur')), 'clé de l’éditeur fournie au jeu (Mettre en ligne)');
+    const avec = assembler('linux-x64', sortie, '9.9.9', null, { nexus: 'https://reseau.example' });
     const script = readFileSync(join(avec, 'installer-jeu.sh'), 'utf8');
     assert.equal(statSync(join(avec, 'installer-jeu.sh')).mode & 0o111, 0o111, 'exécutable');
     assert.match(script, /^#!\/usr\/bin\/env bash/);
@@ -168,15 +181,16 @@ test('paquet : script d’installation sur un serveur (installer-jeu.sh) inclus,
 test('notice : passer Gatekeeper ou SmartScreen seulement pour un paquet venu de Breizhcosystem, jamais en réflexe (jeu-installation-8)', () => {
   for (const c of ['darwin-arm64', 'win-x64'] as const) {
     const n = notice(c, '9.9.9', 'v24.0.0', 'https://reseau.example');
+    const mac = c === 'darwin-arm64';
     const contournement = c === 'win-x64' ? 'Exécuter quand' : 'Ouvrir quand même';
-    const avant = n.indexOf('AVANT : n’ouvrez ce dossier que si VOUS l’avez téléchargé');
+    const avant = n.indexOf(mac ? 'AVANT : n’ouvrez cette application que si VOUS l’avez téléchargée' : 'AVANT : n’ouvrez ce dossier que si VOUS l’avez téléchargé');
     assert.ok(avant > 0, `${c} : mise en garde présente`);
     assert.ok(avant < n.indexOf(contournement), `${c} : la mise en garde vient avant le contournement`);
     assert.match(n, /https:\/\/reseau\.example\/telecharger/, `${c} : seule source donnée, la page de Breizhcosystem`);
     assert.match(n, /reçu par e-mail, par message ou en pièce jointe[\s\S]*se supprime/, `${c} : fichier reçu = à supprimer`);
-    assert.match(n, /Seulement pour un dossier téléchargé comme ci-dessus/, `${c} : contournement conditionné`);
+    assert.match(n, mac ? /Seulement pour une application téléchargée comme ci-dessus/ : /Seulement pour un dossier téléchargé comme ci-dessus/, `${c} : contournement conditionné`);
     assert.match(n, /Jamais pour un autre fichier/);
-    assert.match(n, /ne sont pas encore signés/, `${c} : l’absence de signature est dite, pas cachée`);
+    assert.match(n, mac ? /L’application n’est pas encore signée par Apple/ : /ne sont pas encore signés/, `${c} : l’absence de signature est dite, pas cachée`);
     // anciennes consignes, données sans condition
     assert.doesNotMatch(n, /Si « Windows a protégé votre ordinateur » s’affiche :/);
     assert.doesNotMatch(n, /ou clic droit sur le fichier → Ouvrir/);
@@ -217,7 +231,7 @@ test('logiciel libre : LICENSE (texte officiel, tel quel) et NOTICE.md dans chaq
   const sortie = mkdtempSync(join(tmpdir(), 'lb-paquet-licence-'));
   try {
     for (const c of CIBLES) {
-      const d = assembler(c, sortie, '9.9.9', null);
+      const d = racinePaquet(c, assembler(c, sortie, '9.9.9', null));
       // le texte officiel n'est jamais réécrit, même pour Windows : copie conforme, octet pour octet
       assert.ok(readFileSync(join(d, 'LICENSE')).equals(licence), `${c} : LICENSE à la racine du paquet, tel quel`);
       assert.ok(readFileSync(join(d, 'app', 'LICENSE')).equals(licence), `${c} : app/LICENSE, servi par la passerelle`);
@@ -229,7 +243,9 @@ test('logiciel libre : LICENSE (texte officiel, tel quel) et NOTICE.md dans chaq
       const brut = readFileSync(join(d, 'LISEZMOI.txt'), 'utf8');
       const n = brut.replace(/[\u00a0\u202f]/g, ' ').replace(/\s+/g, ' ');
       assert.match(n, /LOGICIEL LIBRE Living Business est un logiciel libre, sous licence GNU AGPL version 3 : vous pouvez l’utiliser, l’étudier, le modifier et le redistribuer aux conditions de cette licence\. Rien à accepter pour l’utiliser\. Il est fourni sans garantie, dans les limites de la loi\./, c);
-      assert.match(n, /Texte de la licence \(en anglais, seul à faire foi\) : LICENSE\. Résumé en français : NOTICE\.md\. Les deux sont dans ce dossier, et dans le jeu : Réglages → À propos\./, c);
+      assert.match(n, c.startsWith('darwin')
+        ? /Texte de la licence \(en anglais, seul à faire foi\) : LICENSE\. Résumé en français : NOTICE\.md\. Les deux sont dans l’application \(Living Business\.app\/Contents\/Resources\), et dans le jeu : Réglages → À propos\./
+        : /Texte de la licence \(en anglais, seul à faire foi\) : LICENSE\. Résumé en français : NOTICE\.md\. Les deux sont dans ce dossier, et dans le jeu : Réglages → À propos\./, c);
       assert.ok(n.includes(`Code source complet (essais et scripts de fabrication compris) : ${CODE_SOURCE} `), `${c} : où trouver le code source`);
       // plus aucune restriction ni acceptation : la licence permet de redistribuer et ne demande rien pour utiliser
       assert.doesNotMatch(n, /Ne diffusez pas|vous l’acceptez|licence d’utilisation|LICENCE\.txt/i, c);
@@ -291,4 +307,130 @@ test('nomenclature (SBOM) : dépendances d’exécution du verrou, Node.js et fi
     assert.equal((JSON.parse(readFileSync(join(d, 'app', 'SBOM.cdx.json'), 'utf8')) as { metadata: { component: { name: string } } }).metadata.component.name, 'living-business');
     assert.match(readFileSync(join(d, 'LISEZMOI.txt'), 'utf8'), /app\/SBOM\.cdx\.json/);
   } finally { rmSync(sortie, { recursive: true, force: true }); }
+});
+
+/** Petit binaire Mach-O 64 bits (en-tête et commandes seulement) déclarant une version minimale de macOS. */
+function machO(minos: number, commande: 0x32 | 0x24): Buffer {
+  const lc = Buffer.alloc(commande === 0x32 ? 24 : 16);
+  lc.writeUInt32LE(commande, 0);
+  lc.writeUInt32LE(lc.length, 4);
+  if (commande === 0x32) { lc.writeUInt32LE(1, 8); lc.writeUInt32LE(minos, 12); } else lc.writeUInt32LE(minos, 8);
+  const entete = Buffer.alloc(32);
+  entete.writeUInt32LE(0xfeedfacf, 0);
+  entete.writeUInt32LE(1, 16);
+  entete.writeUInt32LE(lc.length, 20);
+  return Buffer.concat([entete, lc]);
+}
+
+test('application Mac : Info.plist (nom, identifiant de l’agent de démarrage, version, macOS minimum lu dans Node.js, AGPL)', () => {
+  const d = mkdtempSync(join(tmpdir(), 'lb-macho-'));
+  try {
+    writeFileSync(join(d, 'mince'), machO(0x0d0500, 0x32));
+    assert.equal(macosMinimum(join(d, 'mince')), '13.5');
+    writeFileSync(join(d, 'ancien'), machO(0x0a0f00, 0x24));
+    assert.equal(macosMinimum(join(d, 'ancien')), '10.15');
+    // binaire universel : la plus exigeante de ses architectures
+    const a = machO(0x0b0000, 0x32);
+    const b = machO(0x0d0502, 0x32);
+    const fat = Buffer.alloc(8 + 40);
+    fat.writeUInt32BE(0xcafebabe, 0);
+    fat.writeUInt32BE(2, 4);
+    fat.writeUInt32BE(64, 8 + 8);
+    fat.writeUInt32BE(256, 8 + 28);
+    const universel = Buffer.alloc(256 + b.length);
+    fat.copy(universel);
+    a.copy(universel, 64);
+    b.copy(universel, 256);
+    writeFileSync(join(d, 'universel'), universel);
+    assert.equal(macosMinimum(join(d, 'universel')), '13.5.2');
+    writeFileSync(join(d, 'texte'), 'pas un binaire, pas du tout');
+    assert.throws(() => macosMinimum(join(d, 'texte')), /Mach-O attendu/);
+    if (surMac) assert.equal(macosMinimum(process.execPath), /minos (\S+)/.exec(spawnSync('vtool', ['-show-build', process.execPath], { encoding: 'utf8' }).stdout)?.[1] ?? macosMinimum(process.execPath), 'comme vtool');
+  } finally { rmSync(d, { recursive: true, force: true }); }
+  const plist = infoPlist('9.9.9', '13.5');
+  const valeur = (k: string) => new RegExp(`<key>${k}</key>\\n\\t<string>([^<]*)</string>`).exec(plist)?.[1];
+  assert.equal(valeur('CFBundleName'), 'Living Business');
+  assert.equal(valeur('CFBundleIdentifier'), ETIQUETTE, 'même identifiant que l’agent de lancement au démarrage');
+  assert.equal(valeur('CFBundleShortVersionString'), '9.9.9');
+  assert.equal(valeur('CFBundleVersion'), '9.9.9');
+  assert.equal(valeur('LSMinimumSystemVersion'), '13.5');
+  assert.equal(valeur('LSApplicationCategoryType'), 'public.app-category.business');
+  assert.match(valeur('NSHumanReadableCopyright') ?? '', /Breizhcosystem.*GNU AGPL version 3/);
+  assert.equal(valeur('CFBundleExecutable'), 'applet');
+  assert.match(plist, /<key>OSAAppletStayOpen<\/key>\n\t<true\/>/, 'applet qui reste ouverte (Dock, Quitter)');
+  assert.doesNotMatch(plist, /UsageDescription/, 'aucune autorisation demandée');
+  if (surMac) {
+    const f = join(tmpdir(), `lb-info-${process.pid}.plist`);
+    writeFileSync(f, plist);
+    try { assert.equal(spawnSync('plutil', ['-lint', f]).status, 0, 'Info.plist valide'); } finally { rmSync(f, { force: true }); }
+  }
+});
+
+test('application Mac : applet compilée, signature ad hoc vérifiée, Node.js intact, zip qui ne contient que l’application', { skip: !surMac && 'macOS seulement : osacompile, codesign et ditto' }, () => {
+  const sortie = mkdtempSync(join(tmpdir(), 'lb-application-mac-'));
+  try {
+    const licence = join(sortie, 'LICENSE-node');
+    writeFileSync(licence, 'licence de Node.js\n');
+    const node = { binaire: process.execPath, licence, version: process.version };
+    const d = assembler('darwin-arm64', sortie, '9.9.9', node);
+    const appli = join(d, APPLICATION_MAC);
+    for (const f of ['Contents/MacOS/applet', 'Contents/MacOS/node', 'Contents/Resources/Scripts/main.scpt', 'Contents/Resources/living-business.icns', 'Contents/Resources/LISEZMOI.txt', 'Contents/Resources/app/src/lanceur.ts']) {
+      assert.ok(existsSync(join(appli, f)), f);
+    }
+    const empreinte = (f: string) => createHash('sha256').update(readFileSync(f)).digest('hex');
+    assert.equal(empreinte(join(appli, 'Contents/MacOS/node')), empreinte(process.execPath), 'Node.js tel quel : sa signature d’origine n’est pas remplacée');
+    assert.equal(spawnSync('codesign', ['--verify', '--deep', '--strict', appli]).status, 0, 'signature vérifiée (code imbriqué compris)');
+    const signature = spawnSync('codesign', ['-dv', appli], { encoding: 'utf8' }).stderr;
+    assert.match(signature, /Identifier=bzh\.breizh-eco\.living-business/);
+    assert.match(signature, /Signature=adhoc/);
+    assert.match(readFileSync(join(appli, 'Contents', 'Info.plist'), 'utf8'), new RegExp(`<string>${macosMinimum(process.execPath).replace('.', '\\.')}</string>`), 'macOS minimum : celui du Node.js inclus');
+    const zip = compresser('darwin-arm64', d);
+    const entrees = spawnSync('zipinfo', ['-1', zip], { encoding: 'utf8' }).stdout.trim().split('\n');
+    assert.deepEqual([...new Set(entrees.map((e) => e.split('/')[0]))], [APPLICATION_MAC], 'une seule chose à la racine du zip : l’application');
+    assert.ok(entrees.includes(`${APPLICATION_MAC}/Contents/MacOS/node`));
+    const ouvert = join(sortie, 'ouvert');
+    mkdirSync(ouvert);
+    assert.equal(spawnSync('ditto', ['-x', '-k', zip, ouvert]).status, 0);
+    assert.equal(spawnSync('codesign', ['--verify', '--deep', '--strict', join(ouvert, APPLICATION_MAC)]).status, 0, 'toujours valide une fois décompressée');
+  } finally { rmSync(sortie, { recursive: true, force: true }); }
+});
+
+test('lanceur --application (application Mac) : démarre en arrière-plan, rouvre sans 2e serveur, s’arrête avec l’application', async () => {
+  const racine = fileURLToPath(new URL('../', import.meta.url));
+  const d = mkdtempSync(join(tmpdir(), 'lb-application-'));
+  const donnees = join(d, 'donnees');
+  // l'« application » : un processus quelconque dont le serveur suit la vie
+  const appli = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore' });
+  const env = { ...process.env, LB_DONNEES: donnees, LB_NAVIGATEUR: '0', LB_NEXUS_URL: '', PORT: String(43000 + Math.floor(Math.random() * 2000)) };
+  const appeler = (...args: string[]) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/lanceur.ts', `--application=${appli.pid}`, ...args], { cwd: racine, env, encoding: 'utf8', timeout: 60_000 });
+  let serveur = 0;
+  try {
+    // secours sans entreprise créée : refusé, avec la raison (montrée par l'application dans un dialogue)
+    const r0 = appeler('--secours');
+    assert.equal(r0.status, 1);
+    assert.match(r0.stderr, /Aucune entreprise n’est encore créée sur cet ordinateur/);
+    const r1 = appeler();
+    assert.equal(r1.status, 0, r1.stderr);
+    const [etat, pid, port] = r1.stdout.trim().split(' ');
+    assert.equal(etat, 'pret');
+    serveur = Number(pid);
+    const session = await (await fetch(`http://127.0.0.1:${port}/api/v1/session`)).json() as { surPlace: boolean };
+    assert.equal(session.surPlace, true, 'le serveur répond');
+    assert.equal(JSON.parse(readFileSync(join(donnees, 'instance.json'), 'utf8')).pid, serveur);
+    assert.match(readFileSync(join(donnees, 'journal-serveur.log'), 'utf8'), /Démarré par l’application Living Business/);
+    // 2e ouverture (Dock, double-clic) : le même serveur
+    const r2 = appeler();
+    assert.equal(r2.status, 0, r2.stderr);
+    assert.equal(r2.stdout.trim(), `deja ${serveur} ${port}`);
+    // l'application disparaît (Quitter, ou arrêt forcé) : son serveur s'arrête proprement
+    appli.kill('SIGKILL');
+    for (let i = 0; i < 100 && existsSync(join(donnees, 'instance.json')); i++) await new Promise((ok) => setTimeout(ok, 100));
+    assert.ok(!existsSync(join(donnees, 'instance.json')), 'serveur arrêté, fichier d’instance retiré');
+    await assert.rejects(fetch(`http://127.0.0.1:${port}/api/v1/session`), 'plus rien sur le port');
+    serveur = 0;
+  } finally {
+    appli.kill('SIGKILL');
+    if (serveur) try { process.kill(serveur, 'SIGTERM'); } catch { /* déjà arrêté */ }
+    rmSync(d, { recursive: true, force: true });
+  }
 });
