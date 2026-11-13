@@ -15,7 +15,7 @@ import { cadreOnglets } from '/bz/onglets.js';
 import { cacher, estOuvert, montrer, popoverOuvert, POPOVER_NATIF } from '/bz/popover.js';
 import { masquerInfobulle } from '/bz/infobulle.js';
 import { ouvrirActivite } from '/bz/activite.js';
-import { courriersUrgents, destinations, estCourante, groupesNavigation, ongletsTelephone, piedNavigation, placeDeVue, prenomDe, tachesOuvertes, texteCompteur, titreDeVue } from '/navigation.js';
+import { courriersUrgents, destinations, estCourante, groupesNavigation, ONGLETS_TELEPHONE, ongletsTelephone, piedNavigation, placeDeVue, prenomDe, tachesOuvertes, texteCompteur, titreDeVue } from '/navigation.js';
 import { GESTES, TITRES_GESTES } from '/carte/gestes.js';
 import { QUALITES, reseauFaible } from '/carte/qualite.js';
 import { REGLAGES_HEURE } from '/carte/heure.js';
@@ -1455,15 +1455,24 @@ function rendreSousNav() {
   remplir(n, g ? g.entrees.map((e) => h('a', { class: 'bz-puce', href: `#/${e.vue}`, cle: `sous-${e.id}`, 'aria-current': estCourante(e, E.vue) ? 'page' : false, onclick: (ev) => allerA(e.vue, ev) },
     icone(e.icone, { taille: 'sm' }), e.libelle, e.compte ? h('span', { class: 'bz-compteur', 'aria-label': e.compteLibelle, texte: texteCompteur(e.compte) }) : null)) : []);
 }
-/** « Plus » : la palette en feuille basse, avec ses places fixes, dans cet ordre (§4.2). */
+/**
+ * « Plus » : la palette en feuille basse (§4.2). D'ABORD les rubriques qui n'ont pas d'onglet en bas (Santé,
+ * Optimiser, Breizhcosystem, Connecter mes données, Réglages, Mon compte) : sur téléphone, c'est le seul chemin vers
+ * elles, et elles passaient derrière les suggestions et les actions. Ensuite seulement les outils de l'appareil.
+ */
 function placesPlus() {
   const T = window.bzTheme;
+  const avecOnglet = new Set(ONGLETS_TELEPHONE.filter((o) => !o.plus).map((o) => o.id));
+  const ailleurs = menuMontre().filter((g) => !avecOnglet.has(g.id)).flatMap((g) => g.entrees);
   return [
-    T ? { id: 'plein-soleil', titre: 'Plein soleil', icone: 'sun', presse: T.lire().pleinSoleil, basculer: () => { const oui = T.pleinSoleil(); annoncer(oui ? 'Plein soleil activé.' : 'Plein soleil désactivé.'); return oui; } } : null,
+    ...ailleurs.map((e) => ({ id: `vue-${e.id}`, titre: e.libelle, icone: e.icone, faire: () => changerVue(e.vue) })),
+    ...piedMenu().map((e) => ({ id: `pied-${e.id}`, titre: e.libelle, icone: e.icone, faire: () => (e.action === 'connecter' ? ouvrirAssistant() : changerVue(e.vue)) })),
+    E.connexion?.connexion === 'comptes' ? { id: 'compte', titre: 'Mon compte', icone: 'user', faire: () => changerVue('compte') } : null,
     { id: 'activite', titre: 'Activité récente', icone: 'bell', faire: () => ouvrirActivite() },
     { id: 'aide', titre: 'Aide', icone: 'circle-help', faire: ouvrirAide },
-    E.monde.profil.peutAdministrer ? { id: 'reglages', titre: 'Réglages', icone: 'settings', faire: () => changerVue('reglages') } : { id: 'apparence', titre: 'Apparence', icone: 'sliders-horizontal', faire: ouvrirApparence },
-    // après les quatre places fixes : la bascule du menu complet, s'il reste des rubriques qui attendent leurs données
+    { id: 'apparence', titre: 'Apparence', icone: 'sliders-horizontal', faire: ouvrirApparence },
+    T ? { id: 'plein-soleil', titre: 'Plein soleil', icone: 'sun', presse: T.lire().pleinSoleil, basculer: () => { const oui = T.pleinSoleil(); annoncer(oui ? 'Plein soleil activé.' : 'Plein soleil désactivé.'); return oui; } } : null,
+    // puis la bascule du menu complet, s'il reste des rubriques qui attendent leurs données
     rubriquesEnAttente().length ? { id: 'tout-afficher', titre: 'Tout afficher', icone: 'menu', presse: toutAffiche(), basculer: () => { reglerToutAfficher(!toutAffiche()); document.querySelector('.bz-palette__champ')?.dispatchEvent(new Event('input')); return toutAffiche(); } } : null,
   ].filter(Boolean);
 }
@@ -9677,12 +9686,13 @@ function contenuPalette(_requete = '', { plus = false } = {}) {
     m.profil.peutAdministrer ? { id: 'action:connecter', titre: 'Connecter mes données', icone: 'plug', mots: 'importer fichier excel google', faire: () => ouvrirAssistant() } : null,
     { id: 'action:simulation', titre: m.mode === 'simulation' ? 'Quitter la simulation' : 'Passer en mode simulation', icone: 'flask-conical', raccourci: '$mod+shift+s', faire: () => basculerSimulation(m.mode !== 'simulation') },
     plus ? null : { id: 'action:plein-soleil', titre: window.bzTheme?.lire().pleinSoleil ? 'Quitter le mode Plein soleil' : 'Plein soleil', contexte: 'Contraste élevé, panneaux opaques', icone: 'sun', mots: 'contraste lumiere exterieur', faire: () => { const oui = window.bzTheme?.pleinSoleil(); informer(oui ? 'Plein soleil activé.' : 'Plein soleil désactivé.', 'ok'); } },
-    { id: `action:theme-${ts.valeur}`, titre: ts.titre, icone: ts.icone, mots: 'theme apparence nuit jour', faire: () => window.bzTheme?.regler('theme', ts.valeur) },
-    { id: 'action:theme-systeme', titre: 'Suivre le thème du système', icone: 'monitor', mots: 'theme apparence automatique', faire: () => window.bzTheme?.regler('theme', 'systeme') },
+    // en feuille « Plus », les réglages de thème restent dans « Apparence » : ils encombraient la liste des actions
+    plus ? null : { id: `action:theme-${ts.valeur}`, titre: ts.titre, icone: ts.icone, mots: 'theme apparence nuit jour', faire: () => window.bzTheme?.regler('theme', ts.valeur) },
+    plus ? null : { id: 'action:theme-systeme', titre: 'Suivre le thème du système', icone: 'monitor', mots: 'theme apparence automatique', faire: () => window.bzTheme?.regler('theme', 'systeme') },
     { id: 'action:annuler', titre: 'Annuler la dernière action', icone: 'undo-2', raccourci: '$mod+z', faire: () => annulerDerniere() },
-    { id: 'action:apparence', titre: 'Apparence et accessibilité', contexte: 'Thème, taille du texte, contraste, mode Calme', icone: 'sliders-horizontal', mots: 'reglages preferences theme police animations clavier calme', faire: ouvrirApparence },
+    plus ? null : { id: 'action:apparence', titre: 'Apparence et accessibilité', contexte: 'Thème, taille du texte, contraste, mode Calme', icone: 'sliders-horizontal', mots: 'reglages preferences theme police animations clavier calme', faire: ouvrirApparence },
     m.progression && !modeCalme() ? { id: 'action:progression', titre: 'Ma progression', contexte: JEU.texteNiveau(m.progression), icone: 'anchor', mots: 'xp niveau port quetes trophees jeu', faire: () => changerVue('progression') } : null,
-    { id: 'action:calme', titre: modeCalme() ? 'Quitter le mode Calme' : 'Mode Calme', contexte: 'Masquer XP, quêtes et célébrations', icone: 'moon', mots: 'calme sobre jeu xp quetes', faire: () => reglerCalme(!modeCalme()) },
+    plus ? null : { id: 'action:calme', titre: modeCalme() ? 'Quitter le mode Calme' : 'Mode Calme', contexte: 'Masquer XP, quêtes et célébrations', icone: 'moon', mots: 'calme sobre jeu xp quetes', faire: () => reglerCalme(!modeCalme()) },
     plus ? null : { id: 'action:activite', titre: 'Activité récente', contexte: 'Ce qui s’est passé, ce qu’on peut encore annuler', icone: 'bell', mots: 'historique notifications annuler', faire: () => ouvrirActivite() },
     plus ? null : { id: 'action:aide', titre: 'Aide', icone: 'circle-help', mots: 'assistance visite raccourcis', faire: ouvrirAide },
     plus || !rubriquesEnAttente().length ? null : { id: 'action:tout-afficher', titre: toutAffiche() ? 'Revenir au menu simple' : 'Tout afficher dans le menu', contexte: 'Aussi les rubriques qui attendent vos données', icone: 'menu', mots: 'menu complet rubriques cachees masquees toutes simple', faire: () => reglerToutAfficher(!toutAffiche()) },

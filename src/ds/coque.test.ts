@@ -157,8 +157,14 @@ test('coque : repères, en-tête, rail, onglets, zones sûres et clavier virtuel
   assert.match(app, /raccourci\('b', \(\) => basculerRail\(\)/, 'B replie le rail');
   assert.match(app, /ouvrirPalette\(\{ places: placesPlus\(\) \}\)/, '« Plus » ouvre la palette en feuille, avec ses places fixes');
   const places = app.slice(app.indexOf('function placesPlus()'), app.indexOf('const ouvrirPlus'));
-  const ordre = ['plein-soleil', 'activite', 'aide', 'reglages'].map((id) => places.indexOf(`id: '${id}'`));
-  assert.ok(ordre.every((i, k) => i > 0 && (k === 0 || i > (ordre[k - 1] ?? 0))), 'places fixes dans l’ordre : Plein soleil, Activité récente, Aide, Réglages');
+  // d'abord les rubriques sans onglet en bas (Santé, Optimiser, Breizhcosystem, Connecter mes données, Réglages,
+  // Mon compte) : sur téléphone, « Plus » est le seul chemin vers elles
+  assert.match(places, /const avecOnglet = new Set\(ONGLETS_TELEPHONE\.filter\(\(o\) => !o\.plus\)\.map\(\(o\) => o\.id\)\);/);
+  assert.match(places, /const ailleurs = menuMontre\(\)\.filter\(\(g\) => !avecOnglet\.has\(g\.id\)\)\.flatMap\(\(g\) => g\.entrees\);/);
+  const ordre = ['...ailleurs.map(', '...piedMenu().map(', "id: 'compte'", "id: 'activite'", "id: 'aide'", "id: 'apparence'", "id: 'plein-soleil'", "id: 'tout-afficher'"].map((t) => places.indexOf(t));
+  assert.ok(ordre.every((i, k) => i > 0 && (k === 0 || i > (ordre[k - 1] ?? 0))), 'destinations d’abord, puis les outils de l’appareil');
+  // les réglages de thème ne sont plus répétés dans la liste des actions de la feuille
+  for (const t of ["plus ? null : { id: `action:theme-", "plus ? null : { id: 'action:theme-systeme'", "plus ? null : { id: 'action:calme'", "plus ? null : { id: 'action:apparence'"]) assert.ok(app.includes(t), t);
 });
 
 test('rail : le pied (Tout afficher, Connecter mes données, Réglages) reste à l’écran, seuls les groupes défilent', () => {
