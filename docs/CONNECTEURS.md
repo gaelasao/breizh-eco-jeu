@@ -97,6 +97,69 @@ Documentation lue : Airtable <https://airtable.com/developers/web/api/webhooks-o
 <https://pipedrive.readme.io/docs/guide-for-webhooks-v2>,
 <https://pipedrive.readme.io/docs/marketplace-scopes-and-permissions-explanations>.
 
+## Fichier de suivi (miroir)
+
+Écrit le 13 novembre 2026 d'après la documentation officielle lue ce jour-là (adresses ci-dessous). **Rien n'a été
+essayé avec un vrai compte** : les essais (`src/passerelle/miroir.test.ts`) tournent contre des outils simulés, et la
+vérification à l'écran se fait sur une installation neuve dont les appels aux outils sont simulés eux aussi.
+
+Le jeu crée, dans l'espace de l'entreprise, **un classeur de suivi** avec un onglet par type d'objet et une ligne
+d'en-têtes en français (`src/passerelle/miroir.ts`). Il y écrit une ligne par fiche dès qu'elle est créée ou modifiée,
+et **marque** la ligne d'une fiche effacée (« Supprimée ») au lieu de la retirer. Dans l'autre sens, un branchement de
+**lecture** ordinaire est posé sur chaque onglet : les lignes ajoutées à la main entrent dans le jeu par la
+synchronisation déjà en place, temps réel compris. L'anti-boucle est celle des connecteurs (empreinte du contenu
+métier) : une fiche n'est renvoyée que si elle a changé depuis le dernier envoi.
+
+Le classeur est écrit avec la connexion d'un compte déjà branché par « Se connecter avec… » (Google d'abord, sinon
+Notion ou Airtable) : aucune nouvelle connexion, aucun droit de plus que ceux déjà accordés.
+
+**Google Sheets.** Création : `POST https://sheets.googleapis.com/v4/spreadsheets`, corps
+`{ properties: { title }, sheets: [{ properties: { title } }] }` — les onglets se créent avec le classeur, en un
+appel ; la réponse donne `spreadsheetId` et `spreadsheetUrl`. Onglet ajouté à un classeur existant :
+`POST /v4/spreadsheets/{id}:batchUpdate` (`addSheet`). En-têtes : `PUT /v4/spreadsheets/{id}/values/{plage}` avec
+`valueInputOption=RAW`. Les lignes passent par l'adaptateur Google déjà en place
+(`values/{plage}:append` en `USER_ENTERED` + `INSERT_ROWS`, `PUT values/{plage}` pour une ligne existante, `null` =
+cellule laissée telle quelle). Portée : `https://www.googleapis.com/auth/spreadsheets` suffit pour créer un classeur.
+Débit : 300 requêtes par minute et par projet, 60 par minute et par personne, `429` au-delà, attente croissante
+conseillée — le jeu garde l'envoi en attente et réessaie (30 s, 2 min, 10 min, 30 min, puis 1 h).
+Lu : <https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/create>,
+<https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets>,
+<https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/sheets>,
+<https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/batchUpdate>,
+<https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/append>,
+<https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/update>,
+<https://developers.google.com/workspace/sheets/api/limits>.
+
+**Notion.** Création : `POST https://api.notion.com/v1/databases`, corps `{ parent, title, initial_data_source: {
+name, properties } }` (version d'API 2025-09-03 et après : une base contient des *sources de données*, et c'est la
+source qui porte le schéma). Un tableau de plus : `POST /v1/data_sources` avec
+`parent: { type: "database_id", database_id }`. Une ligne naît par `POST /v1/pages` avec
+`parent: { type: "data_source_id", data_source_id }`, et se modifie par `PATCH /v1/pages/{id}` (les propriétés
+omises sont gardées). Schéma : exactement une propriété `title` (la colonne « Nom ») ; `rich_text`, `number`
+(`format`), `date`, `checkbox`, `select` (avec ses options) pour le reste. Parent : une page partagée avec la
+connexion ; la création à la racine de l'espace n'est ouverte qu'aux connexions publiques, le jeu le dit et demande
+alors le lien d'une page. Débit : 180 requêtes par minute (600 sur les forfaits Business et Enterprise), `429` avec
+`Retry-After`, `529` traité de même.
+Lu : <https://developers.notion.com/reference/database-create>,
+<https://developers.notion.com/reference/create-a-data-source>,
+<https://developers.notion.com/reference/post-page>, <https://developers.notion.com/reference/patch-page>,
+<https://developers.notion.com/reference/property-object>,
+<https://developers.notion.com/reference/request-limits>,
+<https://developers.notion.com/guides/get-started/upgrade-guide-2025-09-03>.
+
+**Airtable.** Création : `POST https://api.airtable.com/v0/meta/bases`, corps `{ name, workspaceId, tables }` —
+toutes les tables en un appel ; chaque table a au moins un champ, et le premier devient son champ principal (« Nom »,
+`singleLineText`). Table ajoutée à une base existante : `POST /v0/meta/bases/{baseId}/tables`. Les champs `number`,
+`date`, `checkbox` et `singleSelect` exigent leurs options (`precision`, `dateFormat`, `color`+`icon`, `choices`).
+Les lignes passent par l'adaptateur Airtable déjà en place (`POST /v0/{baseId}/{tableId}` avec `typecast`,
+`PATCH …/{recordId}` pour une ligne existante — jamais `PUT`, qui effacerait les cellules non envoyées). Portées :
+`schema.bases:write` pour créer base et tables, `data.records:write` pour les lignes. Débit : 5 requêtes par seconde
+et par base, `429` puis 30 secondes d'attente.
+Lu : <https://airtable.com/developers/web/api/create-base>, <https://airtable.com/developers/web/api/create-table>,
+<https://airtable.com/developers/web/api/create-records>, <https://airtable.com/developers/web/api/update-record>,
+<https://airtable.com/developers/web/api/list-bases>, <https://airtable.com/developers/web/api/field-model>,
+<https://airtable.com/developers/web/api/rate-limits>, <https://airtable.com/developers/web/api/scopes>.
+
 ## Échéances à surveiller
 
 | Quand | Quoi | État |
@@ -112,6 +175,22 @@ Documentation lue : Airtable <https://airtable.com/developers/web/api/webhooks-o
 ## Limites connues
 
 - **Aucun essai avec un vrai compte**, pour aucun outil.
+- **Fichier de suivi, Airtable** : Airtable ne publie aucune adresse qui liste les espaces de travail (`GET
+  /v0/meta/bases` ne renvoie que les bases). Pour créer une base, le jeu demande donc l'identifiant de l'espace
+  (`wsp…`, visible dans l'adresse d'Airtable) ; sinon, la personne désigne une base existante, où les tables
+  manquantes sont créées. Le nombre d'enregistrements acceptés par requête de création n'est pas documenté, et les
+  limites de débit propres aux adresses « meta » non plus.
+- **Fichier de suivi, Notion** : une connexion interne (secret collé) doit donner une page parente ; seule une
+  connexion publique peut créer à la racine de l'espace. Le nombre maximal de propriétés d'un tableau n'est pas
+  documenté.
+- **Fichier de suivi, tableur** : une ligne écrite à la main n'a pas de référence, et la synchronisation ne lit que
+  les lignes qui en ont une. Le jeu pose donc une référence sur ces lignes (toutes les 2 minutes) ; elles entrent au
+  passage suivant. Deux lignes écrites à la main qui portent le même nom reçoivent leur référence l'une après
+  l'autre, un passage chacune. Notion et Airtable donnent eux-mêmes un identifiant à chaque ligne : rien à poser.
+- **Fichier de suivi, allers-retours** : une fiche née d'une ligne écrite à la main peut repartir une deuxième fois
+  vers le classeur (le jeu range certaines valeurs vides autrement à la création qu'à la relecture). Cela s'arrête de
+  soi-même au tour suivant : l'essai `miroir.test.ts` vérifie qu'aucun doublon n'apparaît et que plus rien ne part
+  ensuite.
 - **Excel** : avec une connexion en lecture seule, l'ouverture d'un classeur par son lien de partage reste à essayer
   avec un vrai compte (la documentation de Microsoft se contredit sur le droit nécessaire).
 - **Business Central** : l'identifiant de l'annuaire est lu dans le jeton d'accès, dont Microsoft ne garantit pas le

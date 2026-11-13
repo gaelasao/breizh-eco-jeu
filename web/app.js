@@ -5351,7 +5351,7 @@ function rendreNotifications() {
 }
 
 // ----- Mon fichier de suivi : le classeur de l'entreprise où tout s'écrit aussi (web/suivi.js décide QUOI montrer)
-let ETAT_SUIVI = { erreur: null, ok: null, lien: '', precision: '', compte: null, deja: false };
+let ETAT_SUIVI = { erreur: null, lien: '', precision: '', compte: null, types: false };
 async function rendreSuivi() {
   const Z = zoneReglages();
   if (!Z) return;
@@ -5366,12 +5366,18 @@ function dessinerSuivi(V) {
   const Z = zoneReglages();
   if (!Z) return;
   const S = { ...ETAT_SUIVI };
-  ETAT_SUIVI = { ...ETAT_SUIVI, erreur: null, ok: null };
+  ETAT_SUIVI = { ...ETAT_SUIVI, erreur: null };
   const refaire = () => { if (E.vue === 'reglages' && E.sousReglages === 'suivi') void rendreSuivi(); };
   const occupe = (e, oui) => e.submitter?.setAttribute('aria-busy', oui ? 'true' : 'false');
+  // le résultat passe par Activité récente (toast) : la page se redessine dès que l'envoi change l'état du jeu,
+  // un message posé dans la page disparaîtrait avec elle
   const appel = async (bouton, faire) => {
     bouton?.setAttribute('aria-busy', 'true');
-    try { const r = await faire(); ETAT_SUIVI = { ...ETAT_SUIVI, ok: r ?? null, erreur: null }; } catch (err) { ETAT_SUIVI = { ...ETAT_SUIVI, erreur: err.message, ok: null }; }
+    try {
+      const r = await faire();
+      ETAT_SUIVI = { ...ETAT_SUIVI, erreur: null };
+      if (r) informer(r, 'ok');
+    } catch (err) { ETAT_SUIVI = { ...ETAT_SUIVI, erreur: err.message }; informer(err.message, 'critique'); }
     bouton?.removeAttribute('aria-busy');
     refaire();
   };
@@ -5399,7 +5405,6 @@ function dessinerSuivi(V) {
   };
   remplir(Z,
     messageEnLigne('critique', S.erreur),
-    messageEnLigne('ok', S.ok),
     sectionReglage('suivi-promesse', 'Ce que fait le fichier de suivi', SUIVI.PROMESSE, null),
     // ----- pas encore de classeur : une phrase, un bouton
     c ? null : prop ? sectionReglage('suivi-creer', 'Créer mon fichier de suivi', prop.phrase,
@@ -5423,20 +5428,23 @@ function dessinerSuivi(V) {
       h('p', { class: 'bz-t-corps' }, h('strong', { texte: c.nom })),
       lien ? h('p', {}, lienExterne(lien, 'Ouvrir mon fichier de suivi')) : h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Adresse indisponible.' })) : null,
     c ? sectionReglage('suivi-etat', 'Dernier envoi', null,
-      encadre(etat.ton === 'ok' ? 'ok' : etat.ton === 'attention' ? 'attention' : 'info', etat.texte, V?.dernier ? `Le ${dateRelative(V.dernier.le)}.` : null),
+      encadre(etat.ton === 'ok' ? 'ok' : etat.ton === 'attention' ? 'attention' : 'info', etat.texte, V?.dernier ? `Envoi ${dateRelative(V.dernier.le)}.` : null),
       h('div', { class: 'bz-groupe-boutons' },
         h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: (e) => appel(e.currentTarget, async () => {
           const r = await api('POST', '/suivi/maintenant');
           return `${pluriel(r.envoyees, 'ligne envoyée', 'lignes envoyées', { zero: 'Rien de nouveau à envoyer' })}${r.restants ? `, ${pluriel(r.restants, 'envoi en attente', 'envois en attente')}` : ''}.`;
         }) }, icone('refresh-cw'), 'Envoyer maintenant'))) : null,
+    // la liste des sortes de fiches est repliée : par défaut tout est suivi, la personne n'a rien à régler
     c ? sectionReglage('suivi-types', 'Ce qui est suivi', `${SUIVI.resumeSuivis(V?.types)} Par défaut, tout l’est : vous n’avez rien à régler.`,
-      SUIVI.groupesTypes(V?.types).map((g) => h('fieldset', { class: 'bz-champ' },
-        h('legend', { class: 'bz-champ__libelle', texte: g.libelle }),
-        g.types.map((t) => interrupteurReglage({
-          cle: `suivi-type-${t.id}`, titre: t.libelle, actif: t.suivi,
-          aide: t.onglet ? `Onglet « ${t.onglet} »${t.lignes ? ` · ${pluriel(t.lignes, 'ligne', 'lignes')}` : ''}` : null,
-          regler: (v) => appel(null, async () => { await api('PUT', '/suivi', { type: t.id, suivi: v }); return null; }),
-        }))))) : null,
+      h('details', { class: 'bz-repli', open: S.types || null, ontoggle: (e) => { ETAT_SUIVI.types = e.currentTarget.open; } },
+        h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Choisir ce qui est suivi' }), icone('chevron-down', { taille: 'sm' })),
+        SUIVI.groupesTypes(V?.types).map((g) => h('fieldset', { class: 'bz-champ' },
+          h('legend', { class: 'bz-champ__libelle', texte: g.libelle }),
+          g.types.map((t) => interrupteurReglage({
+            cle: `suivi-type-${t.id}`, titre: t.libelle, actif: t.suivi,
+            aide: t.onglet ? `Onglet « ${t.onglet} »${t.lignes ? ` · ${pluriel(t.lignes, 'ligne', 'lignes')}` : ''}` : null,
+            regler: (v) => appel(null, async () => { await api('PUT', '/suivi', { type: t.id, suivi: v }); return null; }),
+          })))))) : null,
     c ? sectionReglage('suivi-outils', 'Repartir d’un classeur propre', SUIVI.TEXTE_SUPPRESSION,
       h('div', { class: 'bz-groupe-boutons' },
         h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: async (e) => {
