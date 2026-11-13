@@ -152,6 +152,8 @@ export interface EcheanceVehicule {
   statut: EtatEcheance;
   /** Ce qui sera programmé par « C'est fait » aujourd'hui, au kilométrage connu. */
   suivante: { date: string | null; km: number | null };
+  /** Champs du véhicule à écrire pour la renseigner : l'écran modifie la fiche sans connaître cette table. */
+  champs: { date: string; km: string | null; mois: string; kmPeriode: string | null; libelle: string | null };
 }
 
 /** Kilométrage d'un véhicule, et depuis quand on le sait. */
@@ -220,6 +222,7 @@ export function echeancesDe(v: ObjetMetier, maintenant: Date, { toutes = false }
         date: mois !== null ? ajouterMois(aujourdhui, mois) : null,
         km: pas !== null && kmCourant.km !== null ? kmCourant.km + pas : null,
       },
+      champs: { date: d.champDate, km: d.champKm ?? null, mois: d.champMois, kmPeriode: d.champKmPeriode ?? null, libelle: d.champLibelle ?? null },
     });
   }
   return res;
