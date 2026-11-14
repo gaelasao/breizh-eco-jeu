@@ -6162,7 +6162,9 @@ async function rendreMisesAJour(M = null) {
     messageEnLigne('critique', M.erreur),
     h('dl', { class: 'bz-champs-fiche' }, [['Version installée', M.actuelle || '—'], ['Dernière version publiée', M.derniere ?? 'inconnue'], ['Dernière vérification', M.verifieLe ? dateHeure(M.verifieLe) : 'jamais']]
       .map(([k, v]) => h('div', { class: 'bz-champ-fiche' }, h('dt', { class: 'bz-champ-fiche__libelle', texte: k }), h('dd', { class: 'bz-champ-fiche__valeur', texte: v })))),
-    interrupteurReglage({ cle: 'maj-auto', titre: 'Vérifier chaque jour', actif: Boolean(M.auto), aide: enLigne ? 'Recommandé pour une installation en ligne, exposée sur Internet.' : 'Sinon, vérifiez de temps en temps avec le bouton ci-dessous.', regler: (auto) => agir(() => api('PUT', '/mises-a-jour', { auto })) }),
+    interrupteurReglage({ cle: 'maj-auto', titre: 'Vérifier chaque jour', actif: Boolean(M.auto), aide: M.auto
+      ? 'C’est ainsi qu’un correctif de sécurité vous parvient : sans cela, il faudrait y penser soi-même. Rien n’est téléchargé ni installé tout seul — Living Business vous le dit, vous décidez.'
+      : 'Coupé : plus aucun correctif de sécurité ne vous sera signalé. Vérifiez de temps en temps avec le bouton ci-dessous.', regler: (auto) => agir(() => api('PUT', '/mises-a-jour', { auto })) }),
     source,
     h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => agir(() => api('POST', '/mises-a-jour', {})) }, icone('refresh-cw'), 'Vérifier maintenant'),
       !enLigne && M.telechargement ? lienExterne(M.telechargement, 'Page de téléchargement de Breizhcosystem') : null)));

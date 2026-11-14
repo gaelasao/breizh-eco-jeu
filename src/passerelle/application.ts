@@ -474,9 +474,17 @@ export class Application {
 
   // ---------------------------------------------------------------- nouvelles versions (alerte, rien n'est envoyé)
 
-  /** Vérification quotidienne : réglage de l'entreprise, sinon oui pour un jeu en ligne (exposé sur Internet). */
+  /**
+   * Vérification quotidienne : réglage de l'entreprise, sinon OUI, en ligne comme sur un poste.
+   *
+   * Elle était réservée aux installations en ligne, si bien qu'un Living Business téléchargé n'apprenait jamais qu'un
+   * correctif de sécurité existait : l'entreprise devait penser d'elle-même à aller voir. Un correctif qui n'atteint
+   * personne ne corrige rien. La vérification ne coûte rien à la confidentialité — c'est la lecture d'une page
+   * publique, sans rien envoyer : ni donnée, ni identifiant, ni la version installée (la comparaison se fait ici) —
+   * et elle s'arrête d'un clic dans Réglages › À propos. Rien n'est jamais téléchargé ni installé tout seul.
+   */
   get verificationMisesAJour(): boolean {
-    return this.#reglages.verifierMisesAJour ?? process.env.LB_EN_LIGNE === '1';
+    return this.#reglages.verifierMisesAJour ?? true;
   }
 
   misesAJour() {

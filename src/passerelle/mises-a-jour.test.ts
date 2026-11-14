@@ -53,12 +53,16 @@ test('application : vérification quotidienne en ligne par défaut, désactivabl
   const sim = nexusSimule(() => ({ version: '99.0.0', gravite: 'securite' }));
   const app = await Application.creer({ exemple: 'pme', fetch: sim.f });
   try {
+    // un correctif de sécurité doit atteindre AUSSI un Living Business téléchargé : sinon il faut y penser soi-même
     delete process.env.LB_EN_LIGNE;
-    assert.equal(app.verificationMisesAJour, false, 'sur un poste : pas de lecture automatique par défaut');
+    assert.equal(app.verificationMisesAJour, true, 'sur un poste aussi : oui par défaut');
     process.env.LB_EN_LIGNE = '1';
     assert.equal(app.verificationMisesAJour, true, 'jeu en ligne (exposé sur Internet) : oui par défaut');
     app.regler({ verifierMisesAJour: false });
     assert.equal(app.verificationMisesAJour, false, 'choix de l’entreprise respecté');
+    delete process.env.LB_EN_LIGNE;
+    assert.equal(app.verificationMisesAJour, false, 'et respecté sur un poste comme en ligne');
+    app.regler({ verifierMisesAJour: true });
     // Breizhcosystem inconnu : rien n'est lu, l'écran le dit
     delete process.env.LB_NEXUS_URL;
     const sans = await app.verifierMisesAJour();
