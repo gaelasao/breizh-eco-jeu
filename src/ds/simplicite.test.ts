@@ -316,7 +316,8 @@ test('écrans vides : deux lignes (ce qui manque, ce que l’écran montrera) et
   assert.match(liste, /videRubrique\(rubriqueDeVue\(vue\), \{/);
   // planning, courrier, satisfaction, pipeline, liste des lieux : même écran vide
   assert.match(app, /if \(!P\.lignes\.length\) \{\n\s+remplir\(page, h\('div', \{ class: 'bz-ecran bz-planning' \}, videRubrique\('planning', \{/);
-  assert.match(app, /!toutes\.length \? videRubrique\('courrier', \{/);
+  assert.match(app, /!toutes\.length \? videCourrier\(\)/);
+  assert.match(app, /const videCourrier = \(\) => videRubrique\('courrier', \{/, 'l’écran vide du courrier reste celui de la rubrique');
   assert.match(app, /peut && toutes\.length \? h\('div', \{ class: 'bz-groupe-boutons' \}, boutonAjouter\('bz-bouton--secondaire'\)\) : null\)/, 'courrier vide : le bouton n’est pas écrit deux fois');
   assert.match(app, /videRubrique\('satisfaction', \{/);
   assert.match(app, /colonnes\.every\(\(\[, , l\]\) => !l\.length\) \? videRubrique\('pipeline', \{ action: boutonConnecter\(\) \}\)/);

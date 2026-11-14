@@ -17,6 +17,7 @@ type F = {
   ariaSort: (t: { colonne: string; sens: string }, c: string) => string;
   groupesFiche: (o: Objet) => Array<{ id: string; champs: Champ[] }>;
   coordonnees: (o: Objet) => { tel: { lien: string } | null; courriel: { lien: string } | null; adresse: string | null };
+  adressePostale: (o: Objet) => string | null;
   actionsEntete: (o: Objet, x?: { actionsPossibles?: unknown[]; peutEntrer?: boolean }) => Array<{ id: string; libelle: string; genre: string }>;
   valeurEdition: (c: Champ) => string;
   lireSaisie: (c: Partial<Champ>, brut: string) => { ok: boolean; valeur?: unknown; erreur?: string };
@@ -98,6 +99,40 @@ test('fiche : 2 actions principales toujours au même endroit (Appeler, Écrire,
   // groupes repliables
   const g = Fi.groupesFiche(o('p1', 'Chantier', 'projet', 'projet', [ch('client', 't1', 'reference', { lien: { id: 't1', nom: 'Kerlann' } }), ch('echeance', '2026-12-01', 'date'), ch('montant', 9000, 'montant'), ch('avancement', 40, 'nombre'), ch('note_libre', 'x')]));
   assert.deepEqual(g.map((x) => x.id), ['suivi', 'dates', 'chiffres', 'liens', 'autres']);
+});
+
+test('un client s’appelle et se trouve : téléphone, adresse et code postal sur la fiche (G12)', () => {
+  const client = o('t1', 'Kerlann Bois', 'entreprise', 'tiers', [
+    ch('contact', 'Maïwenn Le Bris'), ch('telephone', '02 98 12 34 56'), ch('email', 'compta@kerlann.test'),
+    ch('adresse', '3 quai de l’Odet'), ch('code_postal', '29000'), ch('ville', 'Quimper'),
+  ]);
+  const c = Fi.coordonnees(client);
+  assert.equal(c.tel?.lien, 'tel:+33298123456', 'le numéro se compose depuis la fiche');
+  assert.equal(c.courriel?.lien, 'mailto:compta@kerlann.test');
+  assert.equal(c.adresse, '3 quai de l’Odet, 29000 Quimper', 'adresse complète, utilisable pour placer le lieu');
+  assert.equal(Fi.adressePostale(client), '3 quai de l’Odet, 29000 Quimper');
+  assert.deepEqual(Fi.actionsEntete(client).map((a) => a.id), ['appeler', 'ecrire']);
+  // un « Contact » qui n'est qu'un nom ne masque pas le vrai numéro
+  const sansTel = o('t2', 'Cave de Rhuys', 'entreprise', 'tiers', [ch('contact', 'Yann'), ch('ville', 'Sarzeau')]);
+  assert.equal(Fi.coordonnees(sansTel).tel, null);
+  assert.equal(Fi.adressePostale(sansTel), 'Sarzeau', 'sans rue ni code postal, la ville suffit');
+  assert.equal(Fi.adressePostale(o('t3', 'X', 'entreprise', 'tiers', [ch('ville', null)])), null);
+  // les coordonnées sont groupées ensemble, dans l'ordre de lecture
+  const grp = Fi.groupesFiche(client).find((x) => x.id === 'coordonnees');
+  assert.deepEqual(grp?.champs.map((x) => x.id), ['contact', 'telephone', 'email', 'adresse', 'code_postal', 'ville']);
+});
+
+test('univers générique : un tiers porte téléphone, adresse et code postal (G12)', () => {
+  const u = JSON.parse(readFileSync(new URL('../../univers/generique.json', import.meta.url), 'utf8')) as { types: Array<{ id: string; famille: string; champs: Array<{ id: string; libelle: string }> }> };
+  for (const t of u.types.filter((x) => x.famille === 'tiers')) {
+    const ids = t.champs.map((c) => c.id);
+    for (const attendu of ['telephone', 'adresse', 'code_postal', 'ville']) {
+      assert.ok(ids.includes(attendu), `${t.id} : champ « ${attendu} » attendu`);
+    }
+  }
+  const e = u.types.find((x) => x.id === 'entreprise');
+  assert.equal(e?.champs.find((c) => c.id === 'telephone')?.libelle, 'Téléphone');
+  assert.equal(e?.champs.find((c) => c.id === 'code_postal')?.libelle, 'Code postal');
 });
 
 test('édition en place : saisie lue à la française, erreurs en clair, rien n’est envoyé si rien ne change', () => {

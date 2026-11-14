@@ -24,7 +24,7 @@ if (process.env.LB_EN_LIGNE === '1') {
     if (u.protocol === 'https:' || u.protocol === 'http:') origine = u.origin;
   } catch { /* LB_ORIGINE absente ou invalide */ }
   if (!origine) {
-    console.error('LB_EN_LIGNE=1 : indiquez l’adresse du jeu dans LB_ORIGINE (ex. https://jeu.monentreprise.fr).');
+    console.error('LB_EN_LIGNE=1 : indiquez l’adresse de Living Business dans LB_ORIGINE (ex. https://jeu.monentreprise.fr).');
     process.exit(1);
   }
 }

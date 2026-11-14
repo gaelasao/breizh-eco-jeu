@@ -225,14 +225,16 @@ const E = {
   sousReglages: null,       // page de Réglages ouverte (null : la liste des sections sur téléphone)
   sources: null,
   dernieres: {},            // dernière vue visitée de chaque groupe (onglets du téléphone)
-  railReplie: lireLocal('lb-rail') === 'replie',
+  // null : aucun choix fait, le menu suit la largeur (replié sur un écran étroit, déplié au-delà)
+  railReplie: lireLocal('lb-rail') === 'replie' ? true : lireLocal('lb-rail') === 'ouvert' ? false : null,
   reports: lireReports(),   // « Plus tard » : actions renvoyées au lendemain, sur cet appareil
   cranFeuille: 'mi',        // feuille de la carte sur téléphone : poignee, mi (40 %), plein (90 %)
   replisOuverts: new Set(), // sections repliées d'« Aujourd'hui » que la personne a ouvertes (gardées au rendu)
   ongletFeuille: 'aujourdhui',
   hudMasque: false,         // « Masquer l'interface » (H) : la carte seule
   boussole: false,          // la boussole n'apparaît qu'après une rotation (§5.5)
-  miniCarte: lireLocal('lb-minicarte') !== 'repliee',
+  // null : aucun choix fait, le plan du port suit la largeur (replié tant que la carte est à l'étroit)
+  miniCarte: lireLocal('lb-minicarte') === 'repliee' ? false : lireLocal('lb-minicarte') === 'ouverte' ? true : null,
   perso: lirePersonnalisation(lireLocal(CLE_PERSO)), // carte personnalisée : noms, couleurs, places, sur cet appareil
   charger3D: false,         // réseau faible : la 3D ne se charge que sur demande (§5.10)
   simplicite: { tout: false, vues: null }, // choix de la personne : « Tout afficher », notes déjà lues (web/simplicite.js)
@@ -1085,7 +1087,10 @@ function rendreTout() {
    « G puis une lettre ». Les entrées sont de vrais liens (#/vue) : ouvrir dans un nouvel onglet et Retour marchent. */
 const estTelephone = () => matchMedia('(max-width: 37.49em)').matches;
 const estOrdinateur = () => matchMedia('(min-width: 60em)').matches;
-const railEffectif = () => !estOrdinateur() || E.railReplie;
+/* Entre 960 et 1 200 px (un 1024×768, un portable à côté d'une fenêtre) : le menu complet mange un cinquième de la
+   largeur et pousse le reste. Tant que personne n'a choisi, il s'ouvre replié ; un clic le déplie et ce choix reste. */
+const ecranEtroit = () => matchMedia('(min-width: 60em) and (max-width: 74.99em)').matches;
+const railEffectif = () => !estOrdinateur() || (E.railReplie ?? ecranEtroit());
 const VUES_AVEC_TITRE = new Set(['carte', 'matin', 'tableau', 'pipeline', 'sante', 'planning', 'courrier', 'satisfaction', 'optimiser', 'departements', 'nexus', 'reglages', 'compte', 'progression']); // le titre (h1) est dans l'en-tête
 const vueAvecTitre = (v) => VUES_AVEC_TITRE.has(v) || estVueListe(v) || String(v).startsWith('dep:');
 const LIBELLE_TON = { critique: 'Critique', attention: 'À traiter', info: 'Information', ok: 'En ordre' };
@@ -1299,9 +1304,9 @@ function rendreRail() {
           icone(e.icone), h('span', { class: 'bz-rail__libelle', texte: e.libelle }))
         : lienNav(e, { classe: 'bz-rail__lien', infobulle: replie }))),
       h('button', {
-        type: 'button', class: 'bz-rail__lien bz-rail__replier', cle: 'rail-replier', 'aria-expanded': !E.railReplie, 'aria-controls': 'rail', 'aria-keyshortcuts': 'B',
+        type: 'button', class: 'bz-rail__lien bz-rail__replier', cle: 'rail-replier', 'aria-expanded': !replie, 'aria-controls': 'rail', 'aria-keyshortcuts': 'B',
         'data-infobulle': replie ? 'Déplier le menu (B)' : null, 'data-infobulle-place': 'droite', onclick: basculerRail,
-      }, icone(E.railReplie ? 'panel-left' : 'panel-left-close'), h('span', { class: 'bz-rail__libelle', texte: E.railReplie ? 'Déplier le menu' : 'Replier le menu' }),
+      }, icone(replie ? 'panel-left' : 'panel-left-close'), h('span', { class: 'bz-rail__libelle', texte: replie ? 'Déplier le menu' : 'Replier le menu' }),
       h('kbd', { class: 'bz-raccourci', 'aria-hidden': 'true', texte: 'B' }))));
   const liste = n.querySelector('.bz-rail__groupes');
   if (liste) {
@@ -1318,7 +1323,7 @@ function rendreRail() {
 }
 function basculerRail() {
   if (!estOrdinateur()) return;
-  E.railReplie = !E.railReplie;
+  E.railReplie = !railEffectif(); // le premier clic part de ce qui est à l'écran, pas d'un réglage jamais touché
   ecrireLocal('lb-rail', E.railReplie ? 'replie' : 'ouvert');
   masquerInfobulle();
   rendreRail();
@@ -1618,7 +1623,7 @@ window.addEventListener('popstate', () => {
   if (v !== E.vue && `#/${adresseDepuisVue(v)}` !== adresseDeVue()) changerVue(v, { historique: false });
 });
 // Le rail (ordinateur ou tablette) et la feuille de la carte (téléphone) suivent la largeur de la fenêtre
-for (const q of ['(min-width: 60em)', '(max-width: 37.49em)']) {
+for (const q of ['(min-width: 60em)', '(min-width: 75em)', '(max-width: 37.49em)', '(min-width: 68.75em)']) {
   matchMedia(q).addEventListener?.('change', () => { if (!E.monde || !$('#coque')) return; masquerInfobulle(); rendreBarre(); if (E.vue === 'carte') rendreHud(); });
 }
 
@@ -2119,7 +2124,10 @@ function rendreHudInterne() {
   // « Connecter mes données » reste visible tant qu'aucune source n'est connectée (§5.6), mais une vue n'a qu'un bouton
   // principal (P1, §4.5) : s'il y a déjà celui de la carte héros d'« Aujourd'hui » (panneau ouvert), il passe en secondaire
   const herosPrincipal = !estTelephone() && !E.matinReduit && !(Boolean(E.selection) && !E.panneauMalgreFiche && !matchMedia('(min-width: 100em)').matches) && Boolean(planCourant().heros?.bouton);
-  const connecter = sansSourceReelle() ? h('button', { type: 'button', class: `bz-bouton ${herosPrincipal ? 'bz-bouton--secondaire' : 'bz-bouton--principal'}`, cle: 'hud-connecter', onclick: () => ouvrirAssistant() }, icone('plug'), 'Connecter mes données') : null;
+  // carte à l'étroit (sous 1 100 px, ou fiche ouverte) : la barre d'outils passerait sur deux lignes et recouvrirait le
+  // plan du port. « Connecter mes données » la quitte — il reste dans le menu et dans le panneau — et le plan se replie.
+  const carteEtroite = () => !matchMedia('(min-width: 68.75em)').matches || (Boolean(E.selection) && !matchMedia('(min-width: 100em)').matches);
+  const connecter = sansSourceReelle() && !carteEtroite() ? h('button', { type: 'button', class: `bz-bouton ${herosPrincipal ? 'bz-bouton--secondaire' : 'bz-bouton--principal'}`, cle: 'hud-connecter', onclick: () => ouvrirAssistant() }, icone('plug'), 'Connecter mes données') : null;
   // un nouveau rendu (calques, mise à jour en direct) garde la position de lecture de la feuille ou du panneau
   const defile = $('#feuille-corps')?.scrollTop ?? $('#panneau-aujourdhui')?.scrollTop ?? 0;
   const garderDefilement = () => { const n = $('#feuille-corps') ?? $('#panneau-aujourdhui'); if (n && defile) n.scrollTop = defile; };
@@ -2148,7 +2156,7 @@ function rendreHudInterne() {
       h('div', { class: 'commandes-carte bz-verre', role: 'group', 'aria-label': 'Caméra' }, zoomAvant(), zoomArriere(), pivoter(), recentrer(),
         boutonCarte(document.fullscreenElement ? 'minimize' : 'maximize', document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran', document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran', pleinEcran)),
       boussole()),
-    E.miniCarte !== false ? miniCarte({ repliable: true }) : h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-verre hud-minicarte-ouvrir', cle: 'minicarte-ouvrir', onclick: () => basculerMiniCarte(true) }, icone('map'), 'Mini-carte'),
+    (E.miniCarte ?? !carteEtroite()) ? miniCarte({ repliable: true }) : h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-verre hud-minicarte-ouvrir', cle: 'minicarte-ouvrir', onclick: () => basculerMiniCarte(true) }, icone('map'), 'Mini-carte'),
     h('div', { class: 'hud-bas' },
       visite,
       h('div', { class: 'bz-barre-carte bz-verre', role: 'toolbar', 'aria-label': 'Outils de la carte' },
@@ -2355,7 +2363,24 @@ function faireAction(a) {
   if (a.type === 'attente') return approuver(a.attente);
   // déjà prise en charge : on ouvre la tâche en cours, là où l'on est (ni nouvelle tâche, ni changement d'écran)
   if (a.suivi) return selectionner(a.suivi.tacheId);
+  // le geste le plus fréquent, en un clic : la tâche porte le titre de la quête, l'écran ne bouge pas (G6)
+  if (a.direct === 'tache.creer' && E.monde.profil.peutApprouver && tacheProposee(a.objetId).titre) return creerTacheDirecte(a.objetId);
   return ouvrirSurCarte(a.objetId, Boolean(a.direct));
+}
+
+/**
+ * « Créer une tâche » en un geste depuis « Aujourd'hui » : titre et échéance déjà écrits, rien à vérifier pour qui
+ * peut approuver, et on reste sur l'écran où l'on est. Le toast dit ce qui a été créé et mène à la tâche.
+ */
+async function creerTacheDirecte(objetId) {
+  const p = tacheProposee(objetId);
+  try {
+    const a = await api('POST', '/actions', { cle: cle(), capacite: 'tache.creer', cible: objetId, parametres: { titre: p.titre, echeance: p.echeance }, executer: true });
+    if (a.etat !== 'reussie_technique') { informer(a.message ? `${LIBELLES.etat[a.etat] ?? a.etat} : ${a.message}` : LIBELLES.etat[a.etat] ?? a.etat, a.etat === 'en_attente' ? '' : 'erreur'); await charger(); return; }
+    await charger();
+    const t = E.monde.objets.find((x) => x.famille === 'tache' && x.nom === p.titre && valeurDe(x, 'concerne') === objetId);
+    toast({ texte: typo(`Tâche créée : ${p.titre}, pour le ${date(p.echeance)}.`), ton: 'ok', action: t ? { libelle: 'Voir la tâche', faire: () => selectionner(t.id) } : null });
+  } catch (e) { if (!e.session) informer(e.message, 'erreur'); }
 }
 
 const sauverReports = () => ecrireLocal('lb-plus-tard', JSON.stringify(E.reports));
@@ -2995,7 +3020,8 @@ async function rendreListe(vue) {
   const champRecherche = h('label', { class: 'bz-recherche bz-liste__recherche' },
     icone('search'),
     h('span', { class: 'bz-visuellement-cache', texte: `Rechercher dans ${libelleListe.toLowerCase()}` }),
-    h('input', { class: 'bz-champ__saisie', type: 'search', id: 'recherche-liste', enterkeyhint: 'search', autocomplete: 'off', placeholder: `Rechercher dans ${libelleListe.toLowerCase()}…`, value: E.recherche,
+    // téléphone : le champ partage sa ligne avec le filtre, l'indication reste entière (le nom de la liste est au-dessus)
+    h('input', { class: 'bz-champ__saisie', type: 'search', id: 'recherche-liste', enterkeyhint: 'search', autocomplete: 'off', placeholder: estTelephone() ? 'Rechercher…' : `Rechercher dans ${libelleListe.toLowerCase()}…`, value: E.recherche,
       oninput: (e) => { E.recherche = e.target.value; rerendre(); } }));
   remplir($('#page'),
     h('div', { class: 'bz-ecran bz-liste', 'data-selection': coches.length ? '' : null },
@@ -3005,7 +3031,8 @@ async function rendreListe(vue) {
           exemple ? h('span', { class: 'bz-badge' }, icone('flask-conical', { taille: 'sm' }), 'Exemple') : null),
         h('div', { class: 'bz-groupe-boutons' },
           m.profil.peutAdministrer && cible.type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirSaisie(cible) }, icone('plus'), 'Ajouter') : null,
-          m.profil.peutAdministrer && cible.type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirAssistant('fichier', cible) }, icone('upload'), 'Importer un fichier') : null)),
+          // sur téléphone, « Importer » suffit : les deux boutons tiennent alors sur la ligne du compteur (F9)
+          m.profil.peutAdministrer && cible.type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirAssistant('fichier', cible) }, icone('upload'), estTelephone() ? 'Importer' : 'Importer un fichier') : null)),
       h('div', { class: 'bz-liste__outils' },
         champRecherche,
         h('div', { class: 'bz-liste__vues' },
@@ -3236,8 +3263,10 @@ function valeurFiche(c, o) {
     }
   }
   if (T && typeof c.valeur === 'string' && c.id === 'email') { const m = T.courrielDe(c.valeur); if (m) return h('a', { href: m.lien, texte: m.adresse }); }
-  if (T && typeof c.valeur === 'string' && (c.id === 'adresse' || (c.id === 'ville' && o.famille === 'tiers'))) {
-    const url = T.lienItineraire(c.id === 'ville' ? c.valeur : [c.valeur, o.champs.find((x) => x.id === 'ville')?.valeur].filter(Boolean).join(', '), { appli: lireLocal('lb-itineraire') ?? 'systeme', ios: estIos() });
+  // « Y aller » une seule fois par fiche : sur l'adresse si elle existe, sinon sur la ville d'un tiers.
+  const aAdresse = (o.champs ?? []).some((x) => x.id === 'adresse' && typeof x.valeur === 'string' && x.valeur.trim());
+  if (T && FICHES && typeof c.valeur === 'string' && (c.id === 'adresse' || (c.id === 'ville' && o.famille === 'tiers' && !aAdresse))) {
+    const url = T.lienItineraire(FICHES.adressePostale(o) ?? c.valeur, { appli: lireLocal('lb-itineraire') ?? 'systeme', ios: estIos() });
     return h('span', { class: 'bz-fiche__adresse' }, h('span', { texte: c.valeur }), url ? h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm' }, icone('navigation', { taille: 'sm' }), 'Y aller') : null);
   }
   if (o.type === 'courrier' && c.id === 'bac') return h('span', { class: 'bz-badge', texte: formatValeur(c) });
@@ -3593,8 +3622,21 @@ function resumeParametres(a) {
 }
 
 // ---------------------------------------------------------------- actions (préparer → vérifier → confirmer)
+/**
+ * Ce qu'on proposerait pour une tâche liée à une fiche : le titre de la quête ouverte (« Relancer F-041 ») et une
+ * échéance à huit jours. Le geste le plus fréquent du produit n'a ainsi plus rien à saisir.
+ */
+function tacheProposee(objetId) {
+  const o = E.monde.objets.find((x) => x.id === objetId);
+  const q = o ? (E.monde.quetes ?? []).find((x) => x.origine?.objetId === o.id && x.statut === 'ouverte') : null;
+  return {
+    titre: q ? JEU.titreQuete(q.origine.regle, [o.nom]) : '',
+    echeance: jourLocal(new Date(Date.now() + 7 * 86_400_000)),
+  };
+}
 const nouveauFormulaire = (a) => {
   const f = { ...a, cle: cle(), etape: 'saisie', valeurs: { sens: 'entree', quantite: '', motif: '', titre: '', echeance: '' }, erreur: null, envoi: false };
+  if (a.capacite === 'tache.creer' && E.fiche) Object.assign(f.valeurs, tacheProposee(E.fiche.objet.id));
   if (a.capacite === 'objet.modifier' && E.fiche) {
     f.valeurs.nom = E.fiche.objet.nom;
     f.valeurs.champs = Object.fromEntries(E.fiche.objet.champs.map((c) => [c.id, c.lien ? c.lien.id : c.valeur]));
@@ -3645,6 +3687,9 @@ function rendreActions(f, entete = []) {
           champAction('action-titre', 'Titre de la tâche', h('input', { id: 'action-titre', class: 'bz-champ__saisie', type: 'text', maxlength: '200', required: true, value: v.titre, 'aria-invalid': F.erreur ? 'true' : null, oninput: (e) => (v.titre = e.target.value) })),
           champAction('action-echeance', 'Échéance (facultatif)', h('input', { id: 'action-echeance', class: 'bz-champ__saisie', type: 'date', value: v.echeance, oninput: (e) => (v.echeance = e.target.value) })),
         ];
+    // une tâche, pour qui a le droit d'approuver : un seul bouton. L'écran de contrôle n'apprend rien à cette personne,
+    // et le geste est le plus fréquent du produit. Qui prépare sans approuver garde « Vérifier » avant l'envoi.
+    const unGeste = F.capacite === 'tache.creer' && E.monde.profil.peutApprouver && !sim;
     return h('form', { class: 'bz-fiche__section bz-formulaire', 'aria-labelledby': 'fiche-action-titre', onsubmit: (e) => {
         e.preventDefault();
         const q = Number(String(v.quantite).replace(',', '.'));
@@ -3652,13 +3697,17 @@ function rendreActions(f, entete = []) {
         if (F.capacite === 'mouvement') v.quantite = String(q);
         if (F.capacite === 'tache.creer' && !v.titre.trim()) { F.erreur = 'Indiquez un titre.'; rendreFiche(); return; }
         F.erreur = null;
+        if (unGeste) { if (!F.envoi) envoyerAction(f, 0); return; }
         F.etape = 'confirmation';
         rendreFiche();
         setTimeout(() => $('#fiche-confirmation')?.focus(), 0);
       } },
       h('h3', { class: 'bz-t-titre-4', id: 'fiche-action-titre', texte: titre }), champs,
       F.erreur ? h('p', { class: 'bz-champ__erreur', role: 'alert' }, icone('circle-alert', { taille: 'sm' }), h('span', { texte: F.erreur })) : null,
-      h('div', { class: 'bz-groupe-boutons' }, h('button', { class: 'bz-bouton bz-bouton--principal', type: 'submit' }, 'Vérifier'), h('button', { class: 'bz-bouton bz-bouton--fantome', type: 'button', onclick: fermerForm }, 'Annuler')));
+      h('div', { class: 'bz-groupe-boutons' },
+        h('button', { class: 'bz-bouton bz-bouton--principal', type: 'submit', 'aria-busy': unGeste && F.envoi ? 'true' : null },
+          unGeste && F.envoi ? icone('loader-circle') : null, unGeste ? (F.envoi ? 'Création…' : 'Créer la tâche') : 'Vérifier'),
+        h('button', { class: 'bz-bouton bz-bouton--fantome', type: 'button', onclick: fermerForm }, 'Annuler')));
   }
   const delta = (v.sens === 'sortie' ? -1 : 1) * Number(v.quantite);
   const effet = F.capacite === 'mouvement'
@@ -3688,9 +3737,12 @@ async function envoyerAction(f, delta) {
     : F.capacite === 'mouvement' ? { champ: F.champ, delta, motif: F.valeurs.motif.trim() } : { titre: F.valeurs.titre.trim(), ...(F.valeurs.echeance ? { echeance: F.valeurs.echeance } : {}) };
   try {
     const a = await api('POST', '/actions', { cle: F.cle, capacite: F.capacite, cible: f.objet.id, parametres, executer: E.monde.profil.peutApprouver });
+    const titreTache = F.capacite === 'tache.creer' ? F.valeurs.titre.trim() : null;
     E.formulaire = null;
     const t = { reussie_technique: ['ok', `Action enregistrée${a.message ? ` : ${a.message}` : ''}.`], en_attente: ['', 'Action envoyée pour approbation.'], echouee: ['erreur', `Action refusée : ${a.message ?? 'échec'}`], resultat_inconnu: ['erreur', 'Résultat inconnu : vérifiez avant de relancer.'] }[a.etat] ?? ['', LIBELLES.etat[a.etat]];
-    informer(t[1], t[0]);
+    // une tâche créée se dit par son nom, et mène à elle : « Action enregistrée » ne dit pas ce qui existe maintenant
+    if (titreTache && a.etat === 'reussie_technique') toast({ texte: typo(`Tâche créée : ${titreTache}.`), ton: 'ok' });
+    else informer(t[1], t[0]);
     await charger();
     // la confirmation a disparu : le focus revient au titre de la fiche, jamais sur <body>
     if (!$('#fiche')?.contains(document.activeElement)) $('#fiche-titre')?.focus({ preventScroll: true });
@@ -4009,7 +4061,7 @@ function contenuAssistant(A) {
   if (A.etape === 'recuperer') return [corpsRecuperer(A.outil), [boutonRetour('connexion'),
     A.outil?.apercu ? boutonPrincipal('Continuer', () => allerEtape('colonnes')) : null]];
   if (A.etape === 'colonnes' && A.parcours === 'outil') return [corpsColonnesOutil(A.outil), [boutonRetour('recuperer'),
-    boutonPrincipal(`Importer ${pluriel(A.outil?.apercu?.enregistrements ?? 0, 'fiche', 'fiches')} dans le jeu`, () => activerOutil(A.outil), { occupe: A.envoi, enCours: 'Import…' })]];
+    boutonPrincipal(`Importer ${pluriel(A.outil?.apercu?.enregistrements ?? 0, 'fiche', 'fiches')} dans Living Business`, () => activerOutil(A.outil), { occupe: A.envoi, enCours: 'Import…' })]];
   if (A.etape === 'colonnes') return [corpsColonnes(A), [boutonRetour('fichier'), boutonPrincipal(`Importer ${pluriel(A.analyse?.lignes ?? 0, 'ligne', 'lignes')}`, confirmer, { occupe: A.envoi, enCours: 'Import…' })]];
   if (A.etape === 'connexion') return [corpsConnexion(A.outil), [boutonRetour('choisir'), piedConnexion(A.outil)]];
   if (A.etape === 'fec') return [corpsFec(A), [boutonRetour('choisir')]];
@@ -4130,13 +4182,12 @@ function resultatsCatalogue(A) {
 }
 /** Carte d'un logiciel ou d'un compte (§4.23) : pictogramme, nom en entier ; « 1 clic » est la seule pastille. */
 function carteLogiciel(x, { conseil = false, faire = null } = {}) {
-  const dedans = (x.contenus ?? []).filter((c) => c.disponible).map((c) => c.libelle);
+  // la description d'un compte énumère déjà ce qui est vraiment ouvert : pas de seconde liste sous la première
   return h('button', { type: 'button', class: `bz-logiciel${conseil ? ' bz-logiciel--conseil' : ''}`, cle: `${conseil ? 'conseil' : 'logiciel'}-${x.cle}`, onclick: () => (faire ? faire(x) : choisirEntree(x)) },
     h('span', { class: 'bz-logiciel__icone', 'aria-hidden': 'true' }, icone(x.icone)),
     h('span', { class: 'bz-logiciel__texte' },
       h('span', { class: 'bz-logiciel__nom' }, h('span', { texte: x.nom }), x.unClic ? h('span', { class: 'bz-badge' }, icone('mouse-pointer-click'), '1 clic') : null),
-      x.description ? h('span', { class: 'bz-logiciel__description', texte: x.description }) : null,
-      dedans.length > 1 ? h('span', { class: 'bz-logiciel__description', texte: `Dans ce compte : ${dedans.join(', ')}.` }) : null));
+      x.description ? h('span', { class: 'bz-logiciel__description', texte: x.description }) : null));
 }
 function choisirEntree(x) {
   const A = E.assistant;
@@ -4910,6 +4961,18 @@ let COURRIER = null;
 const chargerCourrier = async () => (COURRIER ??= await import('/courrier.js'));
 const RANG_URGENCE = { haute: 0, normale: 1, basse: 2 };
 
+/**
+ * Boîtes mail réellement branchables aujourd'hui (le relais n'ouvre un produit que si l'hébergeur a fait vérifier ses
+ * droits chez Google ou Microsoft). Liste vide : recevoir ses mails tout seuls n'est pas possible ici, et on le dit.
+ */
+let boitesPromesse = null;
+const boitesMail = () => (boitesPromesse ??= (async () => {
+  try {
+    E.sources ??= await api('GET', '/sources');
+    return ['gmail', 'outlook'].map((id) => (E.sources ?? []).find((s) => s.id === id)).filter((s) => s?.oauth).map((s) => ({ id: s.id, nom: s.nom }));
+  } catch { return []; }
+})());
+
 /** Écrit le statut d'un courrier, optimiste et annulable ; un refus revient en arrière avec sa raison sous la ligne. */
 async function statutCourrier(o, traite) {
   const c = o.champs.find((x) => x.id === 'statut');
@@ -5153,12 +5216,17 @@ async function rendreCourrier() {
     champ?.focus();
   };
   const boutonAjouter = (classe) => h('button', { type: 'button', class: `bz-bouton ${classe}`, cle: 'courrier-ajouter', 'aria-controls': 'courrier-avance', onclick: ajouterCourrier }, icone('clipboard-paste'), 'Ajouter un courrier');
+  // B6 : boîte vide, on dit ce qui est possible AUJOURD'HUI, selon ce que le relais ouvre vraiment
+  const boites = await boitesMail();
+  if (E.vue !== 'courrier') return;
   const avance = peut ? h('details', { class: 'bz-repli', id: 'courrier-avance', open: Boolean(C.tri.ouvert || C.tri.texte || C.tri.resultat || C.tri.erreur) || null,
     ontoggle: (e) => { C.tri.ouvert = e.currentTarget.open; } },
     h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Ajouter un courrier : coller un mail' }), h('span', { class: 'bz-repli__note', texte: 'tri par mots-clés, sans IA' }), icone('chevron-down', { taille: 'sm' })),
     h('div', { class: 'bz-repli__corps bz-pile' },
       h('p', { class: 'bz-t-petit', texte: 'Collez un mail : Living Business propose le bac, l’urgence, la personne et l’action.' }),
-      h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Pour que vos messages arrivent tout seuls : « Connecter mes données », puis votre compte Google ou Microsoft. Le texte des messages, lui, ne quitte jamais votre messagerie.' }),
+      h('p', { class: 'bz-t-petit bz-texte-2', texte: boites.length
+        ? `Pour que vos messages arrivent tout seuls : branchez votre boîte ${boites.map((b) => b.nom).join(' ou ')}. Le texte des messages, lui, ne quitte jamais votre messagerie.`
+        : 'Recevoir vos messages tout seuls n’est pas encore possible ici : c’est le seul chemin aujourd’hui.' }),
       h('div', { class: 'bz-champ' },
         h('label', { class: 'bz-champ__libelle', for: 'courrier-colle', texte: 'Texte du mail' }),
         h('textarea', { id: 'courrier-colle', class: 'bz-champ__saisie', rows: '6', placeholder: 'De : …\nObjet : …\nTexte du mail', oninput: (e) => (C.tri.texte = e.target.value) }, C.tri.texte)),
@@ -5169,6 +5237,17 @@ async function rendreCourrier() {
           ['Pour', C.tri.resultat.destinataire ? sansDemo(C.tri.resultat.destinataire.nom) : 'À choisir'], ['Action proposée', C.tri.resultat.action]].map(([k, v]) => h('div', { class: 'bz-champ-fiche' }, h('dt', { class: 'bz-champ-fiche__libelle', texte: k }), h('dd', { class: 'bz-champ-fiche__valeur', texte: v ?? '—' })))),
         m.profil.peutAdministrer ? h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: ajouter }, icone('plus'), 'Ajouter au courrier')) : null) : null)) : null;
 
+  const boutonBoite = () => h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'courrier-brancher', onclick: () => ouvrirConnecteur(boites[0].id) },
+    icone('mail'), 'Brancher ma boîte mail');
+  const videCourrier = () => videRubrique('courrier', {
+    titre: 'Aucun courrier pour le moment.',
+    texte: boites.length
+      ? `Branchez votre boîte ${boites.map((b) => b.nom).join(' ou ')} : vos messages récents arrivent ici, triés par bac et par urgence. Leur texte, lui, reste dans votre messagerie.`
+      : 'Recevoir vos mails tout seuls n’est pas encore possible ici. En attendant, collez un mail : Living Business propose le bac, l’urgence, la personne et l’action.',
+    action: boites.length ? boutonBoite() : peut ? boutonAjouter('bz-bouton--principal') : null,
+    secondaire: boites.length && peut ? boutonAjouter('bz-bouton--secondaire') : null,
+  });
+
   const filtre = C.bac !== 'tous' || C.pour !== 'tous' || C.recherche.trim();
   remplir($('#page'), h('div', { class: 'bz-ecran bz-courrier' },
     h('div', { class: 'bz-liste__tete' },
@@ -5177,7 +5256,7 @@ async function rendreCourrier() {
       peut && toutes.length ? h('div', { class: 'bz-groupe-boutons' }, boutonAjouter('bz-bouton--secondaire')) : null),
     toutes.length ? h('div', { class: 'bz-liste__outils' },
       h('label', { class: 'bz-recherche bz-liste__recherche' }, icone('search'), h('span', { class: 'bz-visuellement-cache', texte: 'Rechercher dans le courrier' }),
-        h('input', { class: 'bz-champ__saisie', type: 'search', id: 'recherche-courrier', enterkeyhint: 'search', autocomplete: 'off', placeholder: 'Rechercher un expéditeur, un objet…', value: C.recherche, oninput: (e) => changer('recherche', e.target.value) })),
+        h('input', { class: 'bz-champ__saisie', type: 'search', id: 'recherche-courrier', enterkeyhint: 'search', autocomplete: 'off', placeholder: estTelephone() ? 'Rechercher…' : 'Rechercher un expéditeur, un objet…', value: C.recherche, oninput: (e) => changer('recherche', e.target.value) })),
       dests.length ? h('div', { class: 'bz-liste__vues' },
         h('label', { class: 'bz-visuellement-cache', for: 'courrier-pour', texte: 'Pour qui' }),
         h('div', { class: 'bz-select' },
@@ -5191,7 +5270,7 @@ async function rendreCourrier() {
         C.bac === b.id ? icone('check', { taille: 'sm' }) : null, `${b.libelle} · ${b.nb}`, b.urgents ? icone('octagon-alert', { taille: 'sm', classe: 'bz-courrier__urgent' }) : null))),
       h('li', {}, h('button', { type: 'button', class: 'bz-puce', 'aria-pressed': C.traites, onclick: () => changer('traites', !C.traites) }, icone(C.traites ? 'eye' : 'eye-off', { taille: 'sm' }), 'Afficher les traités'))) : null,
     filtreDepartements(),
-    !toutes.length ? videRubrique('courrier', { action: peut ? boutonAjouter('bz-bouton--principal') : null })
+    !toutes.length ? videCourrier()
       : !liste.length ? (filtre
         ? blocVide({ titre: 'Aucun courrier pour ces filtres.', texte: 'Essayez d’élargir la recherche.', actions: h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { Object.assign(C, { bac: 'tous', pour: 'tous', recherche: '' }); rendreCourrier(); } }, icone('x'), 'Effacer les filtres') })
         : blocVide({ titre: 'Rien à traiter.', texte: 'Tout le courrier est traité.', actions: h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => changer('traites', true) }, icone('eye'), 'Afficher les traités') }))
@@ -5731,7 +5810,7 @@ function dessinerSuivi(V) {
     c || prop ? null : sectionReglage('suivi-aucun', 'Créer mon fichier de suivi', 'Connectez d’abord un compte Google, Notion ou Airtable : le fichier de suivi se crée dans VOTRE espace, avec VOTRE compte.',
       h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => changerVue('reglages:outils') }, icone('plug'), 'Connecter un compte'))),
     // ----- j'ai déjà un classeur
-    c ? null : sectionReglage('suivi-deja', 'J’ai déjà un classeur', 'Le jeu y ajoute les onglets qui manquent et n’efface rien de ce qui s’y trouve.',
+    c ? null : sectionReglage('suivi-deja', 'J’ai déjà un classeur', 'Living Business y ajoute les onglets qui manquent et n’efface rien de ce qui s’y trouve.',
       h('form', { class: 'bz-formulaire', novalidate: true, onsubmit: (e) => { e.preventDefault(); occupe(e, true); return creer(compte, e.submitter, S.lien); } },
         h('div', { class: 'bz-champ' },
           h('label', { class: 'bz-champ__libelle', for: 'suivi-lien', texte: 'Lien de mon classeur' }),
@@ -5767,7 +5846,7 @@ function dessinerSuivi(V) {
         } }, icone('rotate-ccw'), 'Tout réécrire'),
         h('button', { type: 'button', class: 'bz-bouton bz-bouton--danger', onclick: async (e) => {
           if (!(await confirmerDialogue({ titre: 'Ne plus suivre ce fichier ?', texte: SUIVI.TEXTE_DETACHER, confirmer: 'Ne plus suivre', annuler: 'Garder', danger: true }))) return;
-          await appel(e.currentTarget, async () => { await api('DELETE', '/suivi'); return 'Le jeu n’écrit plus dans ce fichier. Il reste chez vous.'; });
+          await appel(e.currentTarget, async () => { await api('DELETE', '/suivi'); return 'Living Business n’écrit plus dans ce fichier. Il reste chez vous.'; });
         } }, icone('unlink'), 'Ne plus suivre'))) : null);
 }
 
@@ -6083,7 +6162,7 @@ async function rendreMisesAJour(M = null) {
     messageEnLigne('critique', M.erreur),
     h('dl', { class: 'bz-champs-fiche' }, [['Version installée', M.actuelle || '—'], ['Dernière version publiée', M.derniere ?? 'inconnue'], ['Dernière vérification', M.verifieLe ? dateHeure(M.verifieLe) : 'jamais']]
       .map(([k, v]) => h('div', { class: 'bz-champ-fiche' }, h('dt', { class: 'bz-champ-fiche__libelle', texte: k }), h('dd', { class: 'bz-champ-fiche__valeur', texte: v })))),
-    interrupteurReglage({ cle: 'maj-auto', titre: 'Vérifier chaque jour', actif: Boolean(M.auto), aide: enLigne ? 'Recommandé pour un jeu en ligne, exposé sur Internet.' : 'Sinon, vérifiez de temps en temps avec le bouton ci-dessous.', regler: (auto) => agir(() => api('PUT', '/mises-a-jour', { auto })) }),
+    interrupteurReglage({ cle: 'maj-auto', titre: 'Vérifier chaque jour', actif: Boolean(M.auto), aide: enLigne ? 'Recommandé pour une installation en ligne, exposée sur Internet.' : 'Sinon, vérifiez de temps en temps avec le bouton ci-dessous.', regler: (auto) => agir(() => api('PUT', '/mises-a-jour', { auto })) }),
     source,
     h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => agir(() => api('POST', '/mises-a-jour', {})) }, icone('refresh-cw'), 'Vérifier maintenant'),
       !enLigne && M.telechargement ? lienExterne(M.telechargement, 'Page de téléchargement de Breizhcosystem') : null)));
@@ -6136,9 +6215,49 @@ async function rendreAcces() {
         p.id !== moi ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', onclick: () => voirComme(p.id) }, icone('eye', { taille: 'sm' }), 'Voir comme') : null))))));
 }
 
+/**
+ * Les trois rôles, dits en deux phrases : ce que la personne voit, ce qu'elle peut faire. Chacun arrive avec un
+ * périmètre complet, qui se restreint ensuite dans « Régler précisément ce qu'elle voit » : ajouter quelqu'un demande
+ * un nom et un rôle, plus une quarantaine de cases à cocher (G13). Le motif d'absence, donnée de santé, reste à part.
+ */
+const ROLES_ACCES = Object.freeze([
+  {
+    id: 'dirigeant', titre: 'Dirigeant',
+    detail: 'Voit toute l’entreprise, y compris le score de santé. Peut tout faire, règle les accès et les données.',
+    defauts: { peutPreparer: true, peutApprouver: true, voitScore: true, peutAdministrer: true },
+  },
+  {
+    id: 'responsable', titre: 'Responsable',
+    detail: 'Voit toute l’entreprise, y compris le score de santé. Prépare et approuve ; ne touche ni aux accès ni aux branchements.',
+    defauts: { peutPreparer: true, peutApprouver: true, voitScore: true, peutAdministrer: false },
+  },
+  {
+    id: 'collaborateur', titre: 'Collaborateur',
+    detail: 'Voit les fiches et le planning, pas le score de santé. Prépare ce qu’une personne habilitée approuve ensuite.',
+    defauts: { peutPreparer: true, peutApprouver: false, voitScore: false, peutAdministrer: false },
+  },
+].map(Object.freeze));
+const ACCES_PAR_DEFAUT = (role) => ({
+  role, lieux: 'tous', departements: 'tous', types: 'tous', rolesTiers: 'tous',
+  voitMotifsAbsence: false, ...(ROLES_ACCES.find((r) => r.id === role)?.defauts ?? {}),
+});
+
+/** Résumé du périmètre, lisible sans ouvrir le repli : « Toute l’entreprise » ou ce qui a été restreint. */
+function resumePerimetre(S, options) {
+  const tout = (k) => S[k] === 'tous';
+  const restreint = [
+    tout('lieux') ? null : pluriel(S.lieux.length, 'lieu', 'lieux'),
+    !options.departements.length || tout('departements') ? null : pluriel(S.departements.length, 'département', 'départements'),
+    tout('rolesTiers') ? null : `${pluriel(S.rolesTiers.length, 'rôle de tiers', 'rôles de tiers')}`,
+    tout('types') ? null : pluriel(S.types.length, 'type de fiche', 'types de fiche'),
+  ].filter(Boolean);
+  return restreint.length ? restreint.join(' · ') : 'toute l’entreprise';
+}
+
 function editerAcces(p, options) {
-  const S = p ? structuredClone(p) : { nom: '', role: 'collaborateur', lieux: [], departements: [], types: [], rolesTiers: [], peutPreparer: false, peutApprouver: false, voitScore: false, peutAdministrer: false, voitMotifsAbsence: false };
+  const S = p ? structuredClone(p) : { nom: '', ...ACCES_PAR_DEFAUT('collaborateur') };
   const E2 = { erreur: null, envoi: false };
+  let detailOuvert = false;
   const famillesTypes = [...new Set(options.types.map((t) => t.famille))];
   const LIB_FAM = { organisation: 'Entreprise', departement: 'Départements', personne: 'Employés', tiers: 'Clients, fournisseurs…', lieu: 'Lieux', projet: 'Projets', ressource: 'Stock et matériel', commande: 'Commandes et factures', tache: 'Tâches', evenement: 'Courrier et documents', indicateur: 'Indicateurs' };
   const caseAcces = (libelle, coche, changer, fort = false) => h('label', { class: 'bz-case' }, h('input', { type: 'checkbox', checked: coche, onchange: (e) => changer(e.target.checked) }), fort ? h('strong', { texte: libelle }) : libelle);
@@ -6164,27 +6283,36 @@ function editerAcces(p, options) {
     contenu: () => ({
       corps: [
         messageEnLigne('critique', E2.erreur),
-        h('div', { class: 'bz-grille-champs' },
-          h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'acces-nom', texte: 'Nom' }),
-            h('input', { id: 'acces-nom', class: 'bz-champ__saisie', type: 'text', required: true, maxlength: '80', autocomplete: 'off', value: S.nom, 'aria-invalid': E2.erreur && !S.nom.trim() ? 'true' : null, oninput: (e) => (S.nom = e.target.value) })),
-          h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'acces-role', texte: 'Rôle' }),
-            h('div', { class: 'bz-select' }, h('select', { id: 'acces-role', class: 'bz-champ__saisie', onchange: (e) => (S.role = e.target.value) }, [['dirigeant', 'Dirigeant'], ['responsable', 'Responsable'], ['collaborateur', 'Collaborateur']].map(([k, l]) => h('option', { value: k, selected: S.role === k, texte: l }))), icone('chevron-down', { taille: 'sm' })))),
-        choix('lieux', options.lieux, 'Lieux visibles'),
-        options.departements.length ? choix('departements', options.departements, 'Départements visibles') : null,
-        choix('rolesTiers', options.roles, 'Tiers visibles (par rôle)'),
-        h('fieldset', { class: 'bz-champ bz-champ--large' }, h('legend', { class: 'bz-champ__libelle', texte: 'Informations visibles' }),
-          caseAcces('Toutes', S.types === 'tous', (v) => { S.types = v ? 'tous' : []; D.rendre(); }, true),
-          S.types !== 'tous' ? famillesTypes.map((f) => h('div', { class: 'bz-pile bz-pile--serre' }, h('p', { class: 'bz-t-surtitre bz-texte-2', texte: LIB_FAM[f] ?? f }),
-            h('div', { class: 'bz-cases' }, options.types.filter((t) => t.famille === f).map((t) => caseAcces(t.libelle, S.types.includes(t.id), (v) => { S.types = v ? [...S.types, t.id] : S.types.filter((y) => y !== t.id); }))))) : null),
-        h('fieldset', { class: 'bz-champ bz-champ--large' }, h('legend', { class: 'bz-champ__libelle', texte: 'Droits' }),
-          h('div', { class: 'bz-cases' }, [['peutPreparer', 'Préparer des actions'], ['peutApprouver', 'Approuver et exécuter'], ['voitScore', 'Voir le score de santé'], ['peutAdministrer', 'Administrer (données, accès)'], ['voitMotifsAbsence', 'Voir et saisir les motifs d’absence (RH)']].map(([k, l]) => caseAcces(l, S[k], (v) => (S[k] = v)))),
-          h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Sans ce droit, une absence s’affiche « Absence », sans motif : un arrêt maladie est une donnée de santé, que seules les personnes chargées des RH ont à connaître.' })),
+        h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'acces-nom', texte: 'Nom' }),
+          h('input', { id: 'acces-nom', class: 'bz-champ__saisie', type: 'text', required: true, maxlength: '80', autocomplete: 'off', value: S.nom, 'aria-invalid': E2.erreur && !S.nom.trim() ? 'true' : null, oninput: (e) => (S.nom = e.target.value) })),
+        h('fieldset', { class: 'bz-champ bz-champ--large' },
+          h('legend', { class: 'bz-champ__libelle', texte: 'Rôle' }),
+          h('div', { class: 'bz-grille-choix' }, ROLES_ACCES.map((r) => h('label', { class: 'bz-choix' },
+            h('input', { type: 'radio', name: 'acces-role', value: r.id, checked: S.role === r.id, onchange: () => { S.role = r.id; if (!p) Object.assign(S, ACCES_PAR_DEFAUT(r.id)); D.rendre(); } }),
+            h('span', { class: 'bz-choix__texte' }, h('span', { class: 'bz-choix__titre', texte: r.titre }), h('span', { class: 'bz-choix__detail', texte: r.detail }))))),
+          p ? null : h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Ce rôle donne accès à toute l’entreprise. Pour n’ouvrir qu’une partie, réglez le détail ci-dessous ; changer de rôle le remet à zéro.' })),
+        h('details', { class: 'bz-repli', open: detailOuvert || null, ontoggle: (e) => { detailOuvert = e.currentTarget.open; } },
+          h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Régler précisément ce qu’elle voit' }),
+            h('span', { class: 'bz-repli__note', texte: resumePerimetre(S, options) }), icone('chevron-down', { taille: 'sm' })),
+          h('div', { class: 'bz-repli__corps bz-pile' },
+            choix('lieux', options.lieux, 'Lieux visibles'),
+            options.departements.length ? choix('departements', options.departements, 'Départements visibles') : null,
+            choix('rolesTiers', options.roles, 'Tiers visibles (par rôle)'),
+            h('fieldset', { class: 'bz-champ bz-champ--large' }, h('legend', { class: 'bz-champ__libelle', texte: 'Informations visibles' }),
+              caseAcces('Toutes', S.types === 'tous', (v) => { S.types = v ? 'tous' : []; D.rendre(); }, true),
+              S.types !== 'tous' ? famillesTypes.map((f) => h('div', { class: 'bz-pile bz-pile--serre' }, h('p', { class: 'bz-t-surtitre bz-texte-2', texte: LIB_FAM[f] ?? f }),
+                h('div', { class: 'bz-cases' }, options.types.filter((t) => t.famille === f).map((t) => caseAcces(t.libelle, S.types.includes(t.id), (v) => { S.types = v ? [...S.types, t.id] : S.types.filter((y) => y !== t.id); }))))) : null),
+            h('fieldset', { class: 'bz-champ bz-champ--large' }, h('legend', { class: 'bz-champ__libelle', texte: 'Droits' }),
+              h('div', { class: 'bz-cases' }, [['peutPreparer', 'Préparer des actions'], ['peutApprouver', 'Approuver et exécuter'], ['voitScore', 'Voir le score de santé'], ['peutAdministrer', 'Administrer (données, accès)'], ['voitMotifsAbsence', 'Voir et saisir les motifs d’absence (RH)']].map(([k, l]) => caseAcces(l, S[k], (v) => (S[k] = v)))),
+              h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Sans ce droit, une absence s’affiche « Absence », sans motif : un arrêt maladie est une donnée de santé, que seules les personnes chargées des RH ont à connaître.' })))),
         p ? h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--critique', onclick: async () => {
           if (!(await confirmerDialogue({ titre: `Retirer l’accès de ${sansDemo(p.nom)} ?`, texte: 'Sa session est coupée tout de suite. Ses actions passées restent dans le journal.', confirmer: 'Retirer l’accès', annuler: 'Garder', danger: true }))) return;
           try { await api('DELETE', `/acces/${encodeURIComponent(p.id)}`); D.fermer(); informer('Accès retiré : la session de ce profil est coupée.', 'ok'); rendreReglages('acces'); } catch (err) { E2.erreur = err.message; D.rendre(); }
         } }, icone('trash-2'), 'Retirer cet accès')) : null,
       ],
-      pied: [h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => D.fermer() }, 'Annuler'), h('button', { type: 'submit', class: 'bz-bouton bz-bouton--principal', 'aria-busy': E2.envoi ? 'true' : null }, icone('check'), 'Enregistrer')],
+      pied: [h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => D.fermer() }, 'Annuler'),
+        h('button', { type: 'submit', class: 'bz-bouton bz-bouton--principal', 'aria-busy': E2.envoi ? 'true' : null }, icone(p ? 'check' : 'send'),
+          p ? 'Enregistrer' : E.connexion?.connexion === 'comptes' ? 'Créer le lien d’invitation' : 'Créer l’accès')],
     }),
   });
 }
@@ -6681,7 +6809,7 @@ async function rendreReglagesNexus() {
         sectionReglage('nexus-lien', 'Entreprise reliée', null,
           h('p', { class: 'bz-t-label' }, N.organisation ?? 'Entreprise reliée', ' ', offre ? h('span', { class: offre === 'Breizhcosystem ACTIVE' ? 'bz-badge bz-badge--active' : 'bz-badge', texte: offre === 'Breizhcosystem ACTIVE' ? 'ACTIVE' : 'Gratuit' }) : null),
           h('p', { class: 'bz-t-petit bz-texte-2' }, h('span', { class: 'bz-t-identifiant', 'data-brut': '', texte: N.url }), N.dernierEnvoi ? ` · dernier envoi ${dateRelative(N.dernierEnvoi)}` : ' · pas encore d’envoi'),
-          N.suspendue ? encadre('attention', 'Accès à Breizhcosystem suspendu par l’éditeur.', `${N.suspendue.message ? `${N.suspendue.message} ` : ''}La liaison est conservée : inutile de relier de nouveau, tout reprendra dès la levée de la suspension. Votre jeu continue de fonctionner.`) : null,
+          N.suspendue ? encadre('attention', 'Accès à Breizhcosystem suspendu par l’éditeur.', `${N.suspendue.message ? `${N.suspendue.message} ` : ''}La liaison est conservée : inutile de relier de nouveau, tout reprendra dès la levée de la suspension. Living Business continue de fonctionner.`) : null,
           N.derniereErreur ? messageEnLigne('critique', 'Le dernier envoi a échoué.', N.derniereErreur) : null,
           h('div', { class: 'bz-groupe-boutons' },
             lienExterne(N.url, 'Ouvrir Breizhcosystem'),
@@ -6719,7 +6847,7 @@ function apercuPartage(A) {
       h('dd', { class: 'bz-champ-fiche__valeur' }, h('span', { texte: v }), ' ', h('span', { class: partent.has(cat) ? 'bz-badge bz-badge--ok' : 'bz-badge', texte: partent.has(cat) ? 'Part' : 'Ne part pas' }))))) : blocVide({ titre: 'Rien à envoyer pour l’instant.', compact: true }));
 }
 
-const LIBELLE_SENS = { lecture: 'De l’outil vers le jeu', deux: 'Dans les deux sens', ecriture: 'Du jeu vers l’outil' };
+const LIBELLE_SENS = { lecture: 'De l’outil vers Living Business', deux: 'Dans les deux sens', ecriture: 'De Living Business vers l’outil' };
 
 /**
  * « Se connecter avec… » : l'onglet est ouvert PENDANT le clic (sinon le navigateur le bloque), vide et sans lien vers
@@ -7113,7 +7241,7 @@ function champListe(id, libelle, valeur, options, onchange, { large = false } = 
 /** « À quoi ça correspond dans le jeu » : au-delà de 15 choix, une liste filtrable remplace le <select> (§4.6). */
 function selectCible(C, apres = null) {
   const cibles = ciblesImport();
-  const libelle = 'À quoi ça correspond dans le jeu ?';
+  const libelle = 'À quoi ça correspond dans Living Business ?';
   const choisir = (cle) => { C.cible = cibles.find((x) => x.cle === cle) ?? C.cible; apres?.(); };
   if (cibles.length <= 15) return champListe('outil-cible', libelle, C.cible?.cle ?? '', cibles.map((c) => [c.cle, c.libelle]), (e) => choisir(e.target.value));
   return h('div', { class: 'bz-champ' },
@@ -7248,7 +7376,10 @@ function corpsConnexion(C) {
       ? h('div', { class: 'bz-pile' }, h('p', { class: 'bz-t-surtitre', texte: 'Mode avancé : pour votre informaticien' }),
         h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => modeOAuth(C) }, `Revenir à « Se connecter avec ${nomOutil} », plus simple`)))
       : s.avance ? h('p', { class: 'bz-t-surtitre', texte: 'Mode avancé : pour votre informaticien' })
-      : h('p', { texte: `${s.nom} se branche avec une clé d’accès créée dans ${s.nom}. Votre informaticien peut s’en charger : la marche à suivre est juste en dessous. Se connecter n’importe rien : vous choisirez ensuite ce que vous voulez récupérer.` }),
+      // le client veut savoir ce qu'il peut faire aujourd'hui, pas pourquoi l'éditeur n'a pas encore ouvert le clic
+      : h('div', { class: 'bz-pile bz-pile--serre' },
+        h('p', { texte: `La connexion en un clic à ${s.nom} arrive. En attendant, deux chemins : une clé à créer dans ${s.nom} (la marche à suivre est juste en dessous), ou un fichier exporté de ${s.nom}. Dans les deux cas, se connecter n’importe rien : vous choisirez ensuite ce que vous voulez récupérer.` }),
+        h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', cle: 'outil-vers-fichier', onclick: () => importerFichierALaPlace() }, icone('file-spreadsheet'), 'Importer un fichier à la place'))),
     microsoft ? AVERTISSEMENT_MICROSOFT : null,
     s.avance ? h('ol', { class: 'bz-consignes' }, s.etapes.map((e) => h('li', { texte: e })))
       : h('details', { class: 'bz-repli' },
@@ -7264,6 +7395,20 @@ function corpsConnexion(C) {
     h('p', { class: 'bz-t-petit', texte: s.id === 'excel365' ? 'Aucun mot de passe ne passe par Living Business : la connexion se fait sur la page Microsoft, et elle est chiffrée sur cet ordinateur.' : 'La clé est chiffrée sur cet ordinateur et ne sera plus jamais affichée.' }),
   ];
 }
+/** « Importer un fichier à la place » : on quitte la connexion par clé pour le parcours fichier, rien n'est perdu. */
+function importerFichierALaPlace() {
+  const A = E.assistant;
+  if (!A) return;
+  if (A.outil) nettoyerOutil(A.outil);
+  A.outil = null;
+  A.erreur = null;
+  A.entree = (catalogueDe(A) ?? []).find((x) => x.cle === 'import:csv') ?? null;
+  A.parcours = 'fichier';
+  A.source = 'csv';
+  A.cible ??= cibleParDefaut();
+  allerEtape('contenu');
+}
+
 /** Action principale de l'étape « Se connecter » : continuer vers « Que voulez-vous récupérer ? ». */
 function piedConnexion(C) {
   const A = E.assistant;
@@ -7376,9 +7521,9 @@ function corpsRecuperer(C) {
   // relecture seulement si un réglage a vraiment changé (sinon un simple rendu relancerait la lecture sans fin)
   const relire = () => { if (C.signatureApercu === signatureRecuperation(C)) return; C.apercu = null; majOutil(C); chargerApercu(C); };
   return [
-    resultatAssistant('ok', `Connecté à ${nomOutil}. Rien n’a encore été importé.`, { detail: 'Choisissez ce que vous voulez récupérer : rien n’entrera dans le jeu avant que vous ne validiez.' }),
+    resultatAssistant('ok', `Connecté à ${nomOutil}. Rien n’a encore été importé.`, { detail: 'Choisissez ce que vous voulez récupérer : rien n’entrera dans Living Business avant que vous ne validiez.' }),
     C.s.lecture === 'reception'
-      ? h('p', { texte: 'Ce branchement reçoit les données que votre scénario lui envoie : il n’y a rien à choisir ici. Indiquez seulement à quoi elles correspondent dans le jeu.' })
+      ? h('p', { texte: 'Ce branchement reçoit les données que votre scénario lui envoie : il n’y a rien à choisir ici. Indiquez seulement à quoi elles correspondent dans Living Business.' })
       : listes.length ? h('div', { class: 'bz-grille-champs' }, listes.map((ch) => champOutil(C, ch, { apres: relire })))
       : h('p', { class: 'bz-t-petit', texte: `Tout ce que ce branchement lit chez ${nomOutil} sera repris.` }),
     C.s.id === 'mcp' ? h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', 'aria-busy': C.envoi ? 'true' : null, onclick: () => listerOutilsMcp(C) }, C.envoi ? icone('loader-circle') : icone('list'), 'Lister les outils du serveur')) : null,
@@ -7394,26 +7539,46 @@ function corpsRecuperer(C) {
       a.message ? resultatAssistant('info', a.message) : resultatAssistant('ok', `${pluriel(a.enregistrements, 'fiche trouvée', 'fiches trouvées')} chez ${nomOutil}.`, { detail: 'Voici les premières lignes, telles qu’elles sont aujourd’hui chez vous.' }),
       a.precision ? resultatAssistant('info', a.precision) : null,
       tableauApercu(a),
-      h('div', { class: 'bz-grille-champs' }, cibleFixeDe(C) ? null : selectCible(C, () => { C.cibleAuto = false; relire(); }), reglagesSynchro(C, { sens: false })),
-      blocSens(C),
+      cibleFixeDe(C) ? null : h('div', { class: 'bz-grille-champs' }, selectCible(C, () => { C.cibleAuto = false; relire(); })),
+      // le sens et la fréquence ont déjà une valeur raisonnable : on la dit, et on ne la met pas sur le chemin
+      reglagesRepli(C),
     ] : null,
   ];
 }
+/**
+ * Sens et fréquence, repliés sous « Réglages facultatifs » : ils ont une valeur par défaut qui convient (lecture
+ * seule, toutes les 5 minutes), dite en une ligne au-dessus du repli. Un réglage déjà changé garde le repli ouvert.
+ */
+function reglagesRepli(C) {
+  const champs = reglagesSynchro(C, { sens: false }).filter(Boolean);
+  const sens = blocSens(C);
+  if (!champs.length && !sens) return null;
+  const minutes = C.intervalle >= 60 ? `${Math.round(C.intervalle / 60)} min` : `${C.intervalle} s`;
+  const resume = C.s.lecture === 'appel' ? `Relu toutes les ${minutes}.` : 'Reçu en direct.';
+  return h('div', { class: 'bz-pile bz-pile--serre' },
+    h('p', { class: 'bz-t-petit bz-texte-2', texte: resume }),
+    h('details', { class: 'bz-repli', open: Boolean(C.reglagesOuverts), ontoggle: (e) => { C.reglagesOuverts = e.currentTarget.open; } },
+      h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Réglages facultatifs' }), icone('chevron-down', { taille: 'sm' })),
+      h('div', { class: 'bz-repli__corps bz-pile bz-pile--serre' },
+        champs.length ? h('div', { class: 'bz-grille-champs' }, champs) : null,
+        sens)));
+}
+
 /** Le sens : lecture seule par défaut, puisque la connexion n'a demandé que le droit de lire. */
 function blocSens(C) {
   const nomOutil = nomOutilDe(C);
-  if (!C.s.ecriture) return h('p', { class: 'bz-t-petit', texte: `Sens : de ${nomOutil} vers le jeu. Living Business ne modifie rien chez ${nomOutil}.` });
+  if (!C.s.ecriture) return h('p', { class: 'bz-t-petit', texte: `Sens : de ${nomOutil} vers Living Business, qui ne modifie rien chez ${nomOutil}.` });
   if (C.mode === 'cle') return h('div', { class: 'bz-grille-champs' }, champListe('outil-sens', 'Sens de la synchronisation', C.sens, Object.entries(LIBELLE_SENS), (e) => { C.sens = e.target.value; }));
   if (C.droits === 'ecriture') return h('div', { class: 'bz-grille-champs' }, champListe('outil-sens', 'Sens de la synchronisation', C.sens, Object.entries(LIBELLE_SENS), (e) => { C.sens = e.target.value; }));
   return h('div', { class: 'bz-pile bz-pile--serre' },
-    h('p', { class: 'bz-t-petit', texte: `Sens : de ${nomOutil} vers le jeu (lecture seule). Vous vous êtes connecté sans donner le droit d’écrire : rien ne sera modifié chez ${nomOutil}.` }),
+    h('p', { class: 'bz-t-petit', texte: `Sens : de ${nomOutil} vers Living Business (lecture seule). Vous vous êtes connecté sans donner le droit d’écrire : rien ne sera modifié chez ${nomOutil}.` }),
     h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => { C.sens = 'deux'; C.apercu = null; E.assistant.etape = 'connexion'; seConnecterOutil(C); } },
-      `Je veux aussi que le jeu écrive dans ${nomOutil} (nouvelle connexion)`)));
+      `Je veux aussi que Living Business écrive dans ${nomOutil} (nouvelle connexion)`)));
 }
 function corpsColonnesOutil(C) {
   const a = C.apercu;
   return [
-    resultatAssistant('info', 'Dernière étape avant l’import.', { detail: `Vérifiez la correspondance entre les colonnes de ${nomOutilDe(C)} et les champs du jeu, corrigez ce qu’il faut, puis importez. Une colonne non reconnue est simplement laissée de côté : elle ne fait rien échouer.` }),
+    resultatAssistant('info', 'Dernière étape avant l’import.', { detail: `Vérifiez la correspondance entre les colonnes de ${nomOutilDe(C)} et les champs de Living Business, corrigez ce qu’il faut, puis importez. Une colonne non reconnue est simplement laissée de côté : elle ne fait rien échouer.` }),
     a.champs.length ? listeColonnes(a.champs, a.cibles, C.mapping, (ch) => a.apercu.map((l) => l[ch]).filter(Boolean).slice(0, 3).join(' · ').slice(0, 120))
       : h('p', { class: 'bz-t-petit', texte: 'Les colonnes seront associées automatiquement à la première réception.' }),
     h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'outil-nom', texte: 'Nom de cette connexion' }),
@@ -7448,7 +7613,7 @@ function corpsPretOutil(C) {
       resultatAssistant('attention', 'Ces secrets ne seront plus affichés : copiez-les maintenant.', { detail: 'L’en-tête ci-dessous autorise vos envois vers Living Business. Signature possible à la place : X-LB-Signature: t=<secondes>,v1=<HMAC-SHA256 de « t.corps » avec ce secret>, valable 5 minutes et une seule fois.' }),
       blocCode(`Authorization: Bearer ${c.secretEntrant}`, 'Copier l’en-tête'),
       c.cleEnvois ? [
-        h('p', { class: 'bz-t-petit', texte: 'Clé de vérification des envois de Living Business (facultatif) : ils portent l’en-tête X-LB-Signature, signé avec cette autre clé. Elle ne permet pas d’envoyer au jeu.' }),
+        h('p', { class: 'bz-t-petit', texte: 'Clé de vérification des envois de Living Business (facultatif) : ils portent l’en-tête X-LB-Signature, signé avec cette autre clé. Elle ne permet pas d’envoyer à Living Business.' }),
         blocCode(c.cleEnvois, 'Copier la clé de vérification'),
       ] : null,
       h('h4', { class: 'bz-catalogue__intertitre', texte: 'Corps JSON attendu' }), blocCode(exemple, 'Copier l’exemple'),
@@ -8935,11 +9100,11 @@ function ouvrirToutAutomatiser(Pr, admin, apres) {
         h('p', { class: 'bz-t-petit', texte: 'Une automatisation surveille vos données réelles et agit dès que la situation se présente : elle prépare la tâche pour la bonne personne, sans jamais faire deux fois la même chose. Vous l’arrêtez quand vous voulez, sur cette page.' }),
         versOutil ? resultatAssistant('info', Pr.outilBranche
           ? 'Votre outil d’automatisation (Make, Zapier ou n8n) reçoit chaque événement : c’est lui qui envoie les relances et les demandes d’avis.'
-          : 'Les messages vers l’extérieur (relance, demande d’avis) ne partent pas tout seuls : le jeu prépare une tâche pour une personne.',
+          : 'Les messages vers l’extérieur (relance, demande d’avis) ne partent pas tout seuls : Living Business prépare une tâche pour une personne.',
           Pr.outilBranche ? {} : { detail: 'Pour qu’ils partent sans vous : Connecter mes données → Mode avancé → Make · Zapier · n8n.' }) : null,
         messageEnLigne('critique', S.erreur),
         groupe('Prêtes à mettre en marche', pretes, (r) => (r.heuresMois ? `Environ ${nf.format(r.heuresMois)} h par mois, estimé sur vos données d’aujourd’hui.` : 'Rien à traiter aujourd’hui : elle agira dès qu’un cas se présentera.')),
-        groupe('Il manque des données', manquantes, (r) => `Le jeu ne voit pas encore ${r.manque}.`),
+        groupe('Il manque des données', manquantes, (r) => `Living Business ne voit pas encore ${r.manque}.`),
         manquantes.length && admin ? h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { D.fermer(); ouvrirAssistant(); } }, icone('plug'), 'Connecter mes données')) : null,
         groupe('Déjà en marche', actives, () => null),
       ],
@@ -9004,7 +9169,7 @@ function suiteTacheRepetitive(t, T, { admin = false, basculer = null } = {}) {
           : h('span', { class: 'bz-t-petit', texte: 'À mettre en marche par la direction.' })) : null,
       });
     }
-    return resultatAssistant('attention', `« ${a.nom} » sait faire cette tâche, mais il lui manque des données.`, { detail: `Le jeu ne voit pas encore ${a.manque ?? 'les données qu’elle regarde'}.`, actions: brancher });
+    return resultatAssistant('attention', `« ${a.nom} » sait faire cette tâche, mais il lui manque des données.`, { detail: `Living Business ne voit pas encore ${a.manque ?? 'les données qu’elle regarde'}.`, actions: brancher });
   }
   if (!TON_VERDICT[c.verdict]) return h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Aucune automatisation de Living Business ne fait cette tâche : rien à mettre en marche ici.' });
   if (T.outilBranche) {
@@ -9192,7 +9357,7 @@ function ouvrirTacheRepetitive(T, Pr, { tache = null, idee = null } = {}, apres 
         ...question('Une automatisation de Living Business fait-elle déjà cette tâche ?', `Living Business a ${pluriel(Pr.recettes.length, 'automatisation prête', 'automatisations prêtes')} à l’emploi. Si l’une d’elles correspond, il n’y a rien à construire : il suffit de la mettre en marche.`),
         liste('tache-recette', 'Automatisation existante', [['', 'Non, aucune ne correspond'], ...Pr.recettes.map((x) => [x.id, x.nom])], v.recette, (val) => { v.recette = val; D.rendre(); }),
         erreurChamp(),
-        r ? resultatAssistant('info', `Celle-ci le fait déjà : ${enMinuscule(r.nom)}.`, { detail: `Quand : ${enMinuscule(r.quand)}. Alors : ${enMinuscule(r.alors)}. Aujourd’hui, ${ETAT_RECETTE[r.etat]}${r.etat === 'a_brancher' && r.manque ? ` : le jeu ne voit pas encore ${r.manque}` : ''}.` })
+        r ? resultatAssistant('info', `Celle-ci le fait déjà : ${enMinuscule(r.nom)}.`, { detail: `Quand : ${enMinuscule(r.quand)}. Alors : ${enMinuscule(r.alors)}. Aujourd’hui, ${ETAT_RECETTE[r.etat]}${r.etat === 'a_brancher' && r.manque ? ` : Living Business ne voit pas encore ${r.manque}` : ''}.` })
           : h('p', { class: 'bz-t-petit', texte: 'Aucune ne correspond ? Continuez : le résultat vous dira ce qu’il reste à faire.' }),
       ];
     }
@@ -9806,7 +9971,7 @@ function lignePriorite(s) {
       h('p', { class: 'bz-priorite__titre', texte: o ? `${sansDemo(o.nom)} : ${s.description}` : s.description }),
       h('p', { class: 'bz-t-micro bz-texte-2', texte: [o?.libelleType, s.preuve.source.libelle, s.preuve.observeLe ? dateRelative(s.preuve.observeLe) : null, LIBELLES.fraicheur[s.preuve.fraicheur]].filter(Boolean).join(' · ') })),
     h('div', { class: 'bz-priorite__action bz-groupe-boutons' },
-      quete ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--sm', onclick: () => ouvrirSurCarte(o.id, true) }, quete.actionProposee === 'mouvement' ? 'Enregistrer un mouvement' : 'Créer une tâche') : null,
+      quete ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--sm', onclick: () => faireAction({ objetId: o.id, direct: quete.actionProposee }) }, quete.actionProposee === 'mouvement' ? 'Enregistrer un mouvement' : 'Créer une tâche') : null,
       h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => ouvrirSurCarte(s.objetId) }, 'Voir')));
 }
 
@@ -9853,7 +10018,7 @@ function contenuPalette(_requete = '', { plus = false } = {}) {
     plus ? null : { id: 'action:activite', titre: 'Activité récente', contexte: 'Ce qui s’est passé, ce qu’on peut encore annuler', icone: 'bell', mots: 'historique notifications annuler', faire: () => ouvrirActivite() },
     plus ? null : { id: 'action:aide', titre: 'Aide', icone: 'circle-help', mots: 'assistance visite raccourcis', faire: ouvrirAide },
     plus || !rubriquesEnAttente().length ? null : { id: 'action:tout-afficher', titre: toutAffiche() ? 'Revenir au menu simple' : 'Tout afficher dans le menu', contexte: 'Aussi les rubriques qui attendent vos données', icone: 'menu', mots: 'menu complet rubriques cachees masquees toutes simple', faire: () => reglerToutAfficher(!toutAffiche()) },
-    estOrdinateur() ? { id: 'action:rail', titre: E.railReplie ? 'Déplier le menu' : 'Replier le menu', icone: E.railReplie ? 'panel-left' : 'panel-left-close', raccourci: 'b', mots: 'rail navigation barre laterale', faire: basculerRail } : null,
+    estOrdinateur() ? { id: 'action:rail', titre: railEffectif() ? 'Déplier le menu' : 'Replier le menu', icone: railEffectif() ? 'panel-left' : 'panel-left-close', raccourci: 'b', mots: 'rail navigation barre laterale', faire: basculerRail } : null,
     m.profil.peutAdministrer ? { id: 'action:mise-en-route', titre: m.organisation.demo ? 'Créer mon entreprise' : 'Compléter mon entreprise pas à pas', icone: 'building-2', mots: 'accueil mise en route creer lieux equipe services', faire: () => changerVue('accueil') } : null,
     m.profil.peutAdministrer && !m.organisation.demo ? { id: 'action:premiers-pas', titre: 'Premiers pas', icone: 'list-checks', mots: 'accueil demarrer aide checklist', faire: ouvrirPremiersPas } : null,
     INVITE_INSTALLATION ? { id: 'action:installer', titre: 'Installer l’application', icone: 'download', mots: 'pwa ecran d accueil', faire: installerApplication } : null,

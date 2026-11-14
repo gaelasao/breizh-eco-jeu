@@ -47,7 +47,7 @@ export const SUJETS: readonly Sujet[] = Object.freeze([
   { id: 'stock_bas', libelle: 'Un stock bas', aide: 'Un article passe sous son seuil d’alerte.', defaut: false },
   { id: 'demande_reseau', libelle: 'Une demande du réseau', aide: 'Une entreprise de Breizhcosystem attend votre réponse.', defaut: false },
   { id: 'erreur_synchro', libelle: 'Une erreur de synchronisation', aide: 'Un logiciel connecté ne répond plus, ou refuse l’accès.', defaut: true },
-  { id: 'autre_alerte', libelle: 'Une autre alerte importante', aide: 'Ce que le jeu signale et qui n’entre dans aucune case ci-dessus.', defaut: false },
+  { id: 'autre_alerte', libelle: 'Une autre alerte importante', aide: 'Ce que Living Business signale et qui n’entre dans aucune case ci-dessus.', defaut: false },
   { id: 'resume_matin', libelle: 'Le résumé du matin', aide: 'Une fois par jour : ce qu’il y a à régler aujourd’hui, en une phrase.', defaut: false },
 ].map((s) => Object.freeze(s)));
 
@@ -821,11 +821,11 @@ function texteObligatoire(x: unknown, champ: string, message: string): string {
 /** Adresse du jeu pour les liens : origine seulement, https (ou un poste local). */
 function lireAdresseJeu(x: unknown): string | null {
   if (x === null || x === '') return null;
-  if (typeof x !== 'string' || x.length > 300) throw new ErreurApi(400, 'adresse_invalide', 'Adresse du jeu invalide.');
+  if (typeof x !== 'string' || x.length > 300) throw new ErreurApi(400, 'adresse_invalide', 'Adresse de Living Business invalide.');
   let u: URL;
-  try { u = new URL(x.trim()); } catch { throw new ErreurApi(400, 'adresse_invalide', 'Adresse du jeu invalide.'); }
+  try { u = new URL(x.trim()); } catch { throw new ErreurApi(400, 'adresse_invalide', 'Adresse de Living Business invalide.'); }
   const local = u.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname);
-  if (u.protocol !== 'https:' && !local) throw new ErreurApi(400, 'adresse_invalide', 'L’adresse du jeu doit commencer par https://');
+  if (u.protocol !== 'https:' && !local) throw new ErreurApi(400, 'adresse_invalide', 'L’adresse de Living Business doit commencer par https://');
   if (u.username || u.password) throw new ErreurApi(400, 'adresse_invalide', 'Pas d’identifiant dans l’adresse.');
   return u.origin;
 }

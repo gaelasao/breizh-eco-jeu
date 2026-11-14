@@ -32,8 +32,18 @@ export type Exemple = keyof typeof EXEMPLES;
 import { vuePavillon, type EtatNexus, type VuePavillon } from '../nexus/pavillon.ts';
 import { CONNECTEURS, telechargerSheets, validerLienSheets } from './connecteurs.ts';
 import { recuperateurProtege } from './sortant.ts';
-import { convertir, NOM, normaliser, parserCsv, proposerMapping, ROLES } from './csv.ts';
+import { convertir, departementDuCodePostal, NOM, normaliser, parserCsv, proposerMapping, ROLES } from './csv.ts';
 import { pluriel } from '../core/texte.ts';
+
+/**
+ * Un fichier client porte un code postal, rarement un numéro de département : on le déduit, sans jamais écraser
+ * ce qui a été donné. Rien ne change si le type n'a pas les deux champs.
+ */
+function completerDepartement(t: { champs: readonly { id: string }[] }, champs: Record<string, ValeurChamp>): void {
+  if (champs.num_departement || !t.champs.some((c) => c.id === 'num_departement')) return;
+  const dep = departementDuCodePostal(champs.code_postal);
+  if (dep) champs.num_departement = dep;
+}
 
 export class ErreurApi extends Error {
   readonly statut: number;
@@ -1045,7 +1055,7 @@ export class Monde {
           champs: { ...o.champs, [champ]: nouveau },
           majLe: maintenant,
           provenance: 'confirme',
-          source: { id: 'passerelle:mouvements', libelle: 'Mouvement enregistré dans le jeu', derniereSynchro: maintenant },
+          source: { id: 'passerelle:mouvements', libelle: 'Mouvement enregistré dans Living Business', derniereSynchro: maintenant },
         });
         e.modifies.add(o.id);
         a.message = `${actuel} → ${nouveau}`;
@@ -1056,7 +1066,7 @@ export class Monde {
         const tache: ObjetMetier = {
           id, orgId: o.orgId, famille: 'tache', type: 'tache', roles: [], nom: cmd.parametres.titre as string,
           champs: { concerne: o.id, statut: 'à faire', ...(cmd.parametres.echeance ? { echeance: cmd.parametres.echeance as string } : {}) },
-          provenance: 'declare', source: { id: 'passerelle:taches', libelle: 'Créée dans le jeu', derniereSynchro: maintenant },
+          provenance: 'declare', source: { id: 'passerelle:taches', libelle: 'Créée dans Living Business', derniereSynchro: maintenant },
           majLe: maintenant, disponibilite: 'disponible', mode: o.mode,
         };
         if (validerObjet(this.#univers, tache).length) { a.message = 'Tâche invalide pour cet univers.'; return 'echec'; }
@@ -1084,7 +1094,7 @@ export class Monde {
             ...(cmd.parametres.note ? { note: cmd.parametres.note as string } : {}),
             ...(typeof o.champs.departement === 'string' ? { departement: o.champs.departement } : {}),
           },
-          provenance: 'declare', source: { id: 'passerelle:vehicules', libelle: 'Enregistré dans le jeu', derniereSynchro: maintenant },
+          provenance: 'declare', source: { id: 'passerelle:vehicules', libelle: 'Enregistré dans Living Business', derniereSynchro: maintenant },
           majLe: maintenant, disponibilite: 'disponible', mode: o.mode,
         };
         if (validerObjet(this.#univers, ligne).length) { a.message = 'Entretien invalide pour cet univers.'; return 'echec'; }
@@ -1292,6 +1302,7 @@ export class Monde {
           champs[c.id] = id;
         } else if (r.valeur !== null) champs[c.id] = r.valeur;
       }
+      completerDepartement(t, champs);
       const roles: string[] = [];
       if (t.famille === 'tiers' && !colonne.has(ROLES)) roles.push(...rolesParDefaut);
       if (colonne.has(ROLES)) {
@@ -1578,6 +1589,7 @@ export class Monde {
         champs[c.id] = ref.id;
       } else champs[c.id] = r.valeur;
     }
+    completerDepartement(t, champs);
     const roles: string[] = [];
     if (t.famille === 'tiers') {
       if (ROLES in valeurs) {

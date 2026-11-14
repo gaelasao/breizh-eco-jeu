@@ -72,17 +72,17 @@ export function donneesDemo(maintenant: Date): ObjetMetier[] {
     employe('e-tanguy', 'Tanguy', 'l-entrepot', 'Livreur', 'Logistique', 'en congé'),
 
     // ---- Mes clients
-    tiers('t-tycoz', 'entreprise', 'Restaurant Ty Coz (fictif)', ['client'], { email: 'contact@tycoz.test', activite: 'Restaurant', ville: 'Lorient', num_departement: '56', encours: 4200, limite_encours: 5000 }, 'compta'),
-    tiers('t-boulangerie', 'entreprise', 'Boulangerie Exemple (fictive)', ['client'], { email: 'bonjour@boulangerie-exemple.test', activite: 'Boulangerie', ville: 'Rennes', num_departement: '35', encours: 6800, limite_encours: 5000 }, 'compta'),
-    tiers('t-hotel', 'entreprise', 'Hôtel des Embruns (fictif)', ['client'], { email: 'direction@hotel-embruns.test', activite: 'Hôtellerie', ville: 'Quiberon', num_departement: '56', encours: 2100, limite_encours: 6000 }, 'compta'),
-    tiers('t-camping', 'entreprise', 'Camping Les Dunes (fictif)', ['client'], { activite: 'Camping', ville: 'Crozon', num_departement: '29', encours: 0, limite_encours: 3000 }, 'compta'),
-    tiers('t-mairie', 'organisme_public', 'Mairie de Démoville (fictive)', ['client'], { ville: 'Démoville' }),
-    tiers('t-famille', 'particulier', 'Famille Exemple (fictive)', ['client'], { ville: 'Douarnenez' }),
+    tiers('t-tycoz', 'entreprise', 'Restaurant Ty Coz (fictif)', ['client'], { email: 'contact@tycoz.test', telephone: '02 99 00 12 05', activite: 'Restaurant', adresse: '8 rue de la Rade', code_postal: '56100', ville: 'Lorient', num_departement: '56', encours: 4200, limite_encours: 5000 }, 'compta'),
+    tiers('t-boulangerie', 'entreprise', 'Boulangerie Exemple (fictive)', ['client'], { email: 'bonjour@boulangerie-exemple.test', telephone: '02 99 00 12 10', activite: 'Boulangerie', adresse: '14 rue du Four', code_postal: '35000', ville: 'Rennes', num_departement: '35', encours: 6800, limite_encours: 5000 }, 'compta'),
+    tiers('t-hotel', 'entreprise', 'Hôtel des Embruns (fictif)', ['client'], { email: 'direction@hotel-embruns.test', telephone: '02 99 00 12 20', activite: 'Hôtellerie', adresse: '2 boulevard de la Plage', code_postal: '56170', ville: 'Quiberon', num_departement: '56', encours: 2100, limite_encours: 6000 }, 'compta'),
+    tiers('t-camping', 'entreprise', 'Camping Les Dunes (fictif)', ['client'], { telephone: '02 99 00 12 30', activite: 'Camping', adresse: 'Route des Dunes', code_postal: '29160', ville: 'Crozon', num_departement: '29', encours: 0, limite_encours: 3000 }, 'compta'),
+    tiers('t-mairie', 'organisme_public', 'Mairie de Démoville (fictive)', ['client'], { telephone: '02 99 00 12 40', adresse: '1 place de la Mairie', code_postal: '56000', ville: 'Démoville' }),
+    tiers('t-famille', 'particulier', 'Famille Exemple (fictive)', ['client'], { telephone: '06 39 98 12 50', adresse: '5 venelle des Plomarc’h', code_postal: '29100', ville: 'Douarnenez' }),
 
     // ---- Mes fournisseurs (un tiers peut être client ET fournisseur)
-    tiers('t-negoce', 'entreprise', 'Négoce Ar Vro (fictif)', ['fournisseur'], { activite: 'Négoce de matériaux', ville: 'Brest', num_departement: '29' }),
+    tiers('t-negoce', 'entreprise', 'Négoce Ar Vro (fictif)', ['fournisseur'], { telephone: '02 99 00 12 60', activite: 'Négoce de matériaux', adresse: '21 rue de Siam', code_postal: '29200', ville: 'Brest', num_departement: '29' }),
     tiers('t-grossiste', 'entreprise', 'Grossiste Atlantique (fictif)', ['fournisseur'], { activite: 'Grossiste', ville: 'Saint-Nazaire', num_departement: '44' }),
-    tiers('t-imprimerie', 'entreprise', 'Imprimerie Démo (fictive)', ['fournisseur'], { activite: 'Imprimerie', ville: 'Vannes', num_departement: '56' }),
+    tiers('t-imprimerie', 'entreprise', 'Imprimerie Démo (fictive)', ['fournisseur'], { telephone: '02 99 00 12 70', activite: 'Imprimerie', adresse: '9 rue Thiers', code_postal: '56000', ville: 'Vannes', num_departement: '56' }),
     tiers('t-transports', 'entreprise', 'Transports Exemple (fictifs)', ['fournisseur', 'partenaire'], { activite: 'Transport', ville: 'Vannes', num_departement: '56' }),
     tiers('t-coop', 'entreprise', 'Coopérative Démo (fictive)', ['client', 'fournisseur'], { activite: 'Coopérative', ville: 'Saint-Brieuc', num_departement: '22', encours: 1500, limite_encours: 8000 }, 'compta'),
 

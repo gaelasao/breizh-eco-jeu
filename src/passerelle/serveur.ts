@@ -25,7 +25,7 @@ try {
   if (demo) console.log('Démonstration : profils fictifs, sans mot de passe.');
   else if (!l.app().comptes.installe && enLigne) console.log(dossier ? `Première utilisation : lien d’installation à usage unique = ${process.env.LB_ORIGINE ?? 'https://<domaine>'}/installation#<code du fichier ${dossier}/installation.txt>` : 'En ligne sans dossier de données : installation impossible.');
   else if (!l.app().comptes.installe) console.log(`Première utilisation : ouvrez http://127.0.0.1:${l.port} SUR CET ORDINATEUR pour créer votre accès.`);
-  if (enLigne && process.env.LB_PROXY !== '1') console.warn('Attention : LB_EN_LIGNE=1 sans LB_PROXY=1 — le jeu doit être derrière un proxy HTTPS sur cette machine.');
+  if (enLigne && process.env.LB_PROXY !== '1') console.warn('Attention : LB_EN_LIGNE=1 sans LB_PROXY=1 — Living Business doit être derrière un proxy HTTPS sur cette machine.');
   console.log(enLigne ? 'Vos données restent sur VOTRE serveur : rien n’est envoyé à l’éditeur sans votre accord.' : 'Vos données restent sur cet ordinateur : rien n’est envoyé à l’éditeur sans votre accord.');
   console.log(`MCP (Claude, agents) : http://${hote}:${l.port}/mcp — clé d’API à créer dans Réglages → Clés d’API`);
   const arreter = () => { void l.arreter().then(() => process.exit(0)); };

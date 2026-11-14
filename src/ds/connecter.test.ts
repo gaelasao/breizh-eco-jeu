@@ -16,10 +16,12 @@ type Module = {
   REPONSES: ReadonlyArray<{ id: string; titre: string; detail: string; icone: string }>;
   FAMILLES: ReadonlyArray<{ id: string; libelle: string; icone: string }>;
   SECTIONS: ReadonlyArray<{ id: 'un-clic' | 'cle' | 'avance' | 'fichier'; titre: string; texte: string }>;
-  COMPTES: ReadonlyArray<{ id: string; nom: string; icone: string; contenus: ReadonlyArray<{ id: string; libelle: string; source: string | null }> }>;
+  COMPTES: ReadonlyArray<{ id: string; nom: string; icone: string; contenus: ReadonlyArray<{ id: string; libelle: string; resume: string; source: string | null }> }>;
+  descriptionCompte: (c: unknown, ouverts: ReadonlyArray<{ resume?: string }>) => string;
   CONSEILS: Readonly<Record<string, readonly string[]>>;
   PARCOURS: Readonly<Record<string, ReadonlyArray<readonly [string, string]>>>;
   catalogue: (s: readonly unknown[], c: readonly unknown[], o?: { pasAPas?: boolean }) => Entree[];
+  enumerer: (m: readonly string[]) => string;
   compteDe: (id: string) => { id: string } | null;
   recommandations: (r: string, cat: Entree[], n?: number) => Entree[];
   filtrer: (cat: Entree[], o?: { famille?: string | null; recherche?: string }) => Sections;
@@ -112,6 +114,34 @@ test('agenda et courrier : proposés dans le compte dès que le relais les ouvre
   assert.equal(M.sensAvantConnexion('sheets'), null);
 });
 
+test('la carte d’un compte ne promet que ce que le relais ouvre : la description suit la réalité', () => {
+  const description = (ouverts: string[], id: string) =>
+    M.catalogue(sourcesReelles(ouverts), CONNECTEURS).find((x) => x.genre === 'compte' && x.id === id)?.description ?? '';
+  // Gmail fermé chez l'hébergeur : la carte ne dit plus « votre courrier »
+  const google = description(['sheets', 'agendagoogle'], 'google');
+  assert.equal(normaliser(google), 'Une seule connexion pour votre compte Google : vos feuilles de calcul et votre agenda.');
+  assert.doesNotMatch(google, /courrier/, 'rien ne promet une boîte que le relais n’ouvre pas');
+  // Gmail ouvert : il est annoncé
+  assert.match(description(['sheets', 'agendagoogle', 'gmail'], 'google'), /vos feuilles de calcul, votre agenda et votre courrier\.$/);
+  // un seul produit ouvert : une seule chose annoncée, sans « et »
+  assert.equal(normaliser(description(['sheets'], 'google')), 'Une seule connexion pour votre compte Google : vos feuilles de calcul.');
+  // sans relais, le compte reste branchable par une clé : la carte n'annonce que ce qui marche ainsi
+  assert.equal(normaliser(description([], 'google')), 'Une seule connexion pour votre compte Google : vos feuilles de calcul.');
+  // liste inconnue (rien n'est encore chargé) : une phrase qui ne promet rien, plutôt qu'une liste fausse
+  const compteGoogle = M.COMPTES.find((c) => c.id === 'google');
+  const sansRien = normaliser(M.descriptionCompte(compteGoogle, []));
+  assert.equal(sansRien, 'Une seule connexion pour tout votre compte Google, sans rien copier.');
+  assert.doesNotMatch(sansRien, /feuilles|agenda|courrier/);
+  // Microsoft : l'agenda n'est pas ouvert, il n'est pas annoncé ; Dynamics et Business Central marchent par une clé
+  const microsoft = normaliser(description(['excel365', 'outlook'], 'microsoft'));
+  assert.equal(microsoft, 'Une seule entrée pour votre compte Microsoft 365 : vos classeurs Excel, votre courrier Outlook, Dynamics 365 et Business Central.');
+  assert.doesNotMatch(microsoft, /agenda/);
+  // plus de seconde liste « Dans ce compte : … » sous la description : une seule phrase, vraie
+  assert.doesNotMatch(lire('web/app.js'), /Dans ce compte :/);
+  assert.equal(M.enumerer(['a', 'b', 'c']), 'a, b et c');
+  assert.equal(M.enumerer([]), '');
+});
+
 test('trois sections : « En un clic » n’affiche que ce que le relais ouvre vraiment ; ce qui ne marche pas n’apparaît pas', () => {
   const cat = M.catalogue(sourcesReelles(['sheets', 'excel365', 'dynamics365', 'businesscentral', 'hubspot']), CONNECTEURS);
   assert.deepEqual(M.SECTIONS.map((s) => s.id), ['un-clic', 'cle', 'avance', 'fichier']);
@@ -148,7 +178,7 @@ test('connecter n’est pas importer : l’étape « Que récupérer ? » est en
   const connexion = app.slice(app.indexOf('function corpsConnexion(C)'), app.indexOf('function piedConnexion(C)'));
   assert.doesNotMatch(connexion, /selectCible\(/, 'on ne demande plus ce que contient l’outil AVANT de connecter');
   // le seul appel qui crée un branchement reste l'import, après la correspondance des colonnes
-  assert.match(app, /boutonPrincipal\(`Importer \$\{pluriel\(A\.outil\?\.apercu\?\.enregistrements \?\? 0, 'fiche', 'fiches'\)\} dans le jeu`, \(\) => activerOutil\(A\.outil\)/);
+  assert.match(app, /boutonPrincipal\(`Importer \$\{pluriel\(A\.outil\?\.apercu\?\.enregistrements \?\? 0, 'fiche', 'fiches'\)\} dans Living Business`, \(\) => activerOutil\(A\.outil\)/);
   const avantImport = app.slice(app.indexOf('function versRecuperer(C)'), app.indexOf('/** La personne a tout vu et tout validé'));
   assert.ok(!/api\('POST', '\/synchro'[^/]/.test(avantImport), 'aucun branchement actif créé avant l’import');
   assert.match(avantImport, /api\('POST', '\/synchro\/apercu'/, 'seulement un aperçu, en lecture');
@@ -159,9 +189,9 @@ test('connecter n’est pas importer : l’étape « Que récupérer ? » est en
   // l'écran « Que récupérer ? » montre ce que le compte contient, ce que ça devient, et un aperçu
   const recuperer = app.slice(app.indexOf('function corpsRecuperer(C)'), app.indexOf('function blocSens(C)'));
   assert.match(recuperer, /tableauApercu\(a\)/, 'un aperçu de quelques lignes');
-  assert.match(recuperer, /selectCible\(C/, 'à quoi ça correspond dans le jeu');
+  assert.match(recuperer, /selectCible\(C/, 'à quoi ça correspond dans Living Business');
   assert.match(recuperer, /blocSens\(C\)/, 'le sens de la synchronisation');
-  assert.match(app, /À quoi ça correspond dans le jeu \?/);
+  assert.match(app, /À quoi ça correspond dans Living Business \?/);
 });
 
 test('correspondance des colonnes : proposée, montrée, modifiable, et un champ inconnu ne fait rien échouer', () => {

@@ -43,7 +43,7 @@ export const sectionsVisibles = ({ enLigne = false } = {}) => SECTIONS.filter((s
 export function sousPages(section) {
   if (section === 'acces') return [{ id: 'acces', libelle: 'Personnes et droits' }, { id: 'reseau', libelle: 'Réseau du bureau' }];
   if (section === 'outils') return [{ id: 'outils', libelle: 'Logiciels connectés' }, { id: 'cles', libelle: 'Clés d’API, Claude et MCP' }];
-  if (section === 'notifications') return [{ id: 'notifications', libelle: 'Dans le jeu' }, { id: 'alertes', libelle: 'Telegram et WhatsApp' }];
+  if (section === 'notifications') return [{ id: 'notifications', libelle: 'Dans Living Business' }, { id: 'alertes', libelle: 'Telegram et WhatsApp' }];
   return [];
 }
 

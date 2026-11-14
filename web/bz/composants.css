@@ -1137,7 +1137,9 @@
     .bz-fiche__poignee { display: none; }
     .bz-fiche__tete { padding-block-start: var(--bz-e-4); }
   }
-  @media (min-width: 60em) {
+  /* Sous 1 100 px, la fiche s'ouvre PAR-DESSUS la liste : à côté, il ne resterait à la liste qu'une bande où
+     « Ville » et « État » se coupent. Au-delà, les deux tiennent côte à côte et la fiche se redimensionne. */
+  @media (min-width: 68.75em) {
     .bz-coque__contenu[data-fiche] { grid-template-columns: minmax(0, 1fr) var(--fiche-largeur, var(--bz-l-fiche)); }
     .bz-coque__contenu[data-fiche] > .bz-fiche { position: relative; inset: auto; grid-column: 2; grid-row: 1; inline-size: auto; box-shadow: none; z-index: var(--bz-z-collant); }
     .bz-fiche__largeur { display: block; position: absolute; inset-block: 0; inset-inline-start: calc(-1 * var(--bz-e-1)); inline-size: var(--bz-e-2); cursor: col-resize; z-index: 1; touch-action: none; }
@@ -1150,6 +1152,14 @@
   .bz-liste__outils { display: flex; flex-wrap: wrap; align-items: center; gap: var(--bz-e-3); }
   .bz-liste__recherche { flex: 1 1 18rem; }
   .bz-liste__vues { display: flex; flex-wrap: wrap; align-items: center; gap: var(--bz-e-2); }
+  /* Téléphone : recherche et filtre sur une ligne, et le filtre ne s'étire pas — une bande de moins avant la
+     première fiche, qui commençait à mi-écran (F9). */
+  @media (max-width: 37.49em) {
+    .bz-liste__outils { flex-wrap: nowrap; }
+    .bz-liste__recherche { flex: 1 1 6rem; min-inline-size: 0; }
+    .bz-liste__vues { flex: 0 1 auto; min-inline-size: 0; }
+    .bz-liste__vues .bz-select { min-inline-size: 0; }
+  }
   .bz-tableau--liste td, .bz-tableau--liste th { vertical-align: middle; }
   .bz-tableau--liste tbody tr[data-courant] { background: var(--bz-marque-doux); box-shadow: inset 0 0 0 var(--bz-bord-2) var(--bz-etat-indicateur); }
   .bz-tableau--liste tbody tr[data-coche] { background: var(--bz-selection); }

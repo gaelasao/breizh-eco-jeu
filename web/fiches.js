@@ -95,7 +95,7 @@ export const ariaSort = (tri, colonne) => (tri?.colonne === colonne ? (tri.sens 
 
 /** Groupes de champs d'une fiche (repliables, §6.1 P7), dans l'ordre de lecture ; groupes vides omis. */
 const GROUPES = [
-  { id: 'coordonnees', titre: 'Coordonnées', champs: ['contact', 'email', 'adresse', 'ville', 'num_departement', 'siret', 'activite', 'secteur', 'immatriculation', 'numero_parc', 'expediteur', 'organisme', 'emplacement'] },
+  { id: 'coordonnees', titre: 'Coordonnées', champs: ['contact', 'telephone', 'email', 'adresse', 'code_postal', 'ville', 'num_departement', 'siret', 'activite', 'secteur', 'immatriculation', 'numero_parc', 'expediteur', 'organisme', 'emplacement'] },
   { id: 'suivi', titre: 'Suivi', champs: ['statut', 'payee', 'disponible', 'disponibilite', 'urgence', 'bac', 'categorie', 'avancement', 'retard_jours', 'genre', 'etat_pneus', 'pneus_saison', 'action', 'note', 'recommande', 'charge'] },
   { id: 'dates', titre: 'Dates', champs: ['echeance', 'livraison_prevue', 'valide_jusqu_au', 'prochaine_revision', 'controle_technique', 'pneus_le', 'assurance_le', 'carte_grise_le', 'controle_periodique_le', 'verification_generale_le', 'autre_libelle', 'autre_le', 'kilometrage_le', 'heures_le', 'fait_le', 'recu_le', 'comptabilite_au'] },
   { id: 'chiffres', titre: 'Chiffres', champs: ['montant', 'cout', 'encours', 'limite_encours', 'quantite', 'seuil_alerte', 'unite', 'besoin_effectif', 'effectif', 'valeur', 'objectif', 'kilometrage', 'heures', 'revision_km', 'revision_heures', 'pneus_km', 'controle_periodique_heures', 'autre_km', 'autre_heures', 'ct_tous_les_mois', 'revision_tous_les_mois', 'revision_tous_les_km', 'revision_toutes_les_heures', 'pneus_tous_les_mois', 'pneus_tous_les_km', 'assurance_tous_les_mois', 'carte_grise_tous_les_mois', 'controle_periodique_tous_les_mois', 'controle_periodique_toutes_les_heures', 'verification_generale_tous_les_mois', 'autre_tous_les_mois', 'autre_tous_les_km', 'autre_toutes_les_heures', 'prevenir_jours', 'prevenir_km', 'prevenir_heures', 'tresorerie', 'charges_mensuelles', 'chiffre_affaires_annuel', 'marge_brute', 'resultat_net', 'creances_clients', 'dettes_fournisseurs', 'dettes_financieres', 'capitaux_propres'] },
@@ -125,11 +125,21 @@ const valeur = (o, id) => o?.champs?.find((c) => c.id === id)?.valeur ?? null;
 
 /** Coordonnées de terrain d'un objet : numéro (lien tel:), e-mail (mailto:), adresse (« Y aller »). */
 export function coordonnees(objet) {
-  const textes = ['contact', 'telephone', 'email'].map((id) => valeur(objet, id)).filter((v) => typeof v === 'string');
+  // « Téléphone » d'abord : c'est le champ fait pour ça ; « Contact » peut n'être qu'un nom.
+  const textes = ['telephone', 'contact', 'email'].map((id) => valeur(objet, id)).filter((v) => typeof v === 'string');
   const tel = textes.map(telephoneDe).find(Boolean) ?? null;
   const courriel = textes.map(courrielDe).find(Boolean) ?? null;
-  const adresse = [valeur(objet, 'adresse'), valeur(objet, 'ville')].filter((v) => typeof v === 'string' && v.trim()).join(', ') || null;
+  const adresse = adressePostale(objet);
   return { tel, courriel, adresse };
+}
+
+/** Adresse telle qu'on l'écrirait sur une enveloppe : « 3 rue du Port, 56000 Vannes ». Null si on ne sait rien. */
+export function adressePostale(objet) {
+  const propre = (id) => { const v = valeur(objet, id); return typeof v === 'string' && v.trim() ? v.trim() : null; };
+  const cp = propre('code_postal');
+  const ville = propre('ville');
+  const commune = [cp, ville].filter(Boolean).join(' ');
+  return [propre('adresse'), commune].filter(Boolean).join(', ') || null;
 }
 
 /**

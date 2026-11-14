@@ -305,3 +305,25 @@ test('écran « Aujourd’hui » : héros en premier, « Plus tard » annulable,
   assert.match(app, /'bz-bouton bz-bouton--principal', cle: `\$\{id\}-principal`/, 'une seule action principale : celle du héros');
   assert.doesNotMatch(contenu, /bz-bouton--principal/, 'pas d’autre bouton principal dans l’écran');
 });
+
+test('créer une tâche en un geste : titre et échéance déjà écrits, aucun écran de contrôle pour qui approuve (G6)', () => {
+  const app = readFileSync(`${RACINE}web/app.js`, 'utf8');
+  // ce qu'on propose : le titre de la quête ouverte (« Relancer F-041 ») et une échéance à huit jours
+  assert.match(app, /function tacheProposee\(objetId\) \{/);
+  assert.match(app, /titre: q \? JEU\.titreQuete\(q\.origine\.regle, \[o\.nom\]\) : '',/);
+  assert.match(app, /echeance: jourLocal\(new Date\(Date\.now\(\) \+ 7 \* 86_400_000\)\),/);
+  assert.match(app, /if \(a\.capacite === 'tache\.creer' && E\.fiche\) Object\.assign\(f\.valeurs, tacheProposee\(E\.fiche\.objet\.id\)\);/, 'le formulaire de la fiche arrive rempli');
+  // depuis « Aujourd'hui » : un clic, sans changer d'écran ni ouvrir la fiche
+  assert.match(app, /if \(a\.direct === 'tache\.creer' && E\.monde\.profil\.peutApprouver && tacheProposee\(a\.objetId\)\.titre\) return creerTacheDirecte\(a\.objetId\);/);
+  const direct = app.slice(app.indexOf('async function creerTacheDirecte('), app.indexOf('const sauverReports ='));
+  assert.match(direct, /executer: true/);
+  assert.doesNotMatch(direct, /ouvrirSurCarte|changerVue/, 'on reste là où l’on est');
+  assert.match(direct, /libelle: 'Voir la tâche'/, 'le toast mène à ce qui vient d’être créé');
+  // la liste des priorités passe par le même chemin : un seul comportement pour un même bouton
+  assert.match(app, /onclick: \(\) => faireAction\(\{ objetId: o\.id, direct: quete\.actionProposee \}\)/);
+  // dans la fiche : un seul bouton pour qui approuve, « Vérifier » gardé pour qui prépare sans approuver
+  assert.match(app, /const unGeste = F\.capacite === 'tache\.creer' && E\.monde\.profil\.peutApprouver && !sim;/);
+  assert.match(app, /if \(unGeste\) \{ if \(!F\.envoi\) envoyerAction\(f, 0\); return; \}/);
+  assert.match(app, /unGeste \? \(F\.envoi \? 'Création…' : 'Créer la tâche'\) : 'Vérifier'/);
+  assert.match(app, /if \(titreTache && a\.etat === 'reussie_technique'\) toast\(\{ texte: typo\(`Tâche créée : \$\{titreTache\}\.`\)/);
+});

@@ -816,14 +816,14 @@ const sheets: Adaptateur = {
 
 const webhook: Adaptateur = {
   id: 'webhook', nom: 'Make · Zapier · n8n (webhook)', categorie: 'Automatisation', couleur: '#6d00cc',
-  description: 'Vos scénarios poussent les changements ici ; le jeu leur envoie les siens, signés. Relie des milliers d’applications.',
+  description: 'Vos scénarios poussent les changements ici ; Living Business leur envoie les siens, signés. Relie des milliers d’applications.',
   etapes: [
     'Entrant : dans Make/Zapier/n8n, un module HTTP « POST » vers l’adresse d’entrée affichée, en-tête Authorization: Bearer <secret>.',
     'Corps JSON : { "enregistrements": [ { "id": "…", "Nom": "…", … } ] } (ou un seul objet).',
     'Sortant (facultatif) : créez un webhook « Custom webhook » dans Make, « Catch Raw Hook » dans Zapier (le « Catch Hook » simple ne montre pas l’en-tête de signature), ou un nœud Webhook réglé sur la méthode POST dans n8n (il attend GET par défaut), puis collez son adresse ici.',
   ],
   champs: [
-    { id: 'urlSortante', libelle: 'Adresse du webhook sortant (facultatif)', aide: 'https://hook.eu1.make.com/… — reçoit chaque changement fait dans le jeu.' },
+    { id: 'urlSortante', libelle: 'Adresse du webhook sortant (facultatif)', aide: 'https://hook.eu1.make.com/… — reçoit chaque changement fait dans Living Business.' },
     { id: 'champId', libelle: 'Champ identifiant', aide: 'Nom du champ qui identifie un enregistrement (défaut : id).', exemple: 'id' },
   ],
   lecture: 'reception',

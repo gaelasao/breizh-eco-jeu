@@ -213,3 +213,33 @@ test('fenêtre étroite (1 024 px) : la date s’efface avant que le titre ne so
   assert.match(css, /@media \(min-width: 48em\) and \(max-width: 74\.99em\) \{ \.bz-entete__recherche \{ flex: 0 1 14rem; \} \}/);
   assert.match(css, /\.bz-entete__titre \{ flex: 1 1 auto;/, 'le titre prend la place restante');
 });
+
+test('fenêtre étroite (1 024 px) : menu replié d’office, fiche par-dessus la liste, barre de carte dégagée (G11)', () => {
+  const app = lire('web/app.js');
+  const css = lire('web/bz/composants.css');
+  // menu : tant que personne n'a choisi, il suit la largeur (replié de 960 à 1 200 px)
+  assert.match(app, /railReplie: lireLocal\('lb-rail'\) === 'replie' \? true : lireLocal\('lb-rail'\) === 'ouvert' \? false : null,/);
+  assert.match(app, /const ecranEtroit = \(\) => matchMedia\('\(min-width: 60em\) and \(max-width: 74\.99em\)'\)\.matches;/);
+  assert.match(app, /const railEffectif = \(\) => !estOrdinateur\(\) \|\| \(E\.railReplie \?\? ecranEtroit\(\)\);/);
+  assert.match(app, /E\.railReplie = !railEffectif\(\);/, 'le premier clic part de ce qui est à l’écran');
+  assert.doesNotMatch(app, /texte: E\.railReplie \? 'Déplier le menu'/, 'le libellé du bouton dit l’état réel');
+  assert.match(app, /for \(const q of \[[^\]]*'\(min-width: 75em\)'/, 'le menu suit un changement de largeur');
+  // fiche : par-dessus la liste sous 1 100 px (68,75 em), côte à côte au-delà
+  assert.match(css, /@media \(min-width: 68\.75em\) \{\s*\.bz-coque__contenu\[data-fiche\] \{ grid-template-columns:/);
+  assert.doesNotMatch(css, /@media \(min-width: 60em\) \{\s*\.bz-coque__contenu\[data-fiche\]/);
+  // barre de la carte : « Connecter mes données » et le plan du port s'effacent quand la carte est à l'étroit
+  assert.match(app, /const carteEtroite = \(\) => !matchMedia\('\(min-width: 68\.75em\)'\)\.matches \|\| \(Boolean\(E\.selection\) && !matchMedia\('\(min-width: 100em\)'\)\.matches\);/, 'fiche ouverte : la barre se resserre, sauf sur un très grand écran (F11)');
+  assert.match(app, /const connecter = sansSourceReelle\(\) && !carteEtroite\(\) \?/);
+  assert.match(app, /\(E\.miniCarte \?\? !carteEtroite\(\)\) \? miniCarte\(\{ repliable: true \}\)/);
+  assert.match(app, /miniCarte: lireLocal\('lb-minicarte'\) === 'repliee' \? false : lireLocal\('lb-minicarte'\) === 'ouverte' \? true : null,/);
+});
+
+test('listes sur téléphone : recherche et filtre sur une ligne, indications courtes (F9)', () => {
+  const css = lire('web/bz/composants.css');
+  const app = lire('web/app.js');
+  assert.match(css, /@media \(max-width: 37\.49em\) \{\s*\.bz-liste__outils \{ flex-wrap: nowrap; \}\s*\.bz-liste__recherche \{ flex: 1 1 6rem; min-inline-size: 0; \}/);
+  assert.match(app, /placeholder: estTelephone\(\) \? 'Rechercher…' : `Rechercher dans \$\{libelleListe\.toLowerCase\(\)\}…`/);
+  assert.match(app, /placeholder: estTelephone\(\) \? 'Rechercher…' : 'Rechercher un expéditeur, un objet…'/);
+  assert.match(app, /estTelephone\(\) \? 'Importer' : 'Importer un fichier'/, 'le bouton secondaire se raccourcit avant de pousser la liste plus bas');
+  assert.match(app, /texte: `Rechercher dans \$\{libelleListe\.toLowerCase\(\)\}` \}\)/, 'le nom accessible reste entier');
+});
