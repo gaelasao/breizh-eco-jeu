@@ -299,7 +299,7 @@ test('nomenclature (SBOM) : dépendances d’exécution du verrou, Node.js et fi
   }
   assert.equal(bom.components.find((c) => c.name === 'Lucide')?.version, '1.71.0');
   const racineDeps = bom.dependencies.find((d) => d.ref === 'living-business@9.9.9');
-  assert.ok(racineDeps?.dependsOn.includes('node@24.22.2') && racineDeps.dependsOn.includes('three@0.186.0'), 'graphe des dépendances rattaché au produit');
+  assert.ok(racineDeps?.dependsOn.includes('node@24.22.2') && racineDeps.dependsOn.includes('three@0.187.0'), 'graphe des dépendances rattaché au produit');
   // écrite dans le paquet quand elle est fournie
   const sortie = mkdtempSync(join(tmpdir(), 'lb-paquet-sbom-'));
   try {
