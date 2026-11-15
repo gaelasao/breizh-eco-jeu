@@ -38,6 +38,7 @@ type P = {
   lotRemplir: (P: unknown, a: unknown, c: unknown[]) => Array<{ employe: string; date: string; valeur: string }>;
   lotInverse: (P: unknown, l: unknown[]) => Array<{ employe: string; date: string; valeur: string }>;
   sansLieu: (P: unknown) => boolean;
+  agendasBranchables: (sources?: unknown[]) => Array<{ id: string; nom: string }>;
   appliquer: (P: Plan, l: unknown[]) => Plan;
   texteLot: (P: unknown, l: unknown[]) => string;
 };
@@ -255,4 +256,26 @@ test('planning sans lieu : « Ajouter un lieu de travail… » dans la case, et 
   assert.match(dessin, /: PLAN\.sansLieu\(P\)\s+\?/);
   assert.match(dessin, /texte: 'Ajoutez un lieu pour dire où chacun travaille\.'/);
   assert.ok(dessin.indexOf('PLAN.sansLieu(P)') < dessin.indexOf('Aucun trou dans le planning'), 'l’absence de lieu passe avant le bilan des trous');
+});
+
+test('planning sans rendez-vous : brancher son agenda se propose ICI, et seulement si le réseau l’ouvre', () => {
+  const app = readFileSync(new URL('../../web/app.js', import.meta.url), 'utf8');
+  const google = { id: 'agendagoogle', nom: 'Google Agenda', oauth: { fournisseur: 'googleagenda', nom: 'Google' } };
+  const microsoft = { id: 'agendamicrosoft', nom: 'Agenda Microsoft 365', oauth: { fournisseur: 'microsoftagenda', nom: 'Microsoft' } };
+  const ferme = { id: 'agendagoogle', nom: 'Google Agenda', oauth: null };
+  const sheets = { id: 'sheets', nom: 'Google Sheets', oauth: { fournisseur: 'google', nom: 'Google' } };
+  // module pur : un agenda n'est proposé que s'il est vraiment branchable en un clic
+  assert.deepEqual(Pl.agendasBranchables([sheets, google, microsoft]).map((s) => s.id), ['agendagoogle', 'agendamicrosoft']);
+  assert.deepEqual(Pl.agendasBranchables([sheets, ferme]), [], 'agenda fermé chez le relais : rien à proposer');
+  assert.deepEqual(Pl.agendasBranchables([sheets]), [], 'les feuilles de calcul ne sont pas un agenda');
+  assert.deepEqual(Pl.agendasBranchables([]), []);
+  assert.deepEqual(Pl.agendasBranchables(), [], 'catalogue pas encore chargé');
+  // l'écran : la section « Rendez-vous » vide invite, au lieu de disparaître
+  assert.match(app, /if \(!liste\.length\) return inviterAgenda\(P\);/);
+  const invite = app.slice(app.indexOf('function inviterAgenda'), app.indexOf('function rendezVousPlanning'));
+  assert.match(invite, /if \(!P\.modifiable \|\| !E\.monde\?\.profil\.peutAdministrer\) return null;/, 'pas à qui n’administre pas');
+  assert.match(invite, /const agendas = PLAN\.agendasBranchables\(E\.sources\);\s+if \(!agendas\.length\) return null;/, 'jamais un bouton qui mènerait à un refus');
+  assert.match(invite, /ouvrirConnecteur\(s\.id\)/, 'le bouton ouvre l’assistant directement sur cet agenda');
+  assert.match(invite, /`Brancher \$\{s\.nom\}`/);
+  assert.match(invite, /api\('GET', '\/sources'\)/, 'le catalogue se charge tout seul si le planning est le premier écran ouvert');
 });

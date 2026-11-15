@@ -4616,12 +4616,37 @@ function dessinerPlanning() {
 }
 
 /**
+ * Aucun rendez-vous : proposer de brancher un agenda, ICI. C'est au planning qu'on cherche son agenda, pas dans
+ * « Connecter mes données », dont la première question parle de clients. Rien n'est proposé si le réseau n'ouvre
+ * aucun agenda (le bouton mènerait à un refus), ni à qui n'administre pas.
+ */
+function inviterAgenda(P) {
+  if (!P.modifiable || !E.monde?.profil.peutAdministrer) return null;
+  if (!E.sources) {
+    api('GET', '/sources').then((s) => { E.sources = s; if (E.vue === 'planning') dessinerPlanning(); }).catch(() => undefined);
+    return null;
+  }
+  const agendas = PLAN.agendasBranchables(E.sources);
+  if (!agendas.length) return null;
+  return h('section', { class: 'bz-planning__section', 'aria-labelledby': 'planning-agenda-titre' },
+    h('h2', { class: 'bz-t-titre-4', id: 'planning-agenda-titre', texte: 'Rendez-vous' }),
+    h('div', { class: 'bz-resultat', 'data-ton': 'info' }, iconeEtat('info', { decoratif: true }),
+      h('div', { class: 'bz-pile bz-pile--serre' },
+        h('strong', { texte: 'Vos rendez-vous peuvent s’afficher ici.' }),
+        h('p', { class: 'bz-t-petit', texte: 'Branchez votre agenda : les rendez-vous de la semaine viendront sous le planning, et ceux que vous créez ici repartiront dans votre agenda si vous le demandez. Les cases, elles, ne bougent pas.' }),
+        h('div', { class: 'bz-groupe-boutons' }, agendas.map((s, i) => h('button', {
+          type: 'button', class: `bz-bouton bz-bouton--${i === 0 ? 'principal' : 'secondaire'} bz-bouton--sm`,
+          cle: `planning-brancher-${s.id}`, onclick: () => ouvrirConnecteur(s.id),
+        }, icone('calendar-days', { taille: 'sm' }), `Brancher ${s.nom}`))))));
+}
+
+/**
  * Les rendez-vous de la semaine, jour par jour. Ils viennent de l'agenda branché (Google, Microsoft) ou du jeu, et ne
  * touchent pas aux cases : une case dit où quelqu'un passe sa journée, un rendez-vous dit ce qui est prévu à une heure.
  */
 function rendezVousPlanning(P) {
   const liste = P.rendezVous ?? [];
-  if (!liste.length) return null;
+  if (!liste.length) return inviterAgenda(P);
   const parJour = P.jours.map((j) => [j, liste.filter((r) => r.jour === j)]).filter(([, l]) => l.length);
   return h('section', { class: 'bz-planning__section', 'aria-labelledby': 'planning-rdv-titre' },
     h('h2', { class: 'bz-t-titre-4', id: 'planning-rdv-titre' }, h('span', { texte: 'Rendez-vous' }),

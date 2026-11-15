@@ -49,6 +49,18 @@ export const GROUPES_OPTIONS = Object.freeze(['Lieux', 'Projets', 'Missions', 'A
  * la question des trous n'aurait pas de sens (toutes les cases sont « Non affecté »). L'écran demande alors un lieu.
  */
 export const sansLieu = (P) => !(P?.options ?? []).some((o) => o.groupe === 'Lieux' || o.groupe === 'Projets');
+
+/** Les outils d'agenda du catalogue : ce sont eux qui remplissent la section « Rendez-vous » du planning. */
+export const AGENDAS = Object.freeze(['agendagoogle', 'agendamicrosoft']);
+/**
+ * Les agendas branchables en un clic, d'après le catalogue des outils.
+ *
+ * Quelqu'un qui cherche « où mettre mon agenda » regarde le PLANNING : c'est là que les rendez-vous iront. Il ne
+ * pense pas à « Connecter mes données », dont la première question parle de clients. Le planning propose donc
+ * lui-même de brancher un agenda — mais seulement ceux que le réseau ouvre vraiment (`oauth` renseigné), sinon le
+ * bouton mènerait à un refus de l'outil, ce que tout le reste de l'écran de connexion s'applique à éviter.
+ */
+export const agendasBranchables = (sources = []) => sources.filter((s) => AGENDAS.includes(s?.id) && s?.oauth);
 export function optionsGroupees(P) {
   return GROUPES_OPTIONS.map((g) => ({ groupe: g, options: (P.options ?? []).filter((o) => o.groupe === g) })).filter((g) => g.options.length);
 }
