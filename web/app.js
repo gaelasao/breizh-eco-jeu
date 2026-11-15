@@ -2933,7 +2933,7 @@ async function rendreListe(vue) {
   // liste encore vide (§4.18) : ni recherche, ni vues enregistrées, ni deuxième bouton principal — ce qui manque, ce que
   // la rubrique montrera, et une seule action (une liste vidée par un filtre garde ses outils : voir plus bas)
   if (!objetsDeVue(vue).length) {
-    remplir($('#page'), h('div', { class: 'bz-ecran bz-liste' }, videRubrique(rubriqueDeVue(vue), {
+    remplir($('#page'), h('div', { class: 'bz-ecran bz-liste' }, inviterTaches(M, vue, []), videRubrique(rubriqueDeVue(vue), {
       titre: o ? null : `Aucune fiche dans ${libelleListe.toLowerCase()} pour le moment.`,
       action: boutonConnecter(cible),
       secondaire: cible.type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirSaisie(cible) }, 'Ajouter à la main') : null,
@@ -3033,6 +3033,7 @@ async function rendreListe(vue) {
           m.profil.peutAdministrer && cible.type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirSaisie(cible) }, icone('plus'), 'Ajouter') : null,
           // sur téléphone, « Importer » suffit : les deux boutons tiennent alors sur la ligne du compteur (F9)
           m.profil.peutAdministrer && cible.type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirAssistant('fichier', cible) }, icone('upload'), estTelephone() ? 'Importer' : 'Importer un fichier') : null)),
+      inviterTaches(M, vue, tous),
       h('div', { class: 'bz-liste__outils' },
         champRecherche,
         h('div', { class: 'bz-liste__vues' },
@@ -3066,6 +3067,30 @@ async function rendreListe(vue) {
     ),
   );
 }
+/**
+ * Écran Tâches : brancher sa liste de tâches se propose ICI. C'est à l'écran Tâches qu'on cherche ses tâches, pas
+ * dans « Connecter mes données », dont la première question parle de clients. Rien n'est proposé si le réseau n'ouvre
+ * aucune liste (le bouton mènerait à un refus), ni à qui n'administre pas, ni quand une liste branchée remplit déjà
+ * l'écran. `deja` : les fiches de la liste, pour savoir si l'une d'elles vient déjà d'un outil.
+ */
+function inviterTaches(M, vue, deja) {
+  if (vue !== 'famille:tache' || !E.monde?.profil.peutAdministrer) return null;
+  if (!E.sources) {
+    api('GET', '/sources').then((s) => { E.sources = s; if (E.vue === vue) rendreListe(vue); }).catch(() => undefined);
+    return null;
+  }
+  const outils = M.tachesBranchables(E.sources);
+  if (!outils.length || deja.some(M.vientDUnOutil)) return null;
+  return h('div', { class: 'bz-resultat', 'data-ton': 'info' }, iconeEtat('info', { decoratif: true }),
+    h('div', { class: 'bz-pile bz-pile--serre' },
+      h('strong', { texte: 'Vos tâches peuvent arriver ici toutes seules.' }),
+      h('p', { class: 'bz-t-petit', texte: 'Branchez votre liste de tâches : ce qu’elle contient s’affiche dans cet écran, et ce que vous créez ou terminez ici y repart si vous le demandez.' }),
+      h('div', { class: 'bz-groupe-boutons' }, outils.map((s, i) => h('button', {
+        type: 'button', class: `bz-bouton bz-bouton--${i === 0 ? 'principal' : 'secondaire'} bz-bouton--sm`,
+        cle: `taches-brancher-${s.id}`, onclick: () => ouvrirConnecteur(s.id),
+      }, icone('list-checks', { taille: 'sm' }), `Brancher ${s.nom}`)))));
+}
+
 /** Barre d'action (§4.17) : flèches gauche et droite entre les boutons, Échap désélectionne. */
 function clavierBarre(e) {
   const boutons = [...e.currentTarget.querySelectorAll('button')];

@@ -205,6 +205,8 @@ export const LIBELLES_CHOIX: Readonly<Record<string, string>> = {
   products: 'Produits', orders: 'Commandes', organizations: 'Entreprises', persons: 'Contacts',
   // agenda : jusqu'où regarder dans le futur (les 30 derniers jours sont toujours lus)
   periode30: 'Les 30 prochains jours', periode90: 'Les 90 prochains jours', periode180: 'Les 6 prochains mois', periode365: 'Les 12 prochains mois',
+  // tâches : les tâches déjà cochées chez l'outil entrent-elles aussi ?
+  aFaire: 'Seulement ce qu’il reste à faire', tout: 'Aussi les tâches déjà terminées',
   // courrier : combien de messages récents montrer, et ce qu'un courrier « traité » déclenche dans la boîte
   messages25: 'Les 25 derniers messages', messages50: 'Les 50 derniers messages', messages100: 'Les 100 derniers messages',
   rien: 'Ne rien faire dans la boîte', lu: 'Marquer le message comme lu', archiver: 'Marquer comme lu, puis archiver',

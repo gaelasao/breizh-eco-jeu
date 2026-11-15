@@ -69,6 +69,7 @@ export const COMPTES = Object.freeze([
     contenus: [
       { id: 'sheets', libelle: 'Feuilles de calcul', resume: 'vos feuilles de calcul', detail: 'Clients, commandes, stock… dans les deux sens.', source: 'sheets' },
       { id: 'agenda', libelle: 'Agenda', resume: 'votre agenda', detail: 'Vos rendez-vous dans le planning, et ceux d’ici dans votre agenda.', source: 'agendagoogle' },
+      { id: 'taches', libelle: 'Tâches', resume: 'vos tâches', detail: 'Vos tâches Google dans l’écran Tâches, et celles d’ici dans votre liste.', source: 'tachesgoogle' },
       { id: 'messagerie', libelle: 'Courrier Gmail', resume: 'votre courrier', detail: 'Vos messages récents dans l’écran Courrier, triés dans vos bacs.', source: 'gmail' },
     ],
   },
@@ -80,6 +81,7 @@ export const COMPTES = Object.freeze([
     contenus: [
       { id: 'excel365', libelle: 'Un classeur Excel', resume: 'vos classeurs Excel', detail: 'Sur OneDrive professionnel ou SharePoint.', source: 'excel365' },
       { id: 'agenda', libelle: 'Agenda', resume: 'votre agenda', detail: 'Vos rendez-vous dans le planning, et ceux d’ici dans votre agenda.', source: 'agendamicrosoft' },
+      { id: 'taches', libelle: 'Tâches (To Do)', resume: 'vos tâches To Do', detail: 'Vos tâches Microsoft To Do dans l’écran Tâches, et celles d’ici dans votre liste.', source: 'tachesmicrosoft' },
       { id: 'messagerie', libelle: 'Courrier Outlook', resume: 'votre courrier Outlook', detail: 'Vos messages récents dans l’écran Courrier, triés dans vos bacs.', source: 'outlook' },
       { id: 'dynamics365', libelle: 'Dynamics 365', resume: 'Dynamics 365', detail: 'Les comptes et les contacts de votre CRM.', source: 'dynamics365' },
       { id: 'businesscentral', libelle: 'Business Central', resume: 'Business Central', detail: 'Clients, fournisseurs et articles.', source: 'businesscentral' },
@@ -113,7 +115,8 @@ export const compteDe = (sourceId) => COMPTES.find((c) => c.contenus.some((x) =>
  * champs sont déjà ceux du jeu. C'est ce qui tient la promesse « pas plus de trois clics après la connexion ».
  */
 export const CIBLE_FIXE = Object.freeze({
-  agendagoogle: 'rendez_vous', agendamicrosoft: 'rendez_vous', gmail: 'courrier', outlook: 'courrier',
+  agendagoogle: 'rendez_vous', agendamicrosoft: 'rendez_vous', tachesgoogle: 'tache', tachesmicrosoft: 'tache',
+  gmail: 'courrier', outlook: 'courrier',
 });
 export const cibleFixe = (sourceId) => CIBLE_FIXE[sourceId] ?? null;
 
@@ -121,6 +124,8 @@ export const cibleFixe = (sourceId) => CIBLE_FIXE[sourceId] ?? null;
 export const SENS_AVANT_CONNEXION = Object.freeze({
   agendagoogle: { lecture: 'Lire mes rendez-vous', deux: 'Lire mes rendez-vous, et ajouter dans l’agenda ceux que je crée ici' },
   agendamicrosoft: { lecture: 'Lire mes rendez-vous', deux: 'Lire mes rendez-vous, et ajouter dans l’agenda ceux que je crée ici' },
+  tachesgoogle: { lecture: 'Lire mes tâches', deux: 'Lire mes tâches, et renvoyer dans la liste celles que je crée ou que je termine ici' },
+  tachesmicrosoft: { lecture: 'Lire mes tâches', deux: 'Lire mes tâches, et renvoyer dans la liste celles que je crée ou que je termine ici' },
   gmail: { lecture: 'Lire l’expéditeur, l’objet et la date', deux: 'Lire, et marquer comme lu ou archiver quand je traite un courrier ici' },
   outlook: { lecture: 'Lire l’expéditeur, l’objet et la date', deux: 'Lire, et marquer comme lu ou archiver quand je traite un courrier ici' },
 });
