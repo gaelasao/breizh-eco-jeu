@@ -45,8 +45,10 @@ voisin : ils sont sautés dans la CI et se lancent sur le poste de l'éditeur av
 | Agenda Microsoft 365 | nouveau | Voir « Agenda » ci-dessous. |
 | Gmail | nouveau | Voir « Courrier » ci-dessous. |
 | Courrier Outlook (Microsoft 365) | nouveau | Voir « Courrier » ci-dessous. |
+| Google Tasks | nouveau (15 novembre 2026) | Voir « Tâches » ci-dessous. |
+| Microsoft To Do | nouveau (15 novembre 2026) | Voir « Tâches » ci-dessous. |
 
-Ces quatre-là réutilisent l'application Google ou Microsoft déjà déclarée, mais chacun demande ses propres droits.
+Ces six-là réutilisent l'application Google ou Microsoft déjà déclarée, mais chacun demande ses propres droits.
 **Le jeu ne les montre que si le relais les propose**, et le relais ne les propose que si l'hébergeur du réseau a
 déclaré ces droits dans son application : sans cela le bouton mènerait à un refus de l'outil, sans explication. Un
 outil fermé n'apparaît nulle part — ni dans le catalogue, ni derrière un « Google » ou un « Microsoft » déjà branché.
@@ -176,6 +178,58 @@ Documentation lue : Gmail <https://developers.google.com/workspace/gmail/api/ref
 <https://learn.microsoft.com/en-us/graph/api/message-update?view=graph-rest-1.0>,
 <https://learn.microsoft.com/en-us/graph/api/message-move?view=graph-rest-1.0>,
 <https://learn.microsoft.com/en-us/graph/api/resources/mailfolder?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/permissions-reference>.
+
+## Tâches
+
+Écrit le 15 novembre 2026 d'après la documentation lue ce jour-là (adresses à la fin de la section). **Rien n'a été
+essayé avec un vrai compte** : les essais (`src/passerelle/taches-externes.test.ts`) tournent contre des outils simulés.
+
+Google Tasks et Microsoft To Do deviennent des sources de l'écran **Tâches**, comme l'agenda l'est du Planning. Un
+compte contient souvent plusieurs listes (la sienne, les courses, le chantier) : après la connexion, la personne
+choisit **laquelle**, et si les tâches **déjà terminées** doivent entrer elles aussi (non par défaut : l'écran Tâches
+montre ce qu'il reste à faire). Il n'y a rien d'autre à régler — ce qui entre est connu d'avance, donc aucune cible à
+choisir et aucune colonne à associer.
+
+Ce qui entre dans le jeu, comme fiches « Tâche » : l'intitulé, l'échéance, l'état et l'adresse de la tâche chez
+l'outil. **Jamais les notes d'une tâche** : un intitulé suffit à savoir quoi faire, et une note contient souvent tout
+autre chose (un prix, une adresse, un mot de passe). Google n'offre pas de portée « sans les notes » comme Gmail en a
+une « sans le corps » : ce sont donc les appels qui les laissent chez l'outil — `fields` côté Google, `$select` côté
+Microsoft, et `notes` comme `body` ne sont dans ni l'un ni l'autre.
+
+Dans les deux sens : une tâche créée dans le jeu est ajoutée à la liste choisie, une tâche déjà reliée est modifiée
+(jamais recréée), et la terminer ici la coche là-bas. L'anti-boucle est celui de tous les connecteurs : l'empreinte de
+la fiche est notée après chaque échange, et rien ne repart tant qu'elle n'a pas changé. Le choix « lire seulement » ou
+« dans les deux sens » se fait **avant** la connexion, parce que c'est lui qui décide des droits demandés ; lire
+seulement est le choix par défaut.
+
+| | Google Tasks | Microsoft To Do |
+|---|---|---|
+| Listes du compte | `GET /tasks/v1/users/@me/lists` (`maxResults` 1 000 au plus). | `GET /me/todo/lists` (`$select=id,displayName,wellknownListName`). La liste `defaultList` est signalée comme la principale. |
+| Lecture | `GET /tasks/v1/lists/{liste}/tasks` avec `showCompleted`, `showHidden` (sans lui, Google cache les tâches cochées dans ses propres applications), `showDeleted=false`, `maxResults=100` (son plafond), pages par `pageToken`, et `fields` pour ne pas faire descendre les notes. Une tâche `deleted` n'entre pas. | `GET /me/todo/lists/{id}/tasks` avec `$select=id,title,status,dueDateTime`, `$top=100`, pages par `@odata.nextLink` (suivi seulement s'il reste sur `graph.microsoft.com`). Microsoft n'offre pas de filtre sûr sur l'état : les tâches terminées sont écartées à la lecture. |
+| Écriture | `POST …/tasks`, `PATCH …/tasks/{id}`. | `POST /me/todo/lists/{id}/tasks`, `PATCH /me/todo/lists/{id}/tasks/{id}`. |
+| États | Deux seulement : `needsAction` et `completed`. « En cours » et « bloquée » existent dans le jeu, et une tâche qui y passe reste `needsAction` chez Google. | Cinq : `notStarted`, `inProgress`, `completed`, `waitingOnOthers`, `deferred`. Les deux derniers deviennent « bloquée » ; « bloquée » repart en `waitingOnOthers`, le plus proche. |
+| Échéance | `due`, date RFC 3339 dont **Google écrit lui-même qu'il ne garde que le jour** : « only the date is recorded; the time portion is discarded ». Le jeu écrit donc minuit UTC. | `dueDateTime` en `{ dateTime, timeZone }`. Le jeu écrit minuit en `UTC`, car **Microsoft rend l'échéance convertie en UTC** (son propre exemple écrit une heure en « Eastern Standard Time » et la relit en UTC) : écrire le jour dans un autre fuseau le déplacerait d'un jour à la relecture. |
+| Ouvrir dans l'outil | `webViewLink`, l'adresse de la tâche dans Google Tasks. | **Aucune** : Microsoft ne publie pas d'adresse web pour une tâche. Il n'y a donc pas de bouton « Ouvrir dans… » de ce côté. |
+| Temps réel | Non : l'API Tasks ne publie pas de méthode `watch`. La liste est relue à son intervalle. | Non dans cette version, comme le courrier Outlook. |
+
+Ce que la documentation permet et que nous ne faisons pas : supprimer une tâche (le jeu n'efface rien chez l'outil),
+les sous-tâches et les listes de contrôle (`checklistItems`), les pièces jointes, la répétition (`recurrence`),
+l'importance, les rappels, et la synchronisation incrémentale (`updatedMin` chez Google, `delta` chez Microsoft) — la
+liste est relue en entier, ce qui tient largement pour quelques centaines de tâches.
+
+Une échéance n'a pas d'heure : ni Google ni Microsoft n'en retiennent une, et le jeu n'enregistre donc que le jour.
+
+Documentation lue : Google <https://developers.google.com/workspace/tasks/reference/rest/v1/tasklists/list>,
+<https://developers.google.com/workspace/tasks/reference/rest/v1/tasks/list>,
+<https://developers.google.com/workspace/tasks/reference/rest/v1/tasks>,
+<https://developers.google.com/workspace/tasks/performance>,
+<https://developers.google.com/identity/protocols/oauth2/scopes> ; Microsoft
+<https://learn.microsoft.com/en-us/graph/api/todo-list-lists?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/api/todotasklist-list-tasks?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/api/todotasklist-post-tasks?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/api/todotask-update?view=graph-rest-1.0>,
+<https://learn.microsoft.com/en-us/graph/api/resources/todotask?view=graph-rest-1.0>,
 <https://learn.microsoft.com/en-us/graph/permissions-reference>.
 
 ## Temps réel

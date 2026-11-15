@@ -36,6 +36,23 @@ export const COLONNES = Object.freeze({
 });
 export const COLONNES_MAX = 4;
 
+/** Les outils de tâches du catalogue : ce sont eux qui peuvent remplir l'écran Tâches depuis l'extérieur. */
+export const OUTILS_TACHES = Object.freeze(['tachesgoogle', 'tachesmicrosoft']);
+/**
+ * Les listes de tâches branchables en un clic, d'après le catalogue des outils.
+ *
+ * Quelqu'un qui cherche « où mettre mes tâches » regarde l'écran TÂCHES : c'est là qu'elles iront. Il ne pense pas à
+ * « Connecter mes données », dont la première question parle de clients. L'écran Tâches propose donc lui-même de
+ * brancher une liste — mais seulement celles que le réseau ouvre vraiment (`oauth` renseigné), sinon le bouton
+ * mènerait à un refus de l'outil, ce que tout le reste de l'écran de connexion s'applique à éviter.
+ */
+export const tachesBranchables = (sources = []) => (Array.isArray(sources) ? sources : []).filter((s) => OUTILS_TACHES.includes(s?.id) && s?.oauth);
+/**
+ * Cette fiche vient-elle d'un outil branché ? (et non d'une saisie, d'un import de fichier ou du jeu lui-même).
+ * C'est ce qui dit si l'écran a déjà sa liste branchée : dans ce cas il n'y a plus rien à proposer.
+ */
+export const vientDUnOutil = (x) => typeof x?.source?.id === 'string' && x.source.id.startsWith('connecteur:');
+
 const NUMERIQUES = new Set(['nombre', 'montant']);
 export const estNumerique = (c) => NUMERIQUES.has(c?.type);
 

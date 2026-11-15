@@ -73,8 +73,8 @@ test('un compte, pas un connecteur : Google et Microsoft n’ont qu’une entré
     'un seul compte Microsoft couvre Excel, Dynamics 365 et Business Central');
   assert.ok(microsoft?.contenus?.every((c) => !c.disponible || c.unClic), 'ouverts : chacun en un clic');
   const google = comptes.find((x) => x.id === 'google');
-  assert.deepEqual(google?.contenus?.map((c) => [c.id, c.disponible]), [['sheets', true], ['agenda', false], ['messagerie', false]],
-    'la place de l’agenda et de la messagerie est prévue, sans être proposée');
+  assert.deepEqual(google?.contenus?.map((c) => [c.id, c.disponible]), [['sheets', true], ['agenda', false], ['taches', false], ['messagerie', false]],
+    'la place de l’agenda, des tâches et de la messagerie est prévue, sans être proposée');
   assert.equal(M.compteDe('excel365')?.id, 'microsoft');
   assert.equal(M.compteDe('hubspot'), null, 'les autres outils gardent une entrée chacun');
   assert.ok(cat.some((x) => x.genre === 'outil' && x.id === 'hubspot'));
@@ -88,11 +88,11 @@ test('agenda et courrier : proposés dans le compte dès que le relais les ouvre
   const cat = M.catalogue(sourcesReelles(['sheets', 'agendagoogle', 'excel365', 'agendamicrosoft', 'outlook']), CONNECTEURS);
   const comptes = cat.filter((x) => x.genre === 'compte');
   const contenus = (id: string) => comptes.find((x) => x.id === id)?.contenus ?? [];
-  assert.deepEqual(contenus('google').map((c) => [c.id, c.disponible]), [['sheets', true], ['agenda', true], ['messagerie', false]],
+  assert.deepEqual(contenus('google').map((c) => [c.id, c.disponible]), [['sheets', true], ['agenda', true], ['taches', false], ['messagerie', false]],
     'Gmail fermé chez l’éditeur : l’entrée n’est pas proposée');
   // Excel, Dynamics et Business Central restent branchables par une clé ; l'agenda et le courrier, eux, n'ont que le clic
   assert.deepEqual(contenus('microsoft').map((c) => [c.id, c.disponible, c.unClic]),
-    [['excel365', true, true], ['agenda', true, true], ['messagerie', true, true], ['dynamics365', true, false], ['businesscentral', true, false]]);
+    [['excel365', true, true], ['agenda', true, true], ['taches', false, false], ['messagerie', true, true], ['dynamics365', true, false], ['businesscentral', true, false]]);
   // rien dans « Que voulez-vous brancher ? » ne mène à un refus : tout ce qui est proposé s'ouvre vraiment
   for (const c of [...contenus('google'), ...contenus('microsoft')]) if (c.disponible) assert.ok(c.unClic || c.cle, `${c.id} : une voie qui marche`);
   // un agenda ou une boîte ne figure jamais à part : il appartient à son compte
@@ -112,6 +112,34 @@ test('agenda et courrier : proposés dans le compte dès que le relais les ouvre
     assert.doesNotMatch(`${s.lecture} ${s.deux}`, /portée|scope|droit d’écriture/, `${id} : dit en français courant`);
   }
   assert.equal(M.sensAvantConnexion('sheets'), null);
+});
+
+test('tâches : Google Tasks et Microsoft To Do entrent par leur compte, sans rien à associer', () => {
+  const cat = M.catalogue(sourcesReelles(['sheets', 'tachesgoogle', 'excel365', 'tachesmicrosoft']), CONNECTEURS);
+  const contenus = (id: string) => cat.find((x) => x.genre === 'compte' && x.id === id)?.contenus ?? [];
+  assert.deepEqual(contenus('google').map((c) => [c.id, c.disponible, c.unClic]),
+    [['sheets', true, true], ['agenda', false, false], ['taches', true, true], ['messagerie', false, false]]);
+  assert.deepEqual(contenus('microsoft').filter((c) => c.disponible).map((c) => c.source),
+    ['excel365', 'tachesmicrosoft', 'dynamics365', 'businesscentral']);
+  // une liste de tâches ne figure jamais à part : elle appartient à son compte
+  for (const id of ['tachesgoogle', 'tachesmicrosoft']) assert.ok(!cat.some((x) => x.genre === 'outil' && x.id === id), `${id} : pas d’entrée séparée`);
+  assert.equal(M.compteDe('tachesgoogle')?.id, 'google');
+  assert.equal(M.compteDe('tachesmicrosoft')?.id, 'microsoft');
+  // relais fermé : rien n'est proposé, pas même par une clé (il n'y en a pas) — jamais un bouton qui mène à un refus
+  const ferme = M.catalogue(sourcesReelles(['sheets']), CONNECTEURS).find((x) => x.genre === 'compte' && x.id === 'google');
+  assert.equal(ferme?.contenus?.find((c) => c.id === 'taches')?.disponible, false);
+  // ce qui entre est connu d'avance : des tâches. Aucune cible à choisir, aucune colonne à associer.
+  assert.equal(M.cibleFixe('tachesgoogle'), 'tache');
+  assert.equal(M.cibleFixe('tachesmicrosoft'), 'tache');
+  // « dans les deux sens » se choisit AVANT la connexion : c'est lui qui décide des droits demandés
+  for (const id of ['tachesgoogle', 'tachesmicrosoft']) {
+    const s = M.sensAvantConnexion(id);
+    assert.ok(s?.lecture && s.deux, `${id} : les deux choix sont dits`);
+    assert.doesNotMatch(`${s.lecture} ${s.deux}`, /portée|scope|droit d’écriture/, `${id} : dit en français courant`);
+  }
+  // la carte du compte annonce les tâches dès que le relais les ouvre, et jamais avant
+  const google = cat.find((x) => x.genre === 'compte' && x.id === 'google');
+  assert.match(normaliser(google?.description ?? ''), /vos feuilles de calcul et vos tâches\.$/);
 });
 
 test('la carte d’un compte ne promet que ce que le relais ouvre : la description suit la réalité', () => {

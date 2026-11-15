@@ -917,6 +917,11 @@
             "bloquée",
             "terminée"
           ]
+        },
+        {
+          "id": "lien",
+          "libelle": "Ouvrir dans la liste de tâches",
+          "type": "texte"
         }
       ]
     },

@@ -24,6 +24,9 @@ type F = {
   change: (c: Champ, v: unknown) => boolean;
   lireVues: (t: string | null) => Array<{ nom: string; recherche: string; tri: { colonne: string; sens: string }; filtre: string }>;
   enregistrerVue: (v: unknown[], x: unknown) => Array<{ nom: string }>;
+  OUTILS_TACHES: readonly string[];
+  tachesBranchables: (s?: ReadonlyArray<{ id?: string; oauth?: unknown } | null>) => Array<{ id: string }>;
+  vientDUnOutil: (x: unknown) => boolean;
 };
 type P = {
   nbJoursValide: (n: unknown) => number;
@@ -278,4 +281,33 @@ test('planning sans rendez-vous : brancher son agenda se propose ICI, et seuleme
   assert.match(invite, /ouvrirConnecteur\(s\.id\)/, 'le bouton ouvre l’assistant directement sur cet agenda');
   assert.match(invite, /`Brancher \$\{s\.nom\}`/);
   assert.match(invite, /api\('GET', '\/sources'\)/, 'le catalogue se charge tout seul si le planning est le premier écran ouvert');
+});
+
+test('écran Tâches : brancher sa liste de tâches se propose ICI, et seulement si le réseau l’ouvre', () => {
+  const app = readFileSync(new URL('../../web/app.js', import.meta.url), 'utf8');
+  const google = { id: 'tachesgoogle', nom: 'Google Tasks', oauth: { fournisseur: 'googletaches', nom: 'Google' } };
+  const microsoft = { id: 'tachesmicrosoft', nom: 'Microsoft To Do', oauth: { fournisseur: 'microsofttaches', nom: 'Microsoft' } };
+  const ferme = { id: 'tachesgoogle', nom: 'Google Tasks', oauth: null };
+  const agenda = { id: 'agendagoogle', nom: 'Google Agenda', oauth: { fournisseur: 'googleagenda', nom: 'Google' } };
+  // module pur : une liste n'est proposée que si elle est vraiment branchable en un clic
+  assert.deepEqual(Fi.tachesBranchables([agenda, google, microsoft]).map((s) => s.id), ['tachesgoogle', 'tachesmicrosoft']);
+  assert.deepEqual(Fi.tachesBranchables([agenda, ferme]), [], 'tâches fermées chez le relais : rien à proposer');
+  assert.deepEqual(Fi.tachesBranchables([agenda]), [], 'un agenda n’est pas une liste de tâches');
+  assert.deepEqual(Fi.tachesBranchables([]), []);
+  assert.deepEqual(Fi.tachesBranchables(), [], 'catalogue pas encore chargé');
+  // une fiche déjà venue d'un outil branché : l'invitation n'a plus lieu d'être
+  assert.equal(Fi.vientDUnOutil({ source: { id: 'connecteur:cx-12ab', libelle: 'Google Tasks' } }), true);
+  assert.equal(Fi.vientDUnOutil({ source: { id: 'saisie', libelle: 'Saisie manuelle' } }), false);
+  assert.equal(Fi.vientDUnOutil({ source: { id: 'passerelle:taches', libelle: 'Créée dans Living Business' } }), false);
+  assert.equal(Fi.vientDUnOutil(null), false);
+  // l'écran : la liste des tâches invite, vide comme pleine, tant qu'aucune liste branchée ne la remplit
+  const invite = app.slice(app.indexOf('function inviterTaches'), app.indexOf("/** Barre d'action (§4.17)"));
+  assert.match(invite, /if \(vue !== 'famille:tache' \|\| !E\.monde\?\.profil\.peutAdministrer\) return null;/, 'ailleurs, et à qui n’administre pas : rien');
+  assert.match(invite, /const outils = M\.tachesBranchables\(E\.sources\);\s+if \(!outils\.length \|\| deja\.some\(M\.vientDUnOutil\)\) return null;/, 'jamais un bouton qui mènerait à un refus, jamais de relance une fois branché');
+  assert.match(invite, /ouvrirConnecteur\(s\.id\)/, 'le bouton ouvre l’assistant directement sur cette liste');
+  assert.match(invite, /`Brancher \$\{s\.nom\}`/);
+  assert.match(invite, /api\('GET', '\/sources'\)/, 'le catalogue se charge tout seul si Tâches est le premier écran ouvert');
+  // posée aux deux endroits de la liste : l'écran encore vide, et la liste déjà remplie à la main
+  assert.match(app, /inviterTaches\(M, vue, \[\]\), videRubrique\(/);
+  assert.match(app, /\n {6}inviterTaches\(M, vue, tous\),\n/);
 });
