@@ -21,6 +21,10 @@ import { FAMILLES_PERSONNALISABLES, estPersonnalisee, ordonner } from '/carte/pe
 import { CADENCE, palierInferieur, profil, qualiteInitiale, surveillance, vieAmbiante } from '/carte/qualite.js';
 import { CLAIR, DEPART as DEPART_METEO, coeurDuPassage, effets as effetsMeteo, etatMeteo } from '/carte/meteo.js';
 import { ALLEGE, ATLAS_ENSEIGNES, COUCHES_CUITES, MASQUE, NB_MASQUES, NOMS_COUCHES, details, echelleMur, estMobilier, masqueCalque, mursBaisses, orientationMur, placeEnseigne, rvb, uvEnseigne } from '/carte/lots.js';
+import { DISTANCES, bornes, brume, carte as fonduCarte, detailGroupe, echelle as echelleDe, manque, nomEchelle, opaciteTraces, phraseGroupe, planLointain, polaireMax, regrouper, villeVisible, volVers } from '/carte/echelles.js';
+import { ancreDe, boiteDe, dansEntite, decoderCodesPostaux, decoderContours, departementDuCode, pointDe, projection } from '/carte/geographie.js';
+import { DEPARTEMENTS, GRILLE as GRILLE_GEO, REGION_DU_DEPARTEMENT, REGIONS } from '/carte/contours.js';
+import { CODES_POSTAUX } from '/carte/communes.js';
 
 CameraControls.install({ THREE });
 // Les modèles KayKit partagent deux textures (citybits, furniturebits) : sans ce cache, chaque modèle les redemandait
@@ -2343,16 +2347,17 @@ void main() {
   let focusVirtuel = null;
   const NIVEAUX_BADGE = { critique: 'octagon-alert', attention: 'triangle-alert', info: 'circle-help' };
   const TON_BADGE = { critique: 'critique', attention: 'attention', info: 'info' };
-  function creerPastille({ texte, detail = null, categorie, id = null, plaque = null }) {
-    const el = document.createElement(id ? 'button' : 'div');
+  function creerPastille({ texte, detail = null, categorie, id = null, plaque = null, action = null }) {
+    const el = document.createElement(id || action ? 'button' : 'div');
     el.className = 'bz-etiquette';
     el.dataset.cache = '';
-    if (id) {
+    if (id || action) {
       el.type = 'button';
       el.tabIndex = -1; // pas d'arrêt de tabulation un par un : les flèches parcourent les lieux depuis le canvas
-      el.dataset.objet = id; // repère de l'action d'« Aujourd'hui » correspondante (surligner)
-      el.addEventListener('click', (e) => { e.stopPropagation(); reveiller(); surSelection(id); });
-      el.addEventListener('dblclick', (e) => { e.stopPropagation(); entrer(id); });
+      if (id) el.dataset.objet = id; // repère de l'action d'« Aujourd'hui » correspondante (surligner)
+      // `action` : une étiquette de la carte du pays mène à son échelle du dessous, pas à une fiche
+      el.addEventListener('click', (e) => { e.stopPropagation(); reveiller(); if (action) action(); else surSelection(id); });
+      if (id) el.addEventListener('dblclick', (e) => { e.stopPropagation(); entrer(id); });
     }
     const forme = document.createElement('span');
     forme.className = `bz-cat bz-cat--${categorie.forme} bz-cat--carte`;
@@ -2381,11 +2386,12 @@ void main() {
    * (clients, fournisseurs, véhicules, projets) ou 'secondaire' (prénoms, stocks, courrier). lod : distance de caméra
    * au-delà de laquelle elle se cache (une alerte reste visible même au dézoom).
    */
-  function puce({ texte, monde, hauteur = 0, categorie = 'noms', id = null, lod = Infinity, sorte = 'entite', objet = null, detail = null, plaque = null, quartier = null, badge = null, nombre = 1, description = '' }) {
+  function puce({ texte, monde, hauteur = 0, categorie = 'noms', id = null, lod = Infinity, lodMin = 0, sorte = 'entite', objet = null, detail = null, plaque = null, quartier = null, badge = null, nombre = 1, description = '', action = null, vol = null }) {
     const o = objet ?? (id ? objetsParId.get(id) : null);
-    const el = creerPastille({ texte, detail, categorie: categorieDe(o ?? { famille: 'autre' }), id, plaque });
+    const el = creerPastille({ texte, detail, categorie: categorieDe(o ?? { famille: 'autre' }), id, plaque, action });
     couchePuces.append(el);
-    const p = { el, id, monde: monde.clone().setY(monde.y + hauteur), categorie, lod, sorte, quartier, texte, detail, badge: null, alerte: '', l: 0, h: 0 };
+    // lodMin : en deçà de cette distance l'étiquette se cache (les échelles du pays n'écrivent rien dans la ville)
+    const p = { el, id, monde: monde.clone().setY(monde.y + hauteur), categorie, lod, lodMin, sorte, quartier, texte, detail, badge: null, alerte: '', l: 0, h: 0, action, vol };
     puces.push(p);
     if (id && !parObjet.has(id)) parObjet.set(id, p);
     if (badge) poserBadge(p, badge, nombre, description);
@@ -2419,7 +2425,8 @@ void main() {
     // Noms de quartier au sol (niveau 1, §5.6) : dessinés au-dessus des bâtiments (jamais masqués par un toit) ; un nom
     // qui passerait sous le HUD (boussole, panneau) est caché, et les pastilles secondaires lui laissent sa place.
     const az = controles.azimuthAngle;
-    const solVisible = distance > LARGE * 0.8 && etatCalques.noms !== false;
+    // la carte du pays a recouvert la ville : ses noms de quartier s'en vont avec elle, et ne réservent plus leur place
+    const solVisible = distance > LARGE * 0.8 && etatCalques.noms !== false && villeVisible(distance);
     const zonesSol = [];
     for (const t of textesSol) {
       t.mesh.rotation.y = az;
@@ -2437,7 +2444,9 @@ void main() {
     for (const p of puces) {
       const calque = p.categorie === 'alertes' ? etatCalques.alertes : p.categorie === 'noms' ? etatCalques.noms : etatCalques[p.categorie] !== false;
       const prio = priorite(p);
-      if (!calque || (distance > p.lod && prio > PRIORITE.alerte)) { p.horsCalque = true; continue; }
+      // la carte du pays a recouvert la ville : ses étiquettes s'en vont avec elle (seules celles du pays ont un lodMin)
+      if (!p.lodMin && !villeVisible(distance)) { p.horsCalque = true; continue; }
+      if (!calque || distance < (p.lodMin ?? 0) || (distance > p.lod && prio > PRIORITE.alerte)) { p.horsCalque = true; continue; }
       p.horsCalque = false;
       proj.copy(p.monde).project(camera);
       p.x = ((proj.x + 1) / 2) * w;
@@ -2482,8 +2491,11 @@ void main() {
   controles.touches.two = A.TOUCH_DOLLY_ROTATE; // deux doigts : zoomer et pivoter
   controles.touches.three = A.TOUCH_SCREEN_PAN;
   controles.dollyToCursor = true;
-  controles.minDistance = 6;     // intérieurs à l'échelle réelle
-  controles.maxDistance = 360;   // le port entier (plateau de 192 × 142 m)
+  controles.minDistance = DISTANCES.min; // intérieurs à l'échelle réelle
+  /* Le dézoom ne s'arrête plus au bout du plateau : il continue jusqu'à la France entière (§5.7). Tout ce qui se
+     réglait « en fraction du zoom » dans la ville garde son repère d'avant, DISTANCES.ville (360), et non ce
+     nouveau plafond — sans quoi les silhouettes et le mobilier resteraient visibles jusqu'à deux mille unités. */
+  controles.maxDistance = DISTANCES.max;
   controles.minPolarAngle = 0.02;
   controles.maxPolarAngle = 1.38;
   controles.dollySpeed = 0.8;
@@ -2500,13 +2512,16 @@ void main() {
   const VUE = { cible: new THREE.Vector3(-4, 0, 2), polaire: 0.96, azimut: Math.PI / 4 }; // angle polaire 55°, azimut 45°
   const distanceInitiale = () => {
     const aspect = canvas.clientWidth / Math.max(1, canvas.clientHeight) || 1.6;
-    return Math.min(controles.maxDistance, Math.max(170, 255 * Math.max(1, 1.45 / aspect)));
+    // on arrive toujours dans sa ville, jamais sur la carte du pays : le plafond est celui de la ville (§5.7)
+    return Math.min(DISTANCES.ville, Math.max(170, 255 * Math.max(1, 1.45 / aspect)));
   };
   const cible = new THREE.Vector3();
   const versPosition = (c, d, pol, az) => new THREE.Vector3(c.x + d * Math.sin(pol) * Math.sin(az), c.y + d * Math.cos(pol), c.z + d * Math.sin(pol) * Math.cos(az));
+  let volCamera = 0; // instant du dernier vol demandé : pendant un vol, l'échelle ne redresse pas la caméra (§5.7)
   function volerVers(c, distance, polaire = 0.95, azimut = null) {
     const az = azimut ?? controles.azimuthAngle;
     const p = versPosition(c, distance, polaire, az);
+    volCamera = performance.now();
     controles.setLookAt(p.x, p.y, p.z, c.x, c.y, c.z, dureeVol() > 0);
     reveiller();
   }
@@ -2600,8 +2615,11 @@ void main() {
   canvas.addEventListener('pointerdown', (e) => { appui = { x: e.clientX, y: e.clientY, b: e.button }; reveiller(); });
   canvas.addEventListener('pointerup', (e) => {
     if (appui && appui.b === 0 && Math.hypot(e.clientX - appui.x, e.clientY - appui.y) < 5) {
-      const d = choisir(e.clientX, e.clientY);
-      surSelection(d ? d.id : null);
+      // sur la carte du pays, un clic mène à l'échelle du dessous ; dans la ville, il sélectionne comme avant
+      if (!cliquerPays(e.clientX, e.clientY)) {
+        const d = choisir(e.clientX, e.clientY);
+        surSelection(d ? d.id : null);
+      }
     }
     appui = null;
   });
@@ -2645,7 +2663,9 @@ void main() {
     if (!p) return;
     annoncer(nomLisible(p));
     proj.copy(p.monde).project(camera);
-    if (Math.abs(proj.x) > 0.8 || Math.abs(proj.y) > 0.8 || proj.z > 1) volerVers(p.monde.clone().setY(0), Math.min(controles.distance, 90), controles.polarAngle);
+    // `vol` : une étiquette de la carte du pays dit à quelle distance se poser ; sinon, on se rapproche du lieu
+    const dVol = p.vol ?? Math.min(controles.distance, 90);
+    if (Math.abs(proj.x) > 0.8 || Math.abs(proj.y) > 0.8 || proj.z > 1) volerVers(p.monde.clone().setY(0), dVol, controles.polarAngle);
     etiquettesASituer = true;
     demander();
   }
@@ -2664,7 +2684,10 @@ void main() {
         if (v) focaliser(v.id);
       }
     } else if (k === 'Enter') {
-      if (!focusVirtuel) { const v = voisin(lieuxClavier(), null, 1); if (v) focaliser(v.id); }
+      const pf = focusVirtuel ? parObjet.get(focusVirtuel) : null;
+      // une étiquette de la carte du pays mène à son échelle du dessous, jamais à une fiche qui n'existe pas
+      if (pf?.action) pf.action();
+      else if (!focusVirtuel) { const v = voisin(lieuxClavier(), null, 1); if (v) focaliser(v.id); }
       else if (selection === focusVirtuel) entrer(focusVirtuel);
       else surSelection(focusVirtuel);
     } else if (k === 'Escape') {
@@ -3261,6 +3284,8 @@ void main() {
     poserOmbresContact(contacts);
     // fenêtres allumées la nuit dans les bâtiments où l'équipe est présente (§5.2)
     for (const info of infos.values()) if (info.presents) for (const m of info.b.murs ?? []) m.traverse((x) => { if (x.isMesh && x.material === matVerre) fenetres.push(x); });
+    // les deux échelles du dessus : la Bretagne, puis la France (§5.7) — posées d'après les codes postaux des fiches
+    majPays(objets);
     cuireCalques();
     // « La maquette se peint » (§4.27) : les bâtiments passés du plâtre à une vraie donnée prennent leurs couleurs un par un
     const peints = new Set(objets.filter((o) => racines.has(o.id) && peintureDe(o) !== 'platre').map((o) => o.id));
@@ -3368,7 +3393,8 @@ void main() {
   /** Niveaux de détail des lots (§5.10) : silhouettes et mobilier de près seulement, jamais en qualité Économie. */
   function majDetails(force = false) {
     controles.getTarget(cible);
-    const dt = details({ distance: camera.position.distanceTo(cible), maxDistance: controles.maxDistance, economie: PROFIL.qualite === 'economie', employes: etatCalques.employes !== false, entreprise: etatCalques.entreprise !== false });
+    // maxDistance : celui de la VILLE (§5.7) — les silhouettes et le mobilier se règlent sur le plateau, pas sur la France
+    const dt = details({ distance: camera.position.distanceTo(cible), maxDistance: DISTANCES.ville, economie: PROFIL.qualite === 'economie', employes: etatCalques.employes !== false, entreprise: etatCalques.entreprise !== false });
     const m = uLot.uMasque.value;
     const personnes = dt.personnes ? 1 : 0;
     const mobilier = dt.mobilier ? 1 : 0;
@@ -3636,16 +3662,20 @@ void main() {
       const r = canvas.getBoundingClientRect();
       survolerRacine(d ? d.id : null);
       surSurvol(d ? { ...d, x: e.clientX - r.left, y: e.clientY - r.top } : null);
-      canvas.style.cursor = d ? 'pointer' : '';
+      // sur la carte du pays, le curseur dit aussi qu'on peut cliquer : un département, une région mènent quelque part
+      canvas.style.cursor = d || cibleSousPointeur(e.clientX, e.clientY) ? 'pointer' : '';
     }
     camera.updateMatrixWorld();
     ciel.position.copy(camera.position);
     controles.getTarget(cible);
     const d = camera.position.distanceTo(cible);
-    // sous les nuages la brume se referme : l'horizon se rapproche, comme un grain qui arrive sur la rade
+    if (bouge || premiere) poserEchelle(d); // la ville, la Bretagne, la France : fondus, bornes, plan lointain (§5.7)
+    // sous les nuages la brume se referme : l'horizon se rapproche, comme un grain qui arrive sur la rade ; à
+    // l'échelle du pays elle s'écarte, sinon toute la France au-delà de deux cents unités serait noyée dans le gris
     const portee = 1 - 0.3 * (meteoActive() ? METEO.brume : 0);
-    scene.fog.near = d + 40 * portee;
-    scene.fog.far = d + 260 * portee;
+    const bru = brume(d, portee);
+    scene.fog.near = bru.pres;
+    scene.fog.far = bru.loin;
     couches.alertes.visible = etatCalques.alertes !== false && d > 70; // de près, les anneaux gêneraient la lecture de l'intérieur
     // trait d'une commande en cours : il relie deux bâtiments, donc il ne veut dire quelque chose que si on voit les
     // deux bouts. De près, il ne reste qu'une rayure en travers de la vue : seul le colis demeure.
@@ -3658,7 +3688,7 @@ void main() {
       pluie.position.copy(camera.position).addScaledVector(versPluie, d * 0.42);
       pluie.position.y = 0;
     }
-    accessoires.visible = PROFIL.accessoires && d < 0.6 * controles.maxDistance; // sous 40 % du zoom : petits accessoires masqués
+    accessoires.visible = PROFIL.accessoires && d < 0.6 * DISTANCES.ville; // sous 40 % du zoom de la ville : petits accessoires masqués
     if (uLot.uMasque.value[MASQUE.accessoires] !== (accessoires.visible ? 1 : 0)) { uLot.uMasque.value[MASQUE.accessoires] = accessoires.visible ? 1 : 0; renderer.shadowMap.needsUpdate = true; }
     majDetails();
     if (fete) {
@@ -3668,7 +3698,8 @@ void main() {
       if (p >= 1) { fanions.position.y = 0; if (lanterne) lanterne.color.copy(fete.base); fete = null; renderer.shadowMap.needsUpdate = true; }
     }
     renderer.info.reset();
-    if (composer && gtao) composer.render(); else renderer.render(scene, camera);
+    // l'occlusion ambiante ne sert plus quand la ville est recouverte : une carte plate n'a pas de recoins
+    if (composer && gtao && villeVue) composer.render(); else renderer.render(scene, camera);
     if (capturerApres) { capturerApres = false; capturer(); }
     if (premiere) { premiere = false; surPremiereImage(); }
     if (etiquettesASituer) situer();
@@ -3815,6 +3846,390 @@ void main() {
     octets += LARGEUR_ETATS * HAUTEUR_ETATS * 4;
     return Math.round(octets / 1e5) / 10;
   }
+
+  /* ---------------------------------------------------------------- la Bretagne, puis la France (§5.7)
+
+     On dézoome : le pays apparaît autour de la ville, par un anneau qui se resserre jusqu'à la recouvrir. On zoome :
+     l'anneau s'ouvre et on retombe dans sa ville. Une seule course de caméra, de 6 à 4 800 unités — pas trois écrans.
+
+     La ville est une mise en page (voir l'en-tête). Ces deux échelles-ci, elles, sont géographiques : tout ce qui y
+     est posé vient d'un code postal réel, et ce qui n'en a pas n'y figure pas. La carte dit alors ce qui manque,
+     plutôt que de poser un client au hasard au milieu de son département.
+
+     Un seul maillage pour les terres, un pour chaque sorte de bordure, un maillage instancié pour les repères : cinq
+     appels de dessin pour la France entière. La ville, recouverte, n'est plus calculée du tout. */
+  const P0 = projection(); // les tracés sont construits une fois, autour du centre de la Bretagne…
+  // … et le groupe se déplace pour poser la commune de l'entreprise exactement sur sa ville (0,02 : juste au-dessus du sol)
+  const posePays = new THREE.Vector3(VUE.cible.x - P0.x(P0.lon0), 0.02, VUE.cible.z - P0.z(P0.lat0));
+  const groupePays = new THREE.Group();
+  groupePays.position.copy(posePays);
+  groupePays.visible = false;
+  groupePays.userData.garder = true; // jamais fusionné avec le décor du port
+  scene.add(groupePays);
+  const repairesPays = new THREE.Group(); // repères posés d'après les données (refaits à chaque mise à jour)
+  groupePays.add(repairesPays);
+  /** Opacité d'ensemble, et rayons du trou laissé à la ville — lus par tous les matériaux de la carte. */
+  const uPays = { uOpacite: { value: 0 }, uTrou: { value: new THREE.Vector2(0, 0) }, uCentre: { value: new THREE.Vector2(VUE.cible.x, VUE.cible.z) } };
+  /**
+   * Matériau de la carte du pays : il suit l'heure comme le reste de la scène, et son alpha est rongé par le trou de
+   * la ville. `depthTest` à faux : la carte est plate et ordonnée à la main (renderOrder), et rien du port ne peut
+   * donc la traverser — ni un toit, ni un phare.
+   */
+  function matPays(base, role, ordre) {
+    const m = suivre(base, role);
+    m.transparent = true;
+    m.depthTest = false;
+    m.depthWrite = false;
+    /* Les deux faces : le sens d'un anneau du découpage administratif se renverse en passant dans la projection (le
+       nord va vers les z négatifs). Sans cela les terres tournent le dos à la caméra et il ne reste que la mer. */
+    m.side = THREE.DoubleSide;
+    m.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, uPays);
+      sh.vertexShader = `varying vec2 vSolPays;\n${sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vSolPays = (modelMatrix * vec4(transformed, 1.0)).xz;')}`;
+      sh.fragmentShader = `uniform float uOpacite;\nuniform vec2 uTrou;\nuniform vec2 uCentre;\nvarying vec2 vSolPays;\n${sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= uOpacite * smoothstep(uTrou.x, uTrou.y, distance(vSolPays, uCentre));')}`;
+    };
+    m.customProgramCacheKey = () => `pays-${m.type}-${ordre}`;
+    return m;
+  }
+  /* Matériaux sans éclairage : une carte se lit à plat, et la ville recouverte emporte ses lumières avec son calque.
+     Les couleurs suivent quand même l'heure, comme tout le reste de la scène (`suivre`). */
+  const matMerPays = matPays(new THREE.MeshBasicMaterial(), 'mer-profonde', 10);
+  const matTerres = matPays(new THREE.MeshBasicMaterial({ vertexColors: true }), 'lande', 11);
+  const matBordDep = matPays(new THREE.LineBasicMaterial(), 'granit', 12);
+  const matBordRegion = matPays(new THREE.LineBasicMaterial(), 'encre', 13);
+  const matRepere = matPays(new THREE.MeshBasicMaterial(), 'ardoise', 14);
+  /** Calque de rendu de la carte du pays : la caméra le garde allumé même quand elle éteint celui de la ville. */
+  const CALQUE_PAYS = 2;
+  camera.layers.enable(CALQUE_PAYS);
+  ciel.layers.enable(CALQUE_PAYS); // le ciel reste, à toutes les échelles
+
+  /** Points d'un anneau, en coordonnées du plateau. */
+  const anneauVers2d = (a) => {
+    const v = [];
+    for (let i = 0; i < a.lon.length; i++) v.push(new THREE.Vector2(P0.x(a.lon[i]), P0.z(a.lat[i])));
+    return v;
+  };
+  /** Segments d'un anneau fermé, bout à bout, pour un LineSegments. */
+  function segments(a, sortie) {
+    const n = a.lon.length;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      sortie.push(P0.x(a.lon[i]), 0, P0.z(a.lat[i]), P0.x(a.lon[j]), 0, P0.z(a.lat[j]));
+    }
+  }
+  /**
+   * Remplissage triangulé d'une entité. Les anneaux arrivent dans l'ordre du découpage : un anneau plein ouvre un
+   * polygone, les trous qui le suivent lui appartiennent. Un trou orphelin (son contour était trop petit pour être
+   * gardé) est écarté.
+   */
+  function remplir(anneaux, teinte, positions, couleurs, index) {
+    const polys = [];
+    for (const a of anneaux) {
+      if (!a.trou) polys.push({ contour: anneauVers2d(a), trous: [] });
+      else if (polys.length) polys[polys.length - 1].trous.push(anneauVers2d(a));
+    }
+    for (const { contour, trous } of polys) {
+      const sommets = [contour, ...trous].flat();
+      const faces = THREE.ShapeUtils.triangulateShape(contour, trous);
+      const base = positions.length / 3;
+      for (const s of sommets) { positions.push(s.x, 0, s.y); couleurs.push(teinte.r, teinte.g, teinte.b); }
+      for (const f of faces) index.push(base + f[0], base + f[1], base + f[2]);
+    }
+  }
+
+  // ---- données géographiques et géométries, construites une fois
+  const PAYS = (() => {
+    const regions = decoderContours(REGIONS, GRILLE_GEO);
+    const departements = decoderContours(DEPARTEMENTS, GRILLE_GEO);
+    const ancres = new Map();
+    for (const e of regions) ancres.set(`r${e.code}`, { ...ancreDe(e.anneaux), nom: e.nom });
+    for (const e of departements) ancres.set(`d${e.code}`, { ...ancreDe(e.anneaux), nom: e.nom });
+    return { regions, departements, codesPostaux: decoderCodesPostaux(CODES_POSTAUX, GRILLE_GEO), ancres };
+  })();
+  /** Emprise de la métropole, en coordonnées du plateau (sans la pose du groupe : elle s'y ajoute). */
+  const EMPRISE = (() => {
+    const b = boiteDe(PAYS.regions.flatMap((r) => r.anneaux));
+    return { x0: P0.x(b.lonMin), x1: P0.x(b.lonMax), z0: P0.z(b.latMax), z1: P0.z(b.latMin) };
+  })();
+  {
+    // mer : un plan bien plus large que la métropole (deux triangles), pour qu'au dézoom complet l'horizon reste de
+    // l'eau et non le bord du monde ; la brume s'en charge au loin
+    const marge = 9000;
+    const mp = new THREE.Mesh(new THREE.PlaneGeometry(EMPRISE.x1 - EMPRISE.x0 + 2 * marge, EMPRISE.z1 - EMPRISE.z0 + 2 * marge).rotateX(-Math.PI / 2), matMerPays);
+    mp.position.set((EMPRISE.x0 + EMPRISE.x1) / 2, 0, (EMPRISE.z0 + EMPRISE.z1) / 2);
+    mp.renderOrder = 10;
+    mp.frustumCulled = false;
+    groupePays.add(mp);
+    // terres : un seul maillage, les régions distinguées par une très légère variation de clarté (jamais une couleur
+    // par région : la carte reste de la lande bretonne, pas un atlas politique)
+    const positions = [];
+    const couleurs = [];
+    const index = [];
+    const teinte = new THREE.Color();
+    PAYS.regions.forEach((r, i) => {
+      const v = 1 + (i % 3) * 0.035 - 0.035;
+      teinte.setRGB(v, v, v);
+      remplir(r.anneaux, teinte, positions, couleurs, index);
+    });
+    const gt = new THREE.BufferGeometry();
+    gt.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    gt.setAttribute('color', new THREE.Float32BufferAttribute(couleurs, 3));
+    gt.setAttribute('normal', new THREE.Float32BufferAttribute(positions.map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+    gt.setIndex(index);
+    const terres = new THREE.Mesh(gt, matTerres);
+    terres.renderOrder = 11;
+    groupePays.add(terres);
+    // bordures : les départements d'abord (plus fines, elles s'effacent de loin), les régions par-dessus
+    for (const [liste, materiau, ordre] of [[PAYS.departements, matBordDep, 12], [PAYS.regions, matBordRegion, 13]]) {
+      const pts = [];
+      for (const e of liste) for (const a of e.anneaux) segments(a, pts);
+      const g = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+      const l = new THREE.LineSegments(g, materiau);
+      l.renderOrder = ordre;
+      groupePays.add(l);
+    }
+    groupePays.traverse((o) => o.layers.set(CALQUE_PAYS));
+  }
+
+  // ---- repères posés d'après les données
+  const LIBELLES_ROLE = { client: ['client', 'clients'], fournisseur: ['fournisseur', 'fournisseurs'], partenaire: ['partenaire', 'partenaires'], prospect: ['prospect', 'prospects'], chantier: ['chantier', 'chantiers'], lieu: ['lieu', 'lieux'] };
+  const FAMILLE_DU_ROLE = { client: 'tiers', fournisseur: 'tiers', partenaire: 'tiers', prospect: 'tiers', chantier: 'projet', lieu: 'lieu' };
+  let posesPays = [];       // [{ id, role, cp, departement, region, lon, lat, nom }]
+  let ancreVille = null;    // { lon, lat, nom } : la commune sur laquelle le plateau est posé
+  let manquePays = null;
+  let repereInstances = null;
+  let pucesPays = [];       // étiquettes des trois niveaux, refaites à chaque mise à jour
+  let groupesPays = { communes: [], departements: [], regions: [] }; // groupes calculés une fois par mise à jour
+  const geoRepere = new THREE.CircleGeometry(1, 18).rotateX(-Math.PI / 2);
+
+  /** Rôle d'un objet sur la carte du pays : ce qui se compte (« 12 clients »), pas une catégorie de décor. */
+  function rolePays(o) {
+    if (o.famille === 'lieu') return 'lieu';
+    if (o.famille === 'projet') return 'chantier';
+    const r = (o.roles ?? []).map((x) => (typeof x === 'string' ? x : x.id));
+    if (r.includes('client')) return 'client';
+    if (r.includes('fournisseur')) return 'fournisseur';
+    if (r.includes('partenaire') || r.includes('sous_traitant')) return 'partenaire';
+    if (r.includes('prospect')) return 'prospect';
+    return null;
+  }
+
+  /** Champs géographiques d'un objet, tels qu'ils sont saisis dans sa fiche. */
+  const champsGeo = (o) => ({ code_postal: val(o, 'code_postal'), adresse: val(o, 'adresse') });
+
+  /**
+   * Construit les repères de la carte du pays à partir des données. Un objet n'y figure que si son code postal est
+   * reconnu ; un chantier prend celui de son client. Ce qui n'a pas de code postal est compté, pas inventé.
+   */
+  function majPays(objets) {
+    for (const p of pucesPays) p.el.remove();
+    pucesPays = [];
+    for (const e of [...repairesPays.children]) { repairesPays.remove(e); e.dispose?.(); }
+    repereInstances = null;
+    const points = new Map();
+    let total = 0;
+    let horsMetropole = 0;
+    const candidats = objets.filter((o) => rolePays(o) && FAMILLE_DU_ROLE[rolePays(o)] === o.famille);
+    for (const o of candidats) {
+      const role = rolePays(o);
+      // un chantier est chez son client : il en reprend le code postal, jamais un point à lui
+      const porteur = o.famille === 'projet' ? objetsParId.get(lien(o, 'client') ?? '') ?? null : o;
+      if (!porteur) continue;
+      total++;
+      const p = pointDe(champsGeo(porteur), PAYS.codesPostaux);
+      if (!p) continue; // pas de code postal reconnu : la fiche n'est pas posée, elle est comptée (voir `manque`)
+      const dep = departementDuCode(p.cp);
+      const region = REGION_DU_DEPARTEMENT[dep] ?? null;
+      if (!region) { horsMetropole++; continue; }
+      points.set(o.id, { id: o.id, role, cp: p.cp, departement: dep, region, lon: p.lon, lat: p.lat, nom: typeof val(porteur, 'ville') === 'string' ? val(porteur, 'ville') : null });
+    }
+    posesPays = [...points.values()];
+    manquePays = manque({ total, places: posesPays.length, horsMetropole });
+
+    // la ville se pose sur la commune du siège, sinon d'un lieu, sinon au milieu de ce qu'on connaît
+    const lieux = posesPays.filter((p) => p.role === 'lieu');
+    const siege = objets.find((o) => o.famille === 'lieu' && (o.icone ?? o.type) === 'siege');
+    ancreVille = (siege && points.get(siege.id)) || lieux[0] || null;
+    if (!ancreVille && posesPays.length) {
+      const m = posesPays.reduce((s, p) => ({ lon: s.lon + p.lon / posesPays.length, lat: s.lat + p.lat / posesPays.length }), { lon: 0, lat: 0 });
+      ancreVille = { ...m, nom: null, approche: true };
+    }
+    const ancre = ancreVille ?? { lon: P0.lon0, lat: P0.lat0 };
+    posePays.set(VUE.cible.x - P0.x(ancre.lon), 0.02, VUE.cible.z - P0.z(ancre.lat));
+    groupePays.position.copy(posePays);
+    uPays.uCentre.value.set(VUE.cible.x, VUE.cible.z);
+
+    // étiquettes des trois niveaux : commune, département, région. Les bandes se chevauchent, et c'est le placement
+    // sans chevauchement (§5.6) qui tranche : le groupe le plus large est posé d'abord, les plus fins remplissent.
+    const niveaux = [
+      { niveau: 'communes', sorte: 'entite', lodMin: DISTANCES.communesDes, lod: DISTANCES.communesJusqua },
+      { niveau: 'departements', sorte: 'principal', lodMin: DISTANCES.departementsDes, lod: DISTANCES.departementsJusqua },
+      { niveau: 'regions', sorte: 'principal', lodMin: DISTANCES.regionsDes, lod: Infinity },
+    ];
+    const marqueurs = [];
+    groupesPays = { communes: [], departements: [], regions: [] };
+    for (const { niveau, sorte, lodMin, lod } of niveaux) {
+      const prefixe = niveau === 'departements' ? 'd' : niveau === 'regions' ? 'r' : '';
+      const ancres = prefixe ? new Map([...PAYS.ancres].filter(([k]) => k.startsWith(prefixe)).map(([k, v]) => [k.slice(1), v])) : new Map();
+      groupesPays[niveau] = regrouper(posesPays, niveau, ancres);
+      for (const g of groupesPays[niveau]) {
+        const monde = new THREE.Vector3(posePays.x + P0.x(g.lon), 0, posePays.z + P0.z(g.lat));
+        // sa propre commune ramène dans sa ville ; une autre commune, on s'en approche seulement (la ville est ailleurs)
+        const chezSoi = niveau === 'communes' && ancreVille?.cp === g.cle;
+        const vol = chezSoi ? distanceInitiale() : volVers(niveau);
+        const p = puce({
+          // identifiant propre à la carte (jamais un objet des données) : les flèches le parcourent, Entrée y descend
+          id: `__pays:${prefixe || 'c'}${g.cle}`, texte: g.nom, detail: detailGroupe(g, LIBELLES_ROLE),
+          sorte, lodMin, lod, categorie: 'noms', vol,
+          objet: { famille: niveau === 'communes' ? 'lieu' : 'departement' },
+          monde, hauteur: 0,
+          // on rentre chez soi au point de vue de la ville ; ailleurs, on garde l'angle qu'on avait sur la carte.
+          // Une commune où il n'y a qu'une fiche ouvre cette fiche : on arrive vraiment quelque part.
+          action: () => {
+            annoncer(phraseGroupe(g, LIBELLES_ROLE));
+            volerVers(monde.clone(), vol, chezSoi ? VUE.polaire : Math.min(controles.polarAngle, polaireMax(vol)));
+            if (niveau === 'communes' && g.ids.length === 1) surSelection(g.ids[0]);
+          },
+        });
+        p.groupePays = g;
+        pucesPays.push(p);
+        if (niveau === 'communes') marqueurs.push({ monde, nombre: g.nombre });
+      }
+    }
+    // ce qui manque : dit sur la carte, là où on le cherche, plutôt qu'une carte vide et muette
+    if (manquePays) {
+      // en dernier et en secondaire : ce qui manque ne doit jamais prendre la place d'un groupe qui, lui, existe
+      const m = new THREE.Vector3(VUE.cible.x, 0, VUE.cible.z + 170);
+      const p = puce({ texte: manquePays.texte, detail: manquePays.detail, sorte: 'secondaire', lodMin: DISTANCES.communesDes, lod: Infinity, categorie: 'noms', objet: { famille: 'autre' }, monde: m, hauteur: 0 });
+      pucesPays.push(p);
+    }
+    // repères au sol : un disque par commune, d'autant plus large qu'elle compte de monde. Aucune couleur par
+    // catégorie dans le décor (§4.12) : la catégorie se lit sur la pastille, jamais sur la carte.
+    if (marqueurs.length) {
+      const im = new THREE.InstancedMesh(geoRepere, matRepere, marqueurs.length);
+      im.renderOrder = 14;
+      im.frustumCulled = false;
+      im.layers.set(CALQUE_PAYS);
+      im.userData.marqueurs = marqueurs;
+      repairesPays.add(im);
+      repereInstances = im;
+    }
+    poserEchelle(camera.position.distanceTo(cible), true);
+  }
+
+  // ---- passage d'une échelle à l'autre, à chaque image où la caméra bouge
+  let echelleCourante = echelleDe(distanceInitiale());
+  let farPose = 1400;
+  let villeVue = true;
+  let polaireVille = null; // angle qu'on avait dans la ville avant de se redresser au-dessus de la carte
+  const boitePays = new THREE.Box3();
+  function poserEchelle(d, forcer = false) {
+    const f = fonduCarte(d);
+    const t = opaciteTraces(d);
+    uPays.uOpacite.value = f.opacite;
+    uPays.uTrou.value.set(f.clair, Math.max(f.clair + 0.001, f.plein));
+    matBordDep.opacity = t.departements;
+    matBordRegion.opacity = t.regions;
+    matBordDep.visible = t.departements > 0.01;
+    matBordRegion.visible = t.regions > 0.01;
+    groupePays.visible = f.opacite > 0.001;
+    /* La ville recouverte n'est plus calculée du tout : la caméra éteint son calque de rendu. Zéro triangle, zéro
+       appel de dessin pour le port, et plus d'ombre à projeter sur une carte plate (§5.10). */
+    const vv = villeVisible(d);
+    if (vv !== villeVue) {
+      villeVue = vv;
+      if (vv) camera.layers.enable(0); else camera.layers.disable(0);
+      soleil.castShadow = vv && PROFIL.ombres > 0;
+      renderer.shadowMap.needsUpdate = true;
+    }
+    // un repère garde à peu près la même taille à l'écran : son disque grandit avec la distance
+    if (repereInstances && (forcer || groupePays.visible)) {
+      const k = Math.max(1, d / 240);
+      const m = new THREE.Matrix4();
+      repereInstances.userData.marqueurs.forEach((r, i) => {
+        const s = k * (1.6 + Math.min(2.4, Math.sqrt(r.nombre) * 0.9));
+        m.makeScale(s, 1, s).setPosition(r.monde.x - posePays.x, 0, r.monde.z - posePays.z);
+        repereInstances.setMatrixAt(i, m);
+      });
+      repereInstances.instanceMatrix.needsUpdate = true;
+    }
+    /* On se redresse au-dessus de la carte : une ville se visite de biais, une carte se lit d'au-dessus. L'angle suit
+       le zoom à l'image, jamais tout seul : à l'arrêt rien n'est touché, donc aucune image n'est redemandée (§5.10).
+       Pendant un vol (clic sur un département, retour à l'accueil), on laisse faire le vol. */
+    const pm = polaireMax(d);
+    controles.maxPolarAngle = pm;
+    if (performance.now() - volCamera > dureeVol() + 120) {
+      if (controles.polarAngle > pm + 0.001) {
+        if (polaireVille === null) polaireVille = controles.polarAngle; // l'angle qu'on avait dans la ville, à retrouver
+        controles.rotatePolarTo(pm, false);
+      } else if (polaireVille !== null) {
+        const vise = Math.min(polaireVille, pm);
+        if (vise > controles.polarAngle + 0.001) controles.rotatePolarTo(vise, false);
+        if (pm >= polaireVille - 0.001) polaireVille = null;
+      }
+    }
+    const aspect = canvas.clientWidth / Math.max(1, canvas.clientHeight) || 1.6;
+    const b = bornes(d, { plateau: { x0, x1, z0, z1 }, emprise: { x0: EMPRISE.x0 + posePays.x, x1: EMPRISE.x1 + posePays.x, z0: EMPRISE.z0 + posePays.z, z1: EMPRISE.z1 + posePays.z }, aspect });
+    // seulement quand elles changent : setBoundary redemande une image à camera-controls, et la carte ne se
+    // reposerait plus jamais (§5.10 — zéro image calculée à l'arrêt)
+    if (b.x0 !== boitePays.min.x || b.x1 !== boitePays.max.x || b.z0 !== boitePays.min.z || b.z1 !== boitePays.max.z) {
+      boitePays.min.set(b.x0, 0, b.z0);
+      boitePays.max.set(b.x1, 8, b.z1);
+      controles.setBoundary(boitePays);
+    }
+    // plan lointain : 1 400 dans la ville (le tampon de profondeur y sépare un marquage de sa chaussée), étendu ensuite
+    const far = planLointain(d);
+    if (Math.abs(far - farPose) > 1) { farPose = far; camera.far = far; camera.updateProjectionMatrix(); }
+    // on dit où l'on est quand on change d'échelle — jamais à la construction, où personne n'a rien demandé
+    const e = echelleDe(d);
+    if (e !== echelleCourante) {
+      echelleCourante = e;
+      if (!forcer) annoncer(nomEchelle(e, regionDeLEntreprise()));
+    }
+  }
+  /** Nom de la région d'où vient l'entreprise, s'il est connu : ce qu'on annonce à l'échelle du milieu. */
+  function regionDeLEntreprise() {
+    const dep = ancreVille ? departementDuCode(ancreVille.cp ?? '') : null;
+    const r = dep ? REGION_DU_DEPARTEMENT[dep] : null;
+    return r ? PAYS.ancres.get(`r${r}`)?.nom ?? null : null;
+  }
+  /**
+   * Clic sur la carte du pays : on arrive quelque part. Un département mène à ses communes, une région à ses
+   * départements. Le pointage se fait sur le plan du sol puis par appartenance au tracé — pas de géométrie de plus.
+   * Retourne true quand le clic a été traité.
+   */
+  function cliquerPays(cx, cy) {
+    const e = cibleSousPointeur(cx, cy);
+    if (!e) return false;
+    const ancre = PAYS.ancres.get(e.cle);
+    const monde = new THREE.Vector3(posePays.x + P0.x(ancre.lon), 0, posePays.z + P0.z(ancre.lat));
+    const vol = volVers(e.niveau);
+    annoncer(e.phrase);
+    volerVers(monde, vol, Math.min(controles.polarAngle, polaireMax(vol)));
+    return true;
+  }
+  /** Département ou région sous le pointeur, avec la phrase à annoncer ; null hors de la carte. */
+  const pointSol = new THREE.Vector3();
+  function cibleSousPointeur(cx, cy) {
+    if (!groupePays.visible || uPays.uOpacite.value < 0.5) return null;
+    const r = canvas.getBoundingClientRect();
+    souris.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+    raycaster.setFromCamera(souris, camera);
+    if (!raycaster.ray.intersectPlane(plan, pointSol)) return null;
+    // un clic dans le trou laissé à la ville revient à cliquer dans la ville
+    if (Math.hypot(pointSol.x - VUE.cible.x, pointSol.z - VUE.cible.z) < uPays.uTrou.value.y) return null;
+    const lon = P0.lon(pointSol.x - posePays.x);
+    const lat = P0.lat(pointSol.z - posePays.z);
+    const parRegion = opaciteTraces(controles.distance).regions > 0.6;
+    const niveau = parRegion ? 'regions' : 'departements';
+    for (const ent of parRegion ? PAYS.regions : PAYS.departements) {
+      if (!dansEntite(ent.anneaux, lon, lat)) continue;
+      const g = groupesPays[niveau].find((x) => x.cle === ent.code);
+      return { cle: `${parRegion ? 'r' : 'd'}${ent.code}`, niveau, nom: ent.nom, phrase: g ? phraseGroupe({ ...g, nom: ent.nom }, LIBELLES_ROLE) : `${ent.nom} : rien d’enregistré ici` };
+    }
+    return null;
+  }
+
   const api = {
     maj,
     selectionner,
@@ -3859,8 +4274,13 @@ void main() {
     },
     /** Niveau du port affiché (0 : aucun élément, mode Calme). */
     niveauPort(n) { poserNiveaux(n); demander(); },
+    /**
+     * Échelle regardée (§5.7) : 'ville', 'communes', 'departements' ou 'regions', son libellé, et ce qui manque pour
+     * qu'une fiche se pose sur la carte du pays (null quand tout y est).
+     */
+    echelle: () => ({ nom: echelleCourante, libelle: nomEchelle(echelleCourante, regionDeLEntreprise()), distance: controles.distance, poses: posesPays.length, manque: manquePays }),
     /** Panneau Diagnostic (§8.2) : images par seconde, qualité, appels de dessin et triangles de la dernière image. */
-    diagnostic: () => ({ qualite, msParImage: Math.round(mesure.msMoyen * 10) / 10, appels: renderer.info.render.calls, triangles: renderer.info.render.triangles, texturesMo: memoireTextures(), etiquettes: puces.length }),
+    diagnostic: () => ({ qualite, msParImage: Math.round(mesure.msMoyen * 10) / 10, appels: renderer.info.render.calls, triangles: renderer.info.render.triangles, texturesMo: memoireTextures(), etiquettes: puces.length, echelle: echelleCourante }),
     detruire() {
       capturerMaintenant();
       couperBoucle();
@@ -3874,6 +4294,10 @@ void main() {
       window.removeEventListener('pagehide', surDepart);
       document.removeEventListener('keydown', arreterVol, true);
       controles.dispose();
+      // carte du pays : géométries et matériaux lui appartiennent, personne d'autre ne les partage
+      groupePays.traverse((o) => { if (o !== groupePays) { o.geometry?.dispose(); o.dispose?.(); } });
+      for (const m of [matMerPays, matTerres, matBordDep, matBordRegion, matRepere]) m.dispose();
+      geoRepere.dispose();
       pluie?.geometry.dispose();
       composer?.dispose?.();
       renderer.dispose();

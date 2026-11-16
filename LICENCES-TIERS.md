@@ -83,6 +83,27 @@ Servies par la passerelle depuis `node_modules`, sous un chemin qui porte leur v
   Kay Lousberg (www.kaylousberg.com). Domaine public (CC0 1.0, `web/licences/kaykit-CC0.txt`). Matériaux adaptés par
   Breizhcosystem.
 
+## Données géographiques
+
+La carte du jeu se dézoome sur la Bretagne, puis sur la France : ces deux échelles sont dessinées avec le découpage
+administratif français, publié en données ouvertes.
+
+- **ADMIN EXPRESS COG** (édition 2018) — Institut national de l'information géographique et forestière (IGN).
+  **Licence Ouverte / Open Licence** (Etalab, https://www.etalab.gouv.fr/licence-ouverte-open-licence), qui demande la
+  seule mention de la paternité : c'est l'objet de cette section. Contours des 13 régions et des 96 départements de
+  métropole, simplifiés et quantifiés pour le jeu (`web/carte/contours.js`). La conversion des fichiers de l'IGN au
+  format GeoJSON est celle du dépôt public `france-geojson` de Grégoire David
+  (https://github.com/gregoiredavid/france-geojson), lui-même publié sous Licence Ouverte.
+- **Découpage administratif (communes, départements, régions)** — API geo.api.gouv.fr (Etalab), d'après le Code
+  officiel géographique de l'INSEE et ADMIN EXPRESS de l'IGN. **Licence Ouverte / Open Licence.** Point de chaque code
+  postal français : le centre de la commune qui le porte (`web/carte/communes.js`).
+
+Ces licences sont permissives et n'imposent que l'attribution : rien ne s'oppose à la distribution sous GNU AGPL
+version 3. Les deux fichiers sont **fabriqués**, jamais modifiés à la main — `node scripts/carte-contours.mjs
+<dossier-des-sources>` les régénère, et leur en-tête rappelle la source, la licence et les réglages de simplification.
+Rien d'autre n'est embarqué : aucun fond de carte en image, aucun appel à un service de cartographie, aucune donnée de
+l'entreprise envoyée à qui que ce soit — les codes postaux des fiches sont résolus sur l'appareil, hors ligne.
+
 ## Outils de développement (jamais envoyés au navigateur)
 
 - **fontTools** 4.60.1 et **Brotli** 1.1.0 (MIT) : sous-ensembles de polices (`scripts/polices.py`).
