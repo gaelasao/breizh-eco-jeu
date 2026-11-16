@@ -16,6 +16,7 @@ import type { Profil } from '../demo/donnees.ts';
 import type { ObjetMetier, ValeurChamp } from '../core/model.ts';
 import { lireOffre, motifVerrou, phraseOffre, verrouillee as reserveeParLOffre, type EtatOffre, type LectureOffre } from '../core/offre.ts';
 import { ANONYMAT_MIN, detecterOptimisations } from '../core/optimisations.ts';
+import type { Relance } from '../core/relances.ts';
 import { calculerTache, ErreurTache, HORIZON_MAX, IDEES, lireHorizon, lireSaisie, RANG_VERDICT, TACHES_MAX, type SaisieTache } from '../core/taches-repetitives.ts';
 import type { Enquetes } from './enquetes.ts';
 import { ErreurApi, type Monde } from './monde.ts';
@@ -128,6 +129,8 @@ export class Automatisations {
   #trous: () => number;
   #trousProchains: () => number;
   #droits: () => LectureOffre;
+  /** Les relances préparées par le moteur de suivi ; absent, aucune relance n'est due (et rien ne casse). */
+  #relances: () => readonly Relance[];
 
   /**
    * `trous` : trous du planning AUJOURD'HUI (tâche du jour) ; `trousProchains` : ceux des 6 prochains jours ouvrés,
@@ -135,7 +138,7 @@ export class Automatisations {
    * `droits` : les DERNIERS droits confirmés par le réseau, lus sans aucun appel (voir ../core/offre.ts) ; absent,
    * l'entreprise est tenue pour non reliée et garde les automatisations comprises.
    */
-  constructor(monde: Monde, enquetes: Enquetes, synchro: Synchro, o: { etat?: EtatAutomatisations | null; changement?: () => void; trous?: () => number; trousProchains?: () => number; droits?: () => LectureOffre } = {}) {
+  constructor(monde: Monde, enquetes: Enquetes, synchro: Synchro, o: { etat?: EtatAutomatisations | null; changement?: () => void; trous?: () => number; trousProchains?: () => number; droits?: () => LectureOffre; relances?: () => readonly Relance[] } = {}) {
     this.#monde = monde;
     this.#enquetes = enquetes;
     this.#synchro = synchro;
@@ -143,6 +146,7 @@ export class Automatisations {
     this.#trous = o.trous ?? (() => 0);
     this.#trousProchains = o.trousProchains ?? this.#trous;
     this.#droits = o.droits ?? (() => ({ relie: false, plan: null, etatAbonnement: null }));
+    this.#relances = o.relances ?? (() => []);
     const e = o.etat;
     this.#etat = {
       actives: Array.isArray(e?.actives) ? e.actives.filter((x) => RECETTES.some((r) => r.id === x)) : [],
@@ -460,8 +464,12 @@ export class Automatisations {
         await this.#synchro.notifier('facture.retard', { facture: nomCourt(f), tiers: tiers ? nomCourt(tiers) : null, montant: f.champs.montant ?? null, email: tiers?.champs.email ?? null });
         return this.#tache('relance-factures', `Relancer ${nomCourt(f)}${tiers ? ` — ${nomCourt(tiers)}` : ''}`, f, 2);
       }));
-      for (const d of objets.filter((o) => o.type === 'devis' && o.champs.statut === 'envoyé' && this.#monde.maintenant().getTime() - Date.parse(o.majLe) > 7 * JOUR)) {
-        taches.push(faire('relance-devis', d.id, () => this.#tache('relance-devis', `Relancer le devis ${nomCourt(d)}`, d, 3)));
+      // le devis sans réponse ne se compte plus ici : le moteur de suivi (`../core/relances.ts`) sait depuis quand
+      // le parcours n'a pas bougé, et l'entreprise règle son rythme. Une seule mécanique, un seul endroit.
+      for (const r of this.#relances().filter((x) => x.relance === 'reponse')) {
+        const d = parId.get(r.suiviId);
+        if (d === undefined) continue;
+        taches.push(faire('relance-devis', d.id, () => this.#tache('relance-devis', `Relancer ${r.libelleSujet.toLocaleLowerCase('fr-FR')} ${nomCourt(d)}`, d, 3)));
       }
       for (const c of objets.filter((o) => o.type === 'commande_client' && o.champs.statut === 'livrée')) taches.push(faire('facturer-livraisons', c.id, async () => {
         await this.#synchro.notifier('commande.a_facturer', { commande: nomCourt(c), montant: c.champs.montant ?? null });

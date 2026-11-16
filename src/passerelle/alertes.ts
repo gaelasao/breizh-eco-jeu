@@ -50,6 +50,7 @@
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import type { ObjetMetier } from '../core/model.ts';
 import { lireOffre, OFFRE, type EtatOffre, type LectureOffre } from '../core/offre.ts';
+import type { Relance } from '../core/relances.ts';
 import type { Situation } from '../core/situation.ts';
 import { mesure, pluriel } from '../core/texte.ts';
 import { defType, libelleType, typesVisibles, type Univers } from '../core/univers.ts';
@@ -229,6 +230,11 @@ export interface SourcesAlertes {
   enLigne?: () => boolean;
   /** Derniers droits confirmés par le réseau, lus tels quels (voir `../core/offre.ts`) : jamais un appel d'ici. */
   offre?: () => LectureOffre;
+  /**
+   * Les relances que le moteur de suivi a PRÉPARÉES (`../core/relances.ts`) : ce module les annonce, il ne les
+   * calcule pas. C'est de là que vient « un devis sans réponse » — plus d'un compte de jours écrit ici.
+   */
+  relances?: () => readonly Relance[];
 }
 
 const ID = /^al-[a-f0-9]{12}$/;
@@ -962,13 +968,18 @@ export class Alertes {
     }
 
     if (choisis.has('devis_sans_reponse')) {
-      const limite = maintenant.getTime() - 7 * JOUR_MS;
-      for (const o of objets) {
-        if (o.type !== 'devis' || o.champs.statut !== 'envoyé' || Date.parse(o.majLe) > limite || prisEnCharge.has(o.id)) continue;
-        const jours = Math.max(1, Math.round((maintenant.getTime() - Date.parse(o.majLe)) / JOUR_MS));
-        const montant = typeof o.champs.montant === 'number' ? ` de ${mesure(o.champs.montant, '€')}` : '';
-        faits.push({ cle: `devis_sans_reponse:${o.id}`, sujet: 'devis_sans_reponse', urgent: false, vue: 'type:devis',
-          texte: uneLigne(`Devis ${sansMention(o.nom)}${montant} : envoyé depuis ${pluriel(jours, 'jour', 'jours')}, sans réponse. À relancer.`) });
+      // LE DÉLAI N'EST PLUS COMPTÉ ICI. Il vient du moteur de suivi (`../core/relances.ts`), qui sait depuis combien
+      // de jours le parcours du devis n'a pas bougé, et du rythme que l'entreprise a réglé. Ce module ne fait plus
+      // que dire ce qu'il a reçu : un seul endroit décide, et il n'y a plus deux comptes de sept jours à tenir.
+      for (const r of this.#src.relances?.() ?? []) {
+        if (r.relance !== 'reponse' || prisEnCharge.has(r.suiviId)) continue;
+        const o = parId.get(r.suiviId);
+        const montant = o !== undefined && typeof o.champs.montant === 'number' ? ` de ${mesure(o.champs.montant, '€')}` : '';
+        faits.push({
+          cle: `devis_sans_reponse:${r.suiviId}`, sujet: 'devis_sans_reponse', urgent: false,
+          vue: `type:${o?.type ?? 'devis'}`,
+          texte: uneLigne(`${r.libelleSujet} ${sansMention(r.nom)}${montant} : sans réponse depuis ${pluriel(r.jours, 'jour', 'jours')}. À relancer.`),
+        });
       }
     }
 

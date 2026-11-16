@@ -13,7 +13,7 @@ import { estGratuite } from '../core/offre.ts';
 import { PORTES } from '../core/suivi.ts';
 import { Application } from './application.ts';
 import { ErreurApi, SYSTEME } from './monde.ts';
-import { AUTOMATISATION_PAGE, ecriteParLeMoteur, JETON } from './suivis.ts';
+import { AUTOMATISATION_ENVOI, AUTOMATISATION_PAGE, AUTOMATISATION_RELANCES, ecriteParLeMoteur, JETON } from './suivis.ts';
 
 const ADRESSE = 'http://127.0.0.1:4180';
 const CLE = ['nx', 'k'.repeat(43)].join('_');
@@ -188,22 +188,57 @@ test('les quatre portes sont comprises : détecter et prévenir ne demandent rie
     app.suivis.regler(p, 'papiers', { portes: [porte.id] });
     assert.deepEqual(app.suivis.reglages(p).sujets.find((s) => s.id === 'papiers')?.portes, [porte.id]);
   }
-  // ce qui est réservé, c'est la page qu'on PUBLIE pour un client : elle n'est pas dans les automatisations comprises
-  assert.equal(estGratuite(AUTOMATISATION_PAGE), false);
-  assert.equal(app.suivis.reglages(p).pageClient.verrouillee, true);
+  // PARTAGER aussi est compris : c'est l'entreprise qui envoie le lien, rien ne part par le service de l'éditeur
+  assert.equal(estGratuite(AUTOMATISATION_PAGE), true);
+  assert.equal(estGratuite(AUTOMATISATION_RELANCES), true);
+  assert.equal(app.suivis.reglages(p).pageClient.verrouillee, false);
+  // ce qui est réservé, c'est l'ENVOI AUTOMATIQUE à chaque étape : il reste visible, avec son motif
+  assert.equal(estGratuite(AUTOMATISATION_ENVOI), false);
+  assert.equal(app.suivis.reglages(p).envoiAuto.verrouillee, true);
   app.arreter();
 });
 
 // ------------------------------------------------------------------ la page du client, et l'offre
 
-test('la page de suivi d’un client relève de l’offre : sans elle, rien n’est publié, et on dit pourquoi', async () => {
+test('partager un suivi marche SANS abonnement : le lien, la page, le message préparé', async () => {
   const { app, p, chantier } = await entreprise({ offre: 'gratuit' });
   const r = app.suivis.reglages(p);
-  assert.equal(r.pageClient.verrouillee, true);
-  assert.match(r.pageClient.motif ?? '', /produit et elle envoie/, 'le motif vient de core/offre.ts, pas d’un texte à part');
-  assert.match(r.pageClient.phraseOffre ?? '', /l’offre Breizhcosystem ACTIVE n’y est pas ouverte/);
-  assert.throws(() => app.suivis.creerLien(p, chantier), (e: unknown) => e instanceof ErreurApi && e.statut === 402 && e.code === 'offre_requise');
-  assert.deepEqual(app.suivis.liensDe(chantier), [], 'rien n’a été créé en douce');
+  assert.equal(r.pageClient.verrouillee, false, 'partager ne demande rien à personne');
+  assert.equal(r.pageClient.motif, null);
+  // ce qui demande l'offre est dit une fois, à sa place : l'envoi automatique
+  assert.equal(r.envoiAuto.verrouillee, true);
+  assert.match(r.envoiAuto.motif, /Partager un suivi et préparer une relance restent compris/);
+  assert.match(r.envoiAuto.phraseOffre ?? '', /l’offre Breizhcosystem ACTIVE n’y est pas ouverte/);
+
+  // et le partage, lui, va jusqu'au bout : un lien, une page ouverte, un message prêt à relire
+  const part = app.suivis.partager(p, chantier, { pour: 'client' });
+  assert.ok(JETON.test(part.jeton));
+  assert.equal(part.pour, 'client');
+  assert.match(part.objet, /Toiture Kerlann/);
+  assert.match(part.message, /Menuiserie Kerlann$/, 'le message est signé du nom de l’entreprise');
+  assert.equal(/\d+\s*€|montant|marge/i.test(`${part.objet} ${part.message}`), false, 'aucun montant dans le message');
+  assert.ok(app.suivis.page(part.jeton).etat === 'ouverte');
+  assert.equal(app.suivis.liensDe(chantier).filter((l) => !l.revoque).length, 1);
+
+  // les trois destinataires sont au même prix, et chacun a son message
+  for (const pour of ['fournisseur', 'comptable'] as const) {
+    const autre = app.suivis.partager(p, chantier, { pour });
+    assert.equal(autre.pour, pour);
+    assert.ok(autre.message.length > 40);
+    assert.ok(app.suivis.page(autre.jeton).etat === 'ouverte');
+  }
+  // et un sujet qui ne regarde que l'entreprise reste refusé, offre ou pas : ce n'est pas une question de prix
+  assert.throws(() => app.suivis.partager(p, 'obj-inexistant'), (e: unknown) => e instanceof ErreurApi && e.statut === 404);
+  app.arreter();
+});
+
+test('préparer les relances est compris, et l’envoi automatique reste l’affaire de l’offre', async () => {
+  const { app, p } = await entreprise({ offre: false });
+  const r = app.suivis.relances(p);
+  assert.equal(r.compris, true, 'jamais reliée, et les relances se préparent quand même');
+  assert.equal(r.envoiAuto.verrouillee, true);
+  assert.deepEqual(r.sujets.map((s) => s.id), ['paiement', 'reponse', 'avancement']);
+  for (const s of r.sujets) assert.deepEqual(s.rythme, s.defaut, 'rien réglé : le rythme proposé');
   app.arreter();
 });
 
@@ -274,6 +309,178 @@ test('un sujet qui ne regarde que l’entreprise ne se partage pas, et un sujet 
   assert.throws(() => app.suivis.creerLien(p, papier), (e: unknown) => e instanceof ErreurApi && e.code === 'sans_page_client');
   assert.throws(() => app.suivis.regler(p, 'inventé', { portes: ['agenda'] }), (e: unknown) => e instanceof ErreurApi && e.statut === 404);
   assert.throws(() => app.suivis.creerLien(p, 'obj-inexistant'), (e: unknown) => e instanceof ErreurApi && e.statut === 404);
+  app.arreter();
+});
+
+// ------------------------------------------------------------------ les étapes, décidées par l'entreprise
+
+test('l’entreprise écrit ses étapes, les réutilise d’un chantier à l’autre, et peut toujours revenir en arrière', async () => {
+  const { app, p, chantier } = await entreprise();
+  const avant = app.suivis.fiche(p, chantier);
+  assert.equal(avant.modele, null, 'rien réglé : les étapes de l’univers, comme avant');
+  const etapesAvant = avant.etapes.map((e) => e.libelle);
+
+  const m = app.suivis.enregistrerModele(p, {
+    sujet: 'chantier', nom: 'Toiture, chez nous',
+    etapes: [{ libelle: 'Visite' }, { libelle: 'Dépose' }, { libelle: 'Charpente' }, { libelle: 'Réception' }],
+  });
+  assert.match(m.id, /^me-[a-f0-9]{12}$/);
+  assert.equal(m.origine, 'entreprise');
+
+  const choisi = app.suivis.choisirModele(p, chantier, { modele: m.id });
+  assert.equal(choisi.modele, m.id);
+  const apres = app.suivis.fiche(p, chantier);
+  assert.deepEqual(apres.etapes.map((e) => e.libelle).slice(0, 4), ['Visite', 'Dépose', 'Charpente', 'Réception']);
+  assert.equal(apres.etapes[0]?.enCours, true);
+
+  // le même modèle sur un deuxième chantier : c'est tout l'intérêt d'un modèle
+  const second = app.monde.creerObjetSysteme('essai', 'projet', 'Toiture Plouha', { echeance: null }, { id: 'essai', libelle: 'Essai' });
+  assert.equal(app.suivis.choisirModele(p, second, { modele: m.id }).modele, m.id);
+  assert.deepEqual(app.suivis.fiche(p, second).etapes.map((e) => e.libelle), ['Visite', 'Dépose', 'Charpente', 'Réception']);
+
+  // revenir en arrière : le réglage se retire, et la fiche retrouve EXACTEMENT ses étapes d'avant
+  assert.equal(app.suivis.choisirModele(p, chantier, { modele: null }).modele, null);
+  assert.deepEqual(app.suivis.fiche(p, chantier).etapes.map((e) => e.libelle), etapesAvant);
+
+  // retirer le modèle libère les fiches qui s'en servaient : rien ne casse, elles reviennent à l'univers
+  const retire = app.suivis.supprimerModele(p, m.id);
+  assert.equal(retire.fiches, 1, 'le deuxième chantier s’en servait encore');
+  assert.deepEqual(app.suivis.fiche(p, second).modele, null);
+  assert.throws(() => app.suivis.choisirModele(p, second, { modele: m.id }), (e: unknown) => e instanceof ErreurApi && e.code === 'modele_inconnu');
+  app.arreter();
+});
+
+test('un modèle de l’univers se recopie, et l’original n’est jamais abîmé', async () => {
+  const { app, p, chantier } = await entreprise();
+  const proposes = app.suivis.modeles(p, 'chantier').modeles;
+  // l'univers générique ne déclare pas d'étapes de projet : il ne propose donc rien pour ce sujet
+  assert.deepEqual(proposes.filter((x) => x.origine === 'univers'), []);
+  // l'entreprise écrit les siennes, puis les réécrit : c'est le même modèle, pas un deuxième
+  const m = app.suivis.enregistrerModele(p, { sujet: 'chantier', nom: 'À moi', etapes: [{ libelle: 'Un' }] });
+  const majs = app.suivis.enregistrerModele(p, { id: m.id, sujet: 'chantier', nom: 'À moi, revu', etapes: [{ libelle: 'Un' }, { libelle: 'Deux' }] });
+  assert.equal(majs.id, m.id);
+  assert.equal(app.suivis.modeles(p, 'chantier').modeles.filter((x) => x.origine === 'entreprise').length, 1);
+  assert.equal(app.suivis.fiche(p, chantier).modeles.length, 1);
+  assert.throws(() => app.suivis.modeles(p, 'inventé'), (e: unknown) => e instanceof ErreurApi && e.statut === 404);
+  assert.throws(() => app.suivis.enregistrerModele(p, { sujet: 'chantier', nom: '', etapes: [] }), (e: unknown) => e instanceof ErreurApi && e.code === 'modele_invalide');
+  app.arreter();
+});
+
+// ------------------------------------------------------------------ les relances, préparées puis notées
+
+test('une relance se prépare, se note une fois envoyée, et ne repart pas deux fois', async () => {
+  const { app, p, jour } = await entreprise();
+  const client = app.monde.objetsReels().find((o) => o.roles.includes('client'));
+  assert.ok(client);
+  app.monde.creerObjetSysteme('essai', 'facture', 'FA-21', { tiers: client.id, echeance: jour(-20), payee: false }, { id: 'essai', libelle: 'Essai' });
+
+  const premiere = app.suivis.relances(p);
+  const r = premiere.relances.find((x) => x.relance === 'paiement');
+  assert.ok(r, 'une facture échue depuis vingt jours se relance');
+  assert.equal(r.fois, 1);
+  assert.match(r.objet, /FA-21/);
+  assert.match(r.message, /^Bonjour,/);
+  assert.equal(premiere.compris, true, 'préparer une relance ne demande rien à personne');
+
+  // une personne l'a relue et envoyée : le moteur le note, et ne la repropose pas
+  const note = app.suivis.relanceEnvoyee(p, r.cle);
+  assert.equal(note.fois, 1);
+  assert.match(String(note.prochaine), /dans \d+ jours/);
+  assert.equal(app.suivis.relances(p).relances.some((x) => x.cle === r.cle), false, 'elle ne repart pas le même jour');
+  // et la noter deux fois est refusé : il n'y a plus rien à noter
+  assert.throws(() => app.suivis.relanceEnvoyee(p, r.cle), (e: unknown) => e instanceof ErreurApi && e.statut === 404);
+  app.arreter();
+});
+
+test('une facture payée entre-temps n’est plus relancée, et son compteur est oublié', async () => {
+  const { app, p, jour } = await entreprise();
+  const f = app.monde.creerObjetSysteme('essai', 'facture', 'FA-22', { echeance: jour(-9), payee: false }, { id: 'essai', libelle: 'Essai' });
+  const r = app.suivis.relances(p).relances.find((x) => x.suiviId === f);
+  assert.ok(r);
+  app.suivis.relanceEnvoyee(p, r.cle);
+  assert.ok(app.suivis.instantane().relancesFaites[r.cle], 'le compteur existe');
+
+  // la facture est marquée payée : plus rien à relancer, et le compteur s'efface
+  app.monde.majObjetSysteme('essai', f, { payee: true });
+  const apres = app.suivis.relances(p);
+  assert.equal(apres.relances.some((x) => x.suiviId === f), false);
+  assert.equal(app.suivis.instantane().relancesFaites[r.cle], undefined, 'si elle revenait un jour, elle repartirait de zéro');
+  app.arreter();
+});
+
+test('le rythme des relances se règle, et une relance inventée est refusée', async () => {
+  const { app, p, jour } = await entreprise();
+  app.monde.creerObjetSysteme('essai', 'facture', 'FA-23', { echeance: jour(-4), payee: false }, { id: 'essai', libelle: 'Essai' });
+  assert.equal(app.suivis.relances(p).relances.some((x) => x.relance === 'paiement'), true, 'rythme proposé : après 3 jours');
+  // plus patiente : trente jours avant la première relance
+  assert.deepEqual(app.suivis.reglerRythme(p, 'paiement', { apresJours: 30, tousLesJours: 20, maxFois: 2 }).rythme, { apresJours: 30, tousLesJours: 20, maxFois: 2 });
+  assert.equal(app.suivis.relances(p).relances.some((x) => x.relance === 'paiement'), false, 'elle attend');
+  assert.deepEqual(app.suivis.reglages(p).sujets.find((s) => s.id === 'facture')?.relances.map((x) => x.id), ['paiement']);
+  assert.throws(() => app.suivis.reglerRythme(p, 'inventée', {}), (e: unknown) => e instanceof ErreurApi && e.code === 'relance_inconnue');
+  app.arreter();
+});
+
+test('le devis sans réponse ne se compte plus qu’une fois : alertes et automatisations lisent le moteur', async () => {
+  const { app, p } = await entreprise();
+  const client = app.monde.objetsReels().find((o) => o.roles.includes('client'));
+  assert.ok(client);
+  const d = app.monde.creerObjetSysteme('essai', 'devis', 'DEV-9', { client: client.id, statut: 'envoyé' }, { id: 'essai', libelle: 'Essai' });
+  // tout juste écrit : il n'attend pas encore (le rythme proposé laisse sept jours)
+  assert.equal(app.suivis.relancesPreparees().some((r) => r.suiviId === d), false);
+  // le rythme règle le délai, et c'est la SEULE chose qui décide, pour les deux modules qui s'en servent
+  app.suivis.reglerRythme(p, 'reponse', { apresJours: 0, tousLesJours: 10, maxFois: 2 });
+  const dues = app.suivis.relancesPreparees().filter((r) => r.suiviId === d);
+  assert.equal(dues.length, 1);
+  assert.equal(dues[0]?.relance, 'reponse');
+  assert.equal(dues[0]?.etape, 'Envoyé', 'l’étape vient du parcours déclaré par l’univers');
+  // accepté : plus rien, sans qu'aucun code n'ait eu à parler de « devis accepté »
+  app.monde.majObjetSysteme('essai', d, { statut: 'accepté' });
+  assert.deepEqual(app.suivis.relancesPreparees().filter((r) => r.suiviId === d), []);
+  app.arreter();
+});
+
+// ------------------------------------------------------------------ le réglage du retard, des deux côtés
+
+test('le réglage du retard : montrer (par défaut), ou dire seulement l’étape en cours', async () => {
+  const { app, p, chantier, jour } = await entreprise();
+  app.monde.creerObjetSysteme('essai', 'tache', 'Charpente', { concerne: chantier, echeance: jour(-2), statut: 'à faire' }, { id: 'essai', libelle: 'Essai' });
+  const part = app.suivis.partager(p, chantier, { pour: 'client' });
+
+  // par défaut, le client voit le retard : c'est honnête, et c'est le défaut
+  assert.equal(app.suivis.reglages(p).affichage.montrerRetard, true);
+  const montre = app.suivis.page(part.jeton, { noter: false });
+  assert.ok(montre.etat === 'ouverte');
+  assert.match(montre.phrase, /Charpente : dépassée de 2 jours/);
+
+  // l'entreprise referme le réglage : la page dit l'étape en cours, et rien du retard
+  assert.deepEqual(app.suivis.reglerAffichage(p, { montrerRetard: false }), { montrerRetard: false });
+  const discret = app.suivis.page(part.jeton, { noter: false });
+  assert.ok(discret.etat === 'ouverte');
+  assert.equal(discret.phrase, 'Charpente : en cours');
+  assert.equal(/dépass|retard/i.test(JSON.stringify(discret)), false);
+  // l'écran de l'ENTREPRISE, lui, dit toujours le retard : le réglage ne concerne que la page du client
+  const fiche = app.suivis.fiche(p, chantier);
+  assert.ok(fiche.etapes.some((e) => e.etat === 'depassee'), 'l’entreprise voit son retard, toujours');
+
+  // et le réglage se rouvre
+  assert.deepEqual(app.suivis.reglerAffichage(p, { montrerRetard: true }), { montrerRetard: true });
+  const page = app.suivis.page(part.jeton, { noter: false });
+  assert.ok(page.etat === 'ouverte');
+  assert.match(page.phrase, /dépassée de 2 jours/);
+  app.arreter();
+});
+
+test('partager puis reprendre : la page ne montre plus rien, et le partage ne demandait rien', async () => {
+  const { app, p, chantier } = await entreprise({ offre: false });
+  const part = app.suivis.partager(p, chantier, { pour: 'comptable' });
+  assert.ok(app.suivis.page(part.jeton).etat === 'ouverte', 'jamais reliée, et le partage fonctionne');
+  assert.match(part.retrait, /retirer ce lien à tout moment/);
+  const retire = app.suivis.revoquerLien(p, part.lien.id);
+  assert.equal(retire.revoque, true);
+  const fermee = app.suivis.page(part.jeton);
+  assert.ok(fermee.etat === 'fermee');
+  assert.equal(fermee.refus, 'revoque');
+  assert.equal(JSON.stringify(fermee).includes('Toiture'), false, 'plus un mot du chantier');
   app.arreter();
 });
 

@@ -28,9 +28,12 @@ function dessinerFerme(message) {
 }
 
 function dessinerSuivi(p) {
-  const etapes = h('ol', { class: 'etapes' }, p.etapes.map((e) => h('li', { class: `etape ton-${tonEtape(e.etat)}`, 'data-etat': e.etat },
+  // `data-courante` : là où en est le travail. C'est tout ce que la page dit quand l'entreprise garde son retard
+  // pour elle (réglage « Dire seulement l'étape en cours »), et un repère utile quand elle le montre.
+  const etapes = h('ol', { class: 'etapes' }, p.etapes.map((e) => h('li', { class: `etape ton-${tonEtape(e.etat)}`, 'data-etat': e.etat, 'data-courante': e.courante ? '' : null },
     h('span', { class: 'puce' }, icone(iconeEtape(e.etat))),
     h('span', { class: 'nom', texte: e.libelle }),
+    e.courante ? h('span', { class: 'courante', texte: 'en cours' }) : null,
     jourLisible(e.jour) ? h('span', { class: 'quand', texte: jourLisible(e.jour) }) : null)));
   const photos = p.photos.length
     ? h('section', { class: 'photos' }, h('h2', { texte: 'Photos' }),

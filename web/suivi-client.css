@@ -13,7 +13,7 @@
 .jauge span { display: block; block-size: 100%; background: var(--bz-marque); border-radius: var(--bz-r-rond); transition: inline-size var(--bz-d-2) var(--bz-c-effet); }
 
 .etapes { list-style: none; margin: 0 0 var(--bz-e-5); padding: 0; display: grid; gap: var(--bz-e-1); }
-.etape { display: grid; grid-template-columns: var(--bz-cible) 1fr auto; align-items: center; gap: var(--bz-e-2); min-block-size: var(--bz-cible); padding-inline-end: var(--bz-e-2); border-radius: var(--bz-r-2); }
+.etape { display: grid; grid-template-columns: var(--bz-cible) 1fr auto auto; align-items: center; gap: var(--bz-e-2); min-block-size: var(--bz-cible); padding-inline-end: var(--bz-e-2); border-radius: var(--bz-r-2); }
 .etape .puce { display: grid; place-items: center; color: var(--bz-texte-3); }
 .etape .nom { font-weight: var(--bz-g-fort); }
 .etape .quand { color: var(--bz-texte-2); font-size: var(--bz-t-petit); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -23,6 +23,10 @@
 .etape.ton-attention .puce { color: var(--bz-attention-texte); }
 .etape.ton-critique { background: var(--bz-critique-fond); }
 .etape.ton-critique .puce, .etape.ton-critique .quand { color: var(--bz-critique-texte); }
+/* L'étape courante : là où en est le travail. Un liseré et deux mots, lisibles même sans couleur — c'est tout
+   ce que la page dit quand l'entreprise garde son retard pour elle. */
+.etape[data-courante] { box-shadow: inset calc(var(--bz-bord-2, 2px) * 1) 0 0 0 var(--bz-marque); }
+.etape .courante { color: var(--bz-texte-2); font-size: var(--bz-t-petit); white-space: nowrap; }
 
 .photos h2, .avis h2 { font: var(--bz-g-fort) var(--bz-t-titre-3, var(--bz-t-base))/var(--bz-i-titre) var(--bz-police-titre); margin: 0 0 var(--bz-e-2); }
 .photos .grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr)); gap: var(--bz-e-2); margin-bottom: var(--bz-e-5); }
@@ -36,6 +40,6 @@
 .ferme .rond { inline-size: 4rem; block-size: 4rem; border-radius: var(--bz-r-rond); background: var(--bz-composant); color: var(--bz-texte-2); display: grid; place-items: center; font-size: var(--bz-t-titre-2); margin: 0 auto var(--bz-e-3); }
 
 @media (max-width: 26.25em) {
-  .etape { grid-template-columns: var(--bz-cible) 1fr; }
+  .etape { grid-template-columns: var(--bz-cible) 1fr auto; }
   .etape .quand { grid-column: 2; }
 }

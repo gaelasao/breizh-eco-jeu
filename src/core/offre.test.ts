@@ -12,17 +12,35 @@ import { vuePavillon } from '../nexus/pavillon.ts';
 import type { Droits, EtatAbonnement } from '../nexus/droits.ts';
 
 /**
- * Les six que l'entreprise garde quoi qu'il arrive, écrites ici une seconde fois, à la main : si quelqu'un en
+ * Les huit que l'entreprise garde quoi qu'il arrive, écrites ici une seconde fois, à la main : si quelqu'un en
  * verrouille une de plus un jour, cet essai tombe avant que l'entreprise ne s'en aperçoive.
  */
-const LES_SIX = ['trous-planning', 'documents', 'vehicules', 'relance-devis', 'doublons', 'connecter'];
+const LES_HUIT = [
+  'trous-planning', 'documents', 'vehicules', 'relance-devis', 'doublons', 'connecter',
+  // partager un suivi et préparer une relance : l'entreprise envoie elle-même, rien ne part par l'éditeur
+  'page-suivi', 'relances-suivi',
+];
 
-test('les six comprises : la liste ne change pas sans qu’on le décide', () => {
-  assert.deepEqual([...GRATUITES].sort(), [...LES_SIX].sort());
-  assert.equal(GRATUITES.length, 6);
-  for (const id of LES_SIX) assert.equal(estGratuite(id), true, id);
+test('les huit comprises : la liste ne change pas sans qu’on le décide', () => {
+  assert.deepEqual([...GRATUITES].sort(), [...LES_HUIT].sort());
+  assert.equal(GRATUITES.length, 8);
+  for (const id of LES_HUIT) assert.equal(estGratuite(id), true, id);
   assert.equal(estGratuite('relance-factures'), false, 'celle qui envoie n’est pas comprise');
+  assert.equal(estGratuite('suivi-envoi'), false, 'l’envoi automatique à chaque étape n’est pas compris');
   assert.equal(estGratuite('inconnue'), false, 'un identifiant inconnu n’ouvre rien');
+});
+
+test('partager un suivi est compris dans les trois cas : c’est ce qui fait connaître le produit', () => {
+  for (const offre of ['non_reliee', 'sans_offre', 'offre_active'] as const) {
+    assert.equal(verrouillee('page-suivi', offre), false, `partager reste compris (${offre})`);
+    assert.equal(verrouillee('relances-suivi', offre), false, `préparer une relance reste compris (${offre})`);
+  }
+  // l'envoi automatique, lui, demande l'offre — et le motif dit ce qui reste ouvert
+  assert.equal(verrouillee('suivi-envoi', 'sans_offre'), true);
+  assert.equal(verrouillee('suivi-envoi', 'offre_active'), false);
+  const motif = motifVerrou('suivi-envoi');
+  assert.match(motif, /Partager un suivi et préparer une relance restent compris/);
+  assert.match(motif, /envoyer vous-même/);
 });
 
 test('chaque automatisation existante est rangée : comprise, ou réservée parce qu’elle produit et envoie', () => {

@@ -56,9 +56,40 @@ export type RefusPage = 'revoque' | 'introuvable' | 'autre_entreprise';
 export interface EtapeClient {
   libelle: string;
   etat: EtatEtape;
-  /** Jour de l'échéance ; null quand l'entreprise n'en a pas annoncé. */
+  /** Jour de l'échéance ; null quand l'entreprise n'en a pas annoncé — ou qu'elle ne montre pas son retard. */
   jour: string | null;
   faite: boolean;
+  /**
+   * Vrai : c'est là qu'en est le travail. C'est la seule chose que la page dise quand le retard reste à l'intérieur.
+   * Nommée « courante » et non « en cours » : « encours » désigne de l'argent dû, et aucun mot d'argent n'a le droit
+   * d'approcher cette page — un essai le vérifie, jusque dans les noms de champs.
+   */
+  courante: boolean;
+}
+
+/**
+ * MONTRER LE RETARD, OU DIRE SEULEMENT L'ÉTAPE EN COURS. « Charpente : dépassée de 2 jours » est honnête, et c'est
+ * ce que la page dit PAR DÉFAUT : une entreprise qui partage un suivi partage aussi ses retards, et les clients le
+ * savent mieux que personne. Mais ce n'est pas au logiciel d'imposer cette franchise-là : une entreprise peut avoir
+ * de bonnes raisons de dire seulement « Charpente : en cours » — un retard qui vient du client lui-même, d'un
+ * fournisseur, d'une intempérie, ou simplement une relation qui se règle au téléphone.
+ *
+ * Le réglage ne cache RIEN d'autre : les étapes, leur ordre, l'avancement et ce qui est fait restent affichés, et
+ * une étape terminée garde sa date. Seuls le RETARD et les dates encore à tenir sortent de la page. Et il ne touche
+ * jamais ce que l'entreprise voit, elle : son écran dit le retard, toujours.
+ */
+export interface AffichageClient {
+  /** Vrai (le défaut) : le client voit « dépassée de 2 jours ». Faux : il voit l'étape en cours, sans le retard. */
+  montrerRetard: boolean;
+}
+
+export const AFFICHAGE_DEFAUT: AffichageClient = Object.freeze({ montrerRetard: true });
+
+/** Un réglage d'affichage reçu du navigateur (ou relu du disque) : ce qui manque ou déborde revient au défaut. */
+export function lireAffichage(x: unknown): AffichageClient {
+  if (typeof x !== 'object' || x === null || Array.isArray(x)) return { ...AFFICHAGE_DEFAUT };
+  const b = x as Record<string, unknown>;
+  return { montrerRetard: b.montrerRetard === false ? false : true };
 }
 
 /** Une photo montrée au client (adresse seulement, jamais un fichier recopié ici). */
@@ -146,6 +177,7 @@ export function pageClient(
   suivi: Suivi | null,
   entreprise: string,
   extra: SourcePhotos = {},
+  affichage: AffichageClient = AFFICHAGE_DEFAUT,
 ): PageClient | PageRefusee {
   if (lien.revoqueLe !== null) return pageFermee('revoque');
   if (objet === null || suivi === null) return pageFermee('introuvable');
@@ -153,10 +185,18 @@ export function pageClient(
   if (objet.id !== lien.suiviId || suivi.id !== lien.suiviId) return pageFermee('introuvable');
   if (objet.orgId !== lien.orgId) return pageFermee('autre_entreprise');
 
+  const montre = affichage.montrerRetard !== false;
   const etapes: EtapeClient[] = suivi.etapes
-    // une étape sans date ni avancement ne dit rien au client : elle reste à l'intérieur
-    .filter((e) => e.faite || e.jour !== null || e.etat !== 'sans_date')
-    .map((e) => ({ libelle: nomPropre(e.libelle), etat: e.etat, jour: e.jour, faite: e.faite }));
+    // une étape sans date ni avancement ne dit rien au client, sauf si l'entreprise l'a DÉCLARÉE : celle-là viendra
+    .filter((e) => e.faite || e.jour !== null || e.declaree || e.etat !== 'sans_date')
+    .map((e) => ({
+      libelle: nomPropre(e.libelle),
+      // retard gardé à l'intérieur : une étape qui reste ne dit que « à venir », et sa date ne sort pas
+      etat: montre || e.faite ? e.etat : 'a_venir',
+      jour: montre || e.faite ? e.jour : null,
+      faite: e.faite,
+      courante: e.enCours,
+    }));
 
   const photos: PhotoClient[] = (extra.photos ?? [])
     .map((p) => ({ lien: LIEN_SUR(p.lien), le: typeof p.le === 'string' ? p.le.slice(0, 10) : null }))
@@ -164,13 +204,21 @@ export function pageClient(
     .slice(0, 24);
 
   const avisLien = LIEN_SUR(extra.lienAvis ?? null);
+  // là où en est le travail : l'étape en cours quand il y en a une déclarée, sinon la prochaine échéance
+  const ouverte = suivi.etapes.find((e) => e.enCours && !e.faite) ?? suivi.prochaine;
   return {
     etat: 'ouverte',
     titre: titrePage(u, objet),
     entreprise: nomPropre(entreprise),
     reference: nomPropre(objet.nom),
-    phrase: suivi.termine ? 'C’est terminé.' : suivi.prochaine === null ? 'En cours.' : phraseEcheance(suivi.prochaine),
-    prochaine: suivi.prochaine === null ? null : nomPropre(suivi.prochaine.libelle),
+    phrase: suivi.termine
+      ? 'C’est terminé.'
+      : montre
+        ? suivi.prochaine === null ? 'En cours.' : phraseEcheance(suivi.prochaine)
+        : ouverte === null || ouverte === undefined ? 'En cours.' : `${nomPropre(ouverte.libelle)} : en cours`,
+    prochaine: montre
+      ? (suivi.prochaine === null ? null : nomPropre(suivi.prochaine.libelle))
+      : (ouverte === null || ouverte === undefined ? null : nomPropre(ouverte.libelle)),
     etapes,
     avancement: { faites: etapes.filter((e) => e.faite).length, total: etapes.length },
     termine: suivi.termine,

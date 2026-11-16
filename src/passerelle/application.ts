@@ -218,7 +218,9 @@ export class Application {
     // `droits` : les derniers droits que le réseau a confirmés, lus tels quels, sans appel (voir ../core/offre.ts) —
     // l'écran Optimiser s'affiche toujours, relié ou non, réseau joignable ou non.
     this.automatisations = new Automatisations(monde, this.enquetes, this.synchro, { etat: etat?.automatisations ?? null, changement, trous: () => monde.trousPlanningReel(), trousProchains: () => monde.trousPlanningReel('prochains'),
-      droits: () => { const e = this.nexus.etat(); return { relie: e.relie, plan: e.droits?.plan ?? null, etatAbonnement: e.droits?.etatAbonnement ?? null }; } });
+      droits: () => { const e = this.nexus.etat(); return { relie: e.relie, plan: e.droits?.plan ?? null, etatAbonnement: e.droits?.etatAbonnement ?? null }; },
+      // « relancer un devis sans réponse » ne compte plus ses jours ici : le moteur de suivi les compte une seule fois
+      relances: () => { try { return this.suivis.relancesPreparees(); } catch { return []; } } });
     // alertes : le module lit ce que le jeu voit déjà (situations, fiches, connecteurs, réseau) et n'écrit rien dans le monde
     this.alertes = new Alertes({
       maintenant: () => monde.maintenant(),
@@ -236,6 +238,8 @@ export class Application {
       enLigne: () => process.env.LB_EN_LIGNE === '1',
       // derniers droits confirmés, lus tels quels : écrire au client relève de l'offre (voir ../core/offre.ts)
       offre: () => { const e = this.nexus.etat(); return { relie: e.relie, plan: e.droits?.plan ?? null, etatAbonnement: e.droits?.etatAbonnement ?? null }; },
+      // « un devis sans réponse » vient du moteur de suivi, qui compte les jours une seule fois (core/relances.ts)
+      relances: () => { try { return this.suivis.relancesPreparees(); } catch { return []; } },
     }, this.#chiffreur, { etat: etat?.alertes ?? null, changement, ...(f ? { fetch: f } : {}) });
     // moteur de suivi : il lit le monde et les droits déjà confirmés, écrit des rendez-vous et des tâches dans le
     // monde privé (que les connecteurs branchés emmènent ensuite), et ne dit JAMAIS à `alertes.ts` quoi faire —

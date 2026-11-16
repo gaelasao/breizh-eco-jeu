@@ -1078,10 +1078,43 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
     }
     ms = /^\/suivis\/liens\/(sv-[a-f0-9]{12})$/.exec(chemin);
     if (ms && methode === 'DELETE') return envoyer(res, 200, app.suivis.revoquerLien(profil, ms[1]));
-    ms = /^\/suivis\/(obj-[A-Za-z0-9-]{1,60})$/.exec(chemin);
+    // ce que la page du client dit du retard : montrer (le défaut), ou dire seulement l'étape en cours
+    if (chemin === '/suivis/affichage' && methode === 'PUT') return envoyer(res, 200, app.suivis.reglerAffichage(profil, await lireCorps(req)));
+    // les relances préparées : comprises dans Living Business, l'envoi reste un geste humain
+    if (chemin === '/suivis/relances' && methode === 'GET') return envoyer(res, 200, app.suivis.relances(profil));
+    if (chemin === '/suivis/relances/envoyee' && methode === 'POST') {
+      const corps = (await lireCorps(req)) as { cle?: unknown };
+      return envoyer(res, 200, app.suivis.relanceEnvoyee(profil, corps.cle));
+    }
+    ms = /^\/suivis\/relances\/([a-z_]{1,40})$/.exec(chemin);
+    if (ms && methode === 'PUT') return envoyer(res, 200, app.suivis.reglerRythme(profil, ms[1], await lireCorps(req)));
+    // les étapes, décidées par l'entreprise : des modèles réutilisables d'un chantier à l'autre
+    ms = /^\/suivis\/modeles\/([a-z_]{1,40})$/.exec(chemin);
+    if (ms && methode === 'GET') return envoyer(res, 200, app.suivis.modeles(profil, ms[1]));
+    if (chemin === '/suivis/modeles' && methode === 'POST') return envoyer(res, 200, app.suivis.enregistrerModele(profil, await lireCorps(req)));
+    ms = /^\/suivis\/modeles\/(me-[a-f0-9]{12})$/.exec(chemin);
+    if (ms && methode === 'DELETE') {
+      const r = app.suivis.supprimerModele(profil, ms[1]);
+      app.suivis.passer();
+      return envoyer(res, 200, r);
+    }
+    // ces quatre-là portent l'identifiant d'une FICHE. Il vient après les chemins nommés ci-dessus (« relances »,
+    // « modeles », « affichage », « liens », « sujets ») : ceux-là sont reconnus avant, et ne peuvent donc pas être
+    // pris pour une fiche. Les identifiants ne sont pas tous en « obj- » : les jeux d'exemple en portent de plus
+    // courts (« pr-hotel »), et l'écran de suivi doit y fonctionner comme ailleurs.
+    ms = /^\/suivis\/([A-Za-z0-9][A-Za-z0-9_-]{0,59})$/.exec(chemin);
     if (ms && methode === 'GET') return envoyer(res, 200, app.suivis.fiche(profil, ms[1]));
-    ms = /^\/suivis\/(obj-[A-Za-z0-9-]{1,60})\/lien$/.exec(chemin);
+    ms = /^\/suivis\/([A-Za-z0-9][A-Za-z0-9_-]{0,59})\/lien$/.exec(chemin);
     if (ms && methode === 'POST') return envoyer(res, 200, app.suivis.creerLien(profil, ms[1], await lireCorps(req)));
+    // « Partager » : le lien ET le message préparé, à son client, à son fournisseur ou à son comptable
+    ms = /^\/suivis\/([A-Za-z0-9][A-Za-z0-9_-]{0,59})\/partager$/.exec(chemin);
+    if (ms && methode === 'POST') return envoyer(res, 200, app.suivis.partager(profil, ms[1], await lireCorps(req)));
+    ms = /^\/suivis\/([A-Za-z0-9][A-Za-z0-9_-]{0,59})\/etapes$/.exec(chemin);
+    if (ms && methode === 'PUT') {
+      const r = app.suivis.choisirModele(profil, ms[1], await lireCorps(req));
+      app.suivis.passer(); // les étapes changent : ce qui n'est plus dû est retiré sans attendre
+      return envoyer(res, 200, r);
+    }
     // rappels d'entretien chez le client : une échéance lointaine sur un travail terminé (l'entreprise est prévenue, pas le client)
     if (methode === 'POST' && chemin === '/alertes/entretiens') return envoyer(res, 200, app.alertes.ajouterEntretien(profil, await lireCorps(req, LIMITE_ALERTES)));
     ma = /^\/alertes\/entretiens\/(ent-[a-f0-9]{12})$/.exec(chemin);
