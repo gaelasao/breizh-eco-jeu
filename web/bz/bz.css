@@ -1042,6 +1042,10 @@
      de l'écran (les trois champs restent visibles sur un téléphone), et téléchargée seulement quand on la demande. */
   .bz-justificatif__photo { display: block; inline-size: 100%; max-block-size: 40vh; object-fit: contain;
     border: var(--bz-bord-1) solid var(--bz-bordure-decor); border-radius: var(--bz-r-2); background: var(--bz-fond-2); }
+  /* La photo qu'on vient de prendre, montrée AU-DESSUS des champs lus sur elle : plus basse encore, pour que le
+     montant et sa provenance tiennent dans le même écran qu'elle sur un téléphone. Un appui l'agrandit. */
+  .bz-justificatif__photo--apercu { max-block-size: 22vh; cursor: zoom-in; }
+  .bz-justificatif__photo--grand { max-block-size: 60vh; cursor: zoom-out; }
   .bz-colonnes { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border: var(--bz-bord-1) solid var(--bz-bordure-decor); border-radius: var(--bz-r-2); }
   .bz-colonnes > li { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--bz-e-2); padding: var(--bz-e-3) var(--bz-e-4); border-block-end: var(--bz-bord-1) solid var(--bz-bordure-decor); }
   .bz-colonnes > li:last-child { border-block-end: 0; }

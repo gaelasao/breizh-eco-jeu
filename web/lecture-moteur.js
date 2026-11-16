@@ -18,6 +18,9 @@
 
 import { lireLaPhoto } from './lecture-photo.js';
 
+// L'écran n'a qu'une porte d'entrée : ce qu'il faut DIRE de la lecture vient d'ici aussi, pas d'un second import.
+export { direCeQuiEstLu, RIEN_LU } from './lecture-photo.js';
+
 /**
  * Dossier d'où viennent le moteur et le modèle français. La version est dans le chemin : une nouvelle version change
  * l'adresse, donc le cache. MÊME VALEUR qu'au serveur (`LECTURE_BASE` de src/passerelle/statiques.ts).
@@ -202,7 +205,7 @@ export async function chargerMoteur({ base = BASE, surProgres = () => undefined,
           : m?.status === 'recognizing text' ? ETAPES.lecture : ETAPES.moteur;
         surProgres({ etape, part: Math.max(0, Math.min(1, Number(m?.progress) || 0)) });
       },
-    }, { legacyCore: false, legacyLang: false });
+    });
     // on garde les colonnes : sur une facture, « Total TTC » et sa valeur restent sur la même ligne
     await w.setParameters({ preserve_interword_spaces: '1' });
     return w;

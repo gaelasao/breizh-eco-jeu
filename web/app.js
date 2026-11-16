@@ -10720,7 +10720,7 @@ const fournisseursDejaVus = () => [...new Set((E.saisie.liste ?? []).map((x) => 
  * Sans `fichier` (on rouvre un justificatif rangé), rien ne change : la photo reste à la demande.
  */
 function ouvrirJustificatif(j, { neuf = false, fichier = null } = {}) {
-  const etat = { erreur: null, envoi: false, photo: false, lu: null, lecture: null, avis: '', noeud: null };
+  const etat = { erreur: null, envoi: false, photo: false, lu: null, lecture: null, avis: '', noeud: null, grand: false };
   const relire = () => SAISIE.champsAvecProposition(j, { aujourdhui: jourLocal(), lu: etat.lu });
   let champs = relire();
   const v = { montant: champs.montant, date: champs.date, fournisseur: champs.fournisseur || SAISIE.champsProposes(E.saisie.liste, { concerne: j.concerne, aujourdhui: jourLocal() }).fournisseur };
@@ -10741,8 +10741,12 @@ function ouvrirJustificatif(j, { neuf = false, fichier = null } = {}) {
       corps: [
         messageEnLigne(etat.erreur ? 'critique' : null, etat.erreur),
         champs.propose ? messageEnLigne('info', `Montant, date et fournisseur proposés par ${champs.propose.par} après lecture de la photo.`, 'Vérifiez-les : rien n’est enregistré tant que vous n’avez pas appuyé sur « Enregistrer ».') : null,
-        // la photo qu'on vient de prendre, À CÔTÉ des champs : c'est elle qui permet de vérifier d'un coup d'œil
-        apercu ? h('img', { class: 'bz-justificatif__photo', src: apercu, alt: 'La photo que vous venez de prendre', decoding: 'async' }) : null,
+        // la photo qu'on vient de prendre, À CÔTÉ des champs : c'est elle qui permet de vérifier d'un coup d'œil.
+        // Petite par défaut pour que le montant tienne dans le même écran sur un téléphone ; un appui l'agrandit.
+        apercu ? h('img', { class: `bz-justificatif__photo bz-justificatif__photo--apercu${etat.grand ? ' bz-justificatif__photo--grand' : ''}`,
+          src: apercu, alt: 'La photo que vous venez de prendre', decoding: 'async',
+          title: etat.grand ? 'Réduire la photo' : 'Agrandir la photo',
+          onclick: () => { etat.grand = !etat.grand; dlg.rendre(); } }) : null,
         etat.lecture ? (etat.noeud = h('p', { class: 'bz-t-petit bz-ligne-icone', role: 'status' }, icone('loader-circle', { taille: 'sm' }), h('span', { texte: motLecture() }))) : null,
         etat.lu ? messageEnLigne('info', etat.lu.phrase) : null,
         etat.avis ? messageEnLigne('attention', etat.avis) : null,

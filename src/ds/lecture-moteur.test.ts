@@ -93,6 +93,8 @@ test('hors ligne : le service worker garde le moteur et le modèle, sous un chem
   assert.match(sw, /\^\\\/lecture\\\/\\d\+\\\.\\d\+\\\.\\d\+\\\//, 'les chemins versionnés de la lecture sont reconnus');
   assert.match(sw, /CACHE_LECTURE/, 'un cache à eux');
   assert.match(sw, /GARDES = new Set\(\[CACHE, CACHE_CARTE, CACHE_LECTURE/, 'jamais effacé au changement de version du service worker');
+  // les deux modules qui pilotent la lecture sont gardés eux aussi : sans eux, le moteur téléchargé ne servirait à rien
+  assert.match(sw, /url\.pathname === '\/lecture-moteur\.js' \|\| url\.pathname === '\/lecture-photo\.js'/, 'les modules de la lecture survivent à la coupure');
   // et toujours rien de l'API ni des données de l'entreprise
   assert.match(sw, /url\.pathname\.startsWith\('\/api\/'\)/);
 });

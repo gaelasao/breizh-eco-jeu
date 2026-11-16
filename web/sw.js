@@ -43,6 +43,13 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(caches.open(CACHE_LECTURE).then((c) => c.match(r).then((x) => x ?? fetch(r).then((rep) => { if (rep.ok) c.put(r, rep.clone()); return rep; }))));
     return;
   }
+  // les deux modules qui pilotent la lecture : réseau d'abord (ils changent avec le reste du jeu), la copie sert
+  // hors ligne — sans eux, le moteur déjà téléchargé ne servirait à rien au fond d'un hangar
+  if (url.pathname === '/lecture-moteur.js' || url.pathname === '/lecture-photo.js') {
+    e.respondWith(fetch(r).then((rep) => { if (rep.ok) { const copie = rep.clone(); caches.open(CACHE_LECTURE).then((c) => c.put(r, copie)); } return rep; })
+      .catch(() => caches.open(CACHE_LECTURE).then((c) => c.match(r)).then((x) => x ?? Response.error())));
+    return;
+  }
   // carte 3D : modèles et bibliothèques à version dans le chemin, immuables → cache d'abord
   if (url.pathname.startsWith('/modeles/') || /^\/vendor\/[\w.-]+@\d+\.\d+\.\d+\.js$/.test(url.pathname)) {
     e.respondWith(caches.open(CACHE_CARTE).then((c) => c.match(r).then((x) => x ?? fetch(r).then((rep) => { if (rep.ok) c.put(r, rep.clone()); return rep; }))));
