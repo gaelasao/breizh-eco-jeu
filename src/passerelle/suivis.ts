@@ -28,18 +28,35 @@ import { ErreurApi, type Monde } from './monde.ts';
 import type { ObjetMetier, ValeurChamp } from '../core/model.ts';
 import { lireOffre, motifVerrou, phraseOffre, verrouillee, type EtatOffre, type LectureOffre } from '../core/offre.ts';
 import {
-  contexteDe, defSujet, libelleSujet, lirePortes, PORTES, portesAlerte, portesDe, situationsRetenues, sorties, suiviDe,
-  suivis, sujetDe, sujetsDeLUnivers, type ChoixPortes, type Porte, type Sortie, type Suivi,
+  contexteDe, defSujet, libelleSujet, lireModele, lirePortes, modelesUnivers, MODELES_MAX, PORTES, portesAlerte,
+  portesDe, situationsRetenues, sorties, suiviDe, suivis, sujetDe, sujetsDeLUnivers,
+  type ChoixPortes, type DefSujetSuivi, type ModeleEtapes, type Porte, type Sortie, type Suivi,
 } from '../core/suivi.ts';
-import { fuite, pageClient, pageFermee, vueLien, type LienSuivi, type PageClient, type PageRefusee, type VueLien } from '../core/suivi-client.ts';
+import {
+  defPartage, defRelance, DESTINATAIRES, estDestinatairePartage, lireFaite, lireRythme, messagePartage,
+  oublis, relancesDues, relancesPossibles, RELANCES, rythmeDe, sujetsRelances,
+  type Relance, type RelanceFaite, type Rythme,
+} from '../core/relances.ts';
+import {
+  AFFICHAGE_DEFAUT, fuite, lireAffichage, pageClient, pageFermee, vueLien,
+  type AffichageClient, type LienSuivi, type PageClient, type PageRefusee, type VueLien,
+} from '../core/suivi-client.ts';
 import type { Situation } from '../core/situation.ts';
 import type { Profil } from '../demo/donnees.ts';
 
 /**
- * Identifiant de l'automatisation qui porte la page de suivi, au sens de `core/offre.ts`. Il n'est pas dans
- * `GRATUITES` : publier la page et envoyer le lien demandent donc l'offre, comme tout ce qui sort vers un client.
+ * Identifiant de l'automatisation qui porte la page de suivi, au sens de `core/offre.ts`. Il EST dans `GRATUITES` :
+ * partager un suivi ne demande rien à personne. L'entreprise crée le lien, le colle dans son message et l'envoie
+ * elle-même — rien ne part par le service de l'éditeur, et c'est ce qui fait connaître le produit.
  */
 export const AUTOMATISATION_PAGE = 'page-suivi';
+/** Préparer une relance reste compris : elle est écrite, relue, et c'est une personne qui l'envoie. */
+export const AUTOMATISATION_RELANCES = 'relances-suivi';
+/**
+ * L'ENVOI AUTOMATIQUE, lui, relève de l'offre : le message qui part à chaque étape, et la relance qui part sans que
+ * personne la relise. C'est le seul verrou de ce module, et il est demandé à `core/offre.ts`, sans second mécanisme.
+ */
+export const AUTOMATISATION_ENVOI = 'suivi-envoi';
 
 /** Préfixe des sources des fiches que le moteur écrit. Il sert aussi à ne JAMAIS les relire comme des étapes. */
 export const SOURCE = 'suivi';
@@ -48,6 +65,7 @@ const sourceDe = (sujet: string) => ({ id: `${SOURCE}:${sujet}`, libelle: `Suivi
 export const ecriteParLeMoteur = (o: ObjetMetier): boolean => o.source.id === SOURCE || o.source.id.startsWith(`${SOURCE}:`);
 
 const ID_LIEN = /^sv-[a-f0-9]{12}$/;
+const ID_MODELE = /^[A-Za-z0-9_:-]{1,60}$/;
 export const JETON = /^[A-Za-z0-9_-]{43}$/;
 const LIENS_MAX = 2000;
 const SORTIES_MAX = 2000;
@@ -67,10 +85,23 @@ export interface EtatSuivis {
   inscrits: Record<string, Inscrit>;
   /** Liens de suivi partagés aux clients (jetons jamais gardés en clair). */
   liens: LienSuivi[];
+  /** Modèles d'étapes écrits par l'entreprise. Vide : elle n'en a écrit aucun, et tout marche comme avant. */
+  modeles: ModeleEtapes[];
+  /** Fiche → modèle d'étapes choisi pour elle. Une fiche absente garde les étapes de l'univers. */
+  etapesPar: Record<string, string>;
+  /** Rythmes de relance réglés par l'entreprise ; ce qui manque prend le rythme proposé. */
+  rythmes: Record<string, Rythme>;
+  /** Relances déjà parties : clé → combien de fois, et quand. C'est l'anti-doublon des relances. */
+  relancesFaites: Record<string, RelanceFaite>;
+  /** Ce que la page du client montre du retard. Par défaut : elle le montre. */
+  affichage: AffichageClient;
 }
 
 /** Un état vide NEUF à chaque appel : deux installations ne doivent jamais partager le même objet. */
-const etatVide = (): EtatSuivis => ({ portes: {}, inscrits: {}, liens: [] });
+const etatVide = (): EtatSuivis => ({
+  portes: {}, inscrits: {}, liens: [], modeles: [], etapesPar: {}, rythmes: {}, relancesFaites: {},
+  affichage: { ...AFFICHAGE_DEFAUT },
+});
 
 /** Ce que le module a besoin de savoir du reste du jeu. */
 export interface SourcesSuivis {
@@ -107,7 +138,32 @@ function lireEtat(x: unknown): EtatSuivis {
   const liens = (Array.isArray(x.liens) ? x.liens : []).filter((l): l is LienSuivi =>
     estObj(l) && typeof l.id === 'string' && ID_LIEN.test(l.id) && typeof l.empreinte === 'string'
     && typeof l.orgId === 'string' && typeof l.suiviId === 'string' && typeof l.creeLe === 'string').slice(-LIENS_MAX);
-  return { portes, inscrits, liens };
+  // les modèles d'étapes sont recontrôlés à la relecture par `lireEtat` du noyau, qui a besoin de l'univers :
+  // ici on ne garde que la forme, et `#modeles()` écarte ce que l'univers ne reconnaît plus
+  const modeles = (Array.isArray(x.modeles) ? x.modeles : []).filter((m): m is ModeleEtapes =>
+    estObj(m) && typeof m.id === 'string' && ID_MODELE.test(m.id) && typeof m.sujet === 'string'
+    && defSujet(m.sujet) !== undefined && typeof m.nom === 'string' && Array.isArray(m.etapes)).slice(0, MODELES_MAX);
+  const etapesPar: Record<string, string> = {};
+  if (estObj(x.etapesPar)) {
+    for (const [fiche, m] of Object.entries(x.etapesPar).slice(0, SORTIES_MAX)) {
+      if (typeof m === 'string' && ID_MODELE.test(m)) etapesPar[fiche] = m;
+    }
+  }
+  const rythmes: Record<string, Rythme> = {};
+  if (estObj(x.rythmes)) {
+    for (const [id, r] of Object.entries(x.rythmes)) {
+      const d = defRelance(id);
+      if (d !== undefined) rythmes[id] = lireRythme(r, d.defaut);
+    }
+  }
+  const relancesFaites: Record<string, RelanceFaite> = {};
+  if (estObj(x.relancesFaites)) {
+    for (const [cle, f] of Object.entries(x.relancesFaites).slice(0, SORTIES_MAX)) {
+      const lu = lireFaite(f);
+      if (lu !== null) relancesFaites[cle] = lu;
+    }
+  }
+  return { portes, inscrits, liens, modeles, etapesPar, rythmes, relancesFaites, affichage: lireAffichage(x.affichage) };
 }
 
 export class Suivis {
@@ -139,9 +195,32 @@ export class Suivis {
     return contexteDe(this.#monde.maintenant());
   }
 
+  // ---------------------------------------------------------------- les étapes, décidées par l'entreprise
+
+  /**
+   * Tous les modèles d'étapes à portée d'un sujet : ceux que l'univers propose (modifiables, recopiables) et ceux
+   * que l'entreprise a écrits. Un modèle que l'univers ne reconnaît plus (type masqué, champ retiré) est relu à
+   * travers `lireModele` : ses étapes de parcours devenues impossibles redeviennent des étapes à cocher.
+   */
+  #modeles(sujet: DefSujetSuivi): ModeleEtapes[] {
+    const u = this.#monde.univers;
+    const siens = this.#etat.modeles
+      .filter((m) => m.sujet === sujet.id)
+      .map((m) => { const lu = lireModele(m, u); return lu === null ? null : { ...lu, id: m.id }; })
+      .filter((m): m is ModeleEtapes => m !== null);
+    return [...modelesUnivers(u, sujet), ...siens];
+  }
+
+  /** Le modèle choisi pour une fiche ; null quand l'entreprise n'a rien choisi — les étapes de l'univers, alors. */
+  #modeleDe(o: ObjetMetier, sujet: DefSujetSuivi): ModeleEtapes | null {
+    const id = this.#etat.etapesPar[o.id];
+    if (id === undefined) return null;
+    return this.#modeles(sujet).find((m) => m.id === id) ?? null;
+  }
+
   /** Tous les suivis de l'entreprise, calculés par le moteur. */
   suivis(): Suivi[] {
-    return suivis(this.#monde.univers, this.#entrees(), this.#contexte());
+    return suivis(this.#monde.univers, this.#entrees(), this.#contexte(), { modele: (o, s) => this.#modeleDe(o, s) });
   }
 
   #suivi(id: string): { objet: ObjetMetier; suivi: Suivi } | null {
@@ -149,7 +228,10 @@ export class Suivis {
     if (objet === null || ecriteParLeMoteur(objet)) return null;
     const entrees = this.#entrees();
     const liees = entrees.filter((o) => o.famille === 'tache' && o.champs.concerne === id);
-    const suivi = suiviDe(this.#monde.univers, objet, this.#contexte(), { tachesLiees: liees, objets: entrees });
+    const def = sujetDe(objet);
+    const suivi = suiviDe(this.#monde.univers, objet, this.#contexte(), {
+      tachesLiees: liees, objets: entrees, modele: def === null ? null : this.#modeleDe(objet, def),
+    });
     return suivi === null ? null : { objet, suivi };
   }
 
@@ -172,7 +254,8 @@ export class Suivis {
     const parSujet = new Map<string, Suivi[]>();
     for (const s of liste) parSujet.set(s.sujet, [...(parSujet.get(s.sujet) ?? []), s]);
     const alerte = new Map(portesAlerte(u, this.#etat.portes, SUJETS_ALERTE.map((s) => s.id), this.#src.sujetsAlerte()).map((a) => [a.sujet, a]));
-    const verrou = verrouillee(AUTOMATISATION_PAGE, offre);
+    // le seul verrou de ce module : l'ENVOI AUTOMATIQUE. Partager et préparer restent compris, reliée ou non.
+    const verrou = verrouillee(AUTOMATISATION_ENVOI, offre);
     return {
       portes: PORTES,
       sujets: sujetsDeLUnivers(u).map((s) => {
@@ -186,12 +269,180 @@ export class Suivis {
           /** Le sujet à cocher dans Réglages, Alertes pour que la porte « alerte » serve à quelque chose. */
           sujetAlerte: a ? { id: a.sujetAlerte, coche: a.coche } : null,
           pourLeClient: s.pourLeClient === true,
+          /** Les modèles d'étapes à portée de ce sujet, et combien l'entreprise en a écrit elle-même. */
+          modeles: this.#modeles(s).map((m) => ({ id: m.id, nom: m.nom, origine: m.origine ?? 'entreprise', etapes: m.etapes.length })),
+          /** Les relances qui existent pour ce sujet, avec le rythme retenu. */
+          relances: sujetsRelances(s.id).map((r) => ({ id: r.id, libelle: r.libelle, aide: r.aide, rythme: rythmeDe(this.#etat.rythmes, r.id) })),
         };
       }),
-      /** La page de suivi d'un client : comprise ou réservée, et pourquoi, dit une seule fois. */
-      pageClient: { verrouillee: verrou, motif: verrou ? motifVerrou(AUTOMATISATION_PAGE) : null, phraseOffre: phraseOffre(offre) },
+      /** Partager un suivi est COMPRIS : rien n'est verrouillé ici, et on le dit. */
+      pageClient: { verrouillee: false, motif: null, phraseOffre: phraseOffre(offre) },
+      /** L'envoi automatique, lui, est réservé : visible, chiffré, jamais caché (voir `core/offre.ts`). */
+      envoiAuto: { verrouillee: verrou, motif: motifVerrou(AUTOMATISATION_ENVOI), phraseOffre: phraseOffre(offre) },
+      /** Ce que la page du client dit du retard. « Montrer » par défaut : l'entreprise peut le refermer. */
+      affichage: { ...this.#etat.affichage },
+      destinataires: DESTINATAIRES.map((d) => ({ id: d, ...defPartage(d) })),
       liens: this.#etat.liens.map((l) => vueLien(l)),
     };
+  }
+
+  /**
+   * Ce que la page du client dit du retard : « montrer » (le défaut) ou « dire seulement l'étape en cours ».
+   * Ce réglage ne touche jamais l'écran de l'entreprise — elle voit son retard, toujours.
+   */
+  reglerAffichage(p: Profil, d: unknown): AffichageClient {
+    if (!p.peutAdministrer) throw new ErreurApi(403, 'interdit');
+    if (!estObj(d)) throw new ErreurApi(400, 'requete_invalide');
+    this.#etat.affichage = lireAffichage({ ...this.#etat.affichage, ...d });
+    this.#changement();
+    return { ...this.#etat.affichage };
+  }
+
+  // ---------------------------------------------------------------- modèles d'étapes
+
+  /** Les modèles d'un sujet, ceux de l'univers compris, pour l'écran qui les montre et les fait recopier. */
+  modeles(p: Profil, sujet: unknown) {
+    const id = typeof sujet === 'string' ? sujet : '';
+    const def = defSujet(id);
+    if (def === undefined) throw new ErreurApi(404, 'sujet_inconnu', 'Ce sujet de suivi n’existe pas.');
+    void p;
+    return { sujet: id, libelle: libelleSujet(this.#monde.univers, def, 2), modeles: this.#modeles(def) };
+  }
+
+  /**
+   * Écrire (ou réécrire) un modèle d'étapes. Un modèle de l'univers n'est jamais modifié : le recopier en crée un
+   * nouveau, à l'entreprise, qu'elle façonne à sa guise. C'est ce qui fait qu'un changement d'univers ne détruit
+   * jamais les étapes qu'elle a écrites.
+   */
+  enregistrerModele(p: Profil, d: unknown): ModeleEtapes {
+    if (!p.peutAdministrer) throw new ErreurApi(403, 'interdit');
+    const lu = lireModele(d, this.#monde.univers);
+    if (lu === null) throw new ErreurApi(400, 'modele_invalide', 'Donnez un nom au modèle et au moins une étape.');
+    const vise = estObj(d) && typeof d.id === 'string' && ID_MODELE.test(d.id) ? d.id : '';
+    const i = vise === '' ? -1 : this.#etat.modeles.findIndex((m) => m.id === vise);
+    if (i >= 0) {
+      const ancien = this.#etat.modeles[i] as ModeleEtapes;
+      this.#etat.modeles[i] = { ...lu, id: ancien.id, origine: 'entreprise' };
+      this.#changement();
+      return this.#etat.modeles[i] as ModeleEtapes;
+    }
+    if (this.#etat.modeles.length >= MODELES_MAX) {
+      throw new ErreurApi(409, 'trop_de_modeles', `Vous avez déjà ${MODELES_MAX} modèles d’étapes : retirez-en un avant d’en ajouter.`);
+    }
+    const m: ModeleEtapes = { ...lu, id: `me-${randomUUID().replace(/-/g, '').slice(0, 12)}`, origine: 'entreprise' };
+    this.#etat.modeles.push(m);
+    this.#changement();
+    return m;
+  }
+
+  /** Retirer un modèle. Les fiches qui s'en servaient reviennent aux étapes de l'univers : rien ne casse. */
+  supprimerModele(p: Profil, id: unknown): { ok: true; id: string; fiches: number } {
+    if (!p.peutAdministrer) throw new ErreurApi(403, 'interdit');
+    const m = typeof id === 'string' ? this.#etat.modeles.find((x) => x.id === id) : undefined;
+    if (m === undefined) throw new ErreurApi(404, 'introuvable');
+    this.#etat.modeles = this.#etat.modeles.filter((x) => x.id !== m.id);
+    let fiches = 0;
+    for (const [fiche, choisi] of Object.entries(this.#etat.etapesPar)) {
+      if (choisi !== m.id) continue;
+      delete this.#etat.etapesPar[fiche];
+      fiches++;
+    }
+    this.#changement();
+    return { ok: true as const, id: m.id, fiches };
+  }
+
+  /** Choisir les étapes d'UNE fiche : un modèle, ou rien du tout (celles de l'univers, comme avant). */
+  choisirModele(p: Profil, suiviId: unknown, d: unknown): { suiviId: string; modele: string | null; etapes: number } {
+    if (!p.peutPreparer) throw new ErreurApi(403, 'interdit');
+    const trouve = this.#suivi(typeof suiviId === 'string' ? suiviId : '');
+    if (trouve === null) throw new ErreurApi(404, 'introuvable', 'Cette fiche n’existe pas, ou n’est pas un suivi.');
+    const def = defSujet(trouve.suivi.sujet);
+    if (def === undefined) throw new ErreurApi(404, 'introuvable');
+    const voulu = estObj(d) ? d.modele : null;
+    if (voulu === null || voulu === undefined || voulu === '') {
+      delete this.#etat.etapesPar[trouve.objet.id];
+      this.#changement();
+      const sans = this.#suivi(trouve.objet.id);
+      return { suiviId: trouve.objet.id, modele: null, etapes: sans?.suivi.etapes.length ?? 0 };
+    }
+    const m = this.#modeles(def).find((x) => x.id === voulu);
+    if (m === undefined) throw new ErreurApi(404, 'modele_inconnu', 'Ce modèle d’étapes n’existe pas pour ce sujet.');
+    this.#etat.etapesPar[trouve.objet.id] = m.id;
+    this.#changement();
+    const apres = this.#suivi(trouve.objet.id);
+    return { suiviId: trouve.objet.id, modele: m.id, etapes: apres?.suivi.etapes.length ?? 0 };
+  }
+
+  // ---------------------------------------------------------------- les relances
+
+  /** Le rythme d'une relance : au bout de combien de jours, tous les combien, et combien de fois au plus. */
+  reglerRythme(p: Profil, id: unknown, d: unknown): { relance: string; rythme: Rythme } {
+    if (!p.peutAdministrer) throw new ErreurApi(403, 'interdit');
+    const def = typeof id === 'string' ? defRelance(id) : undefined;
+    if (def === undefined) throw new ErreurApi(404, 'relance_inconnue', 'Cette relance n’existe pas.');
+    if (!estObj(d)) throw new ErreurApi(400, 'requete_invalide');
+    const rythme = lireRythme(d.rythme ?? d, def.defaut);
+    this.#etat.rythmes[def.id] = rythme;
+    this.#changement();
+    return { relance: def.id, rythme };
+  }
+
+  /**
+   * Les relances dues aujourd'hui, sans écran et sans profil : c'est ce que `alertes.ts` annonce et ce que
+   * `automatisations.ts` transforme en tâche. Un seul calcul, partagé — plus de délai compté deux fois ailleurs.
+   */
+  relancesPreparees(): Relance[] {
+    return relancesDues(this.suivis(), this.#etat.rythmes, this.#etat.relancesFaites, this.#contexte(), {
+      entreprise: this.#monde.organisation.nom,
+    });
+  }
+
+  /** Les relances préparées aujourd'hui, et ce qu'il faut savoir pour décider : le rythme, et ce qui est compris. */
+  relances(p: Profil) {
+    void p;
+    const offre = this.#offre();
+    const liste = this.suivis();
+    const dues = relancesDues(liste, this.#etat.rythmes, this.#etat.relancesFaites, this.#contexte(), {
+      entreprise: this.#monde.organisation.nom,
+    });
+    // une relance qui ne vaut plus rien (facture payée, devis répondu, étape terminée) oublie son compteur
+    const vivantes = relancesPossibles(liste);
+    const aOublier = oublis(this.#etat.relancesFaites, vivantes);
+    if (aOublier.length > 0) {
+      for (const c of aOublier) delete this.#etat.relancesFaites[c];
+      this.#changement();
+    }
+    const verrou = verrouillee(AUTOMATISATION_ENVOI, offre);
+    return {
+      relances: dues.filter((r) => this.#monde.estVisible(p, r.suiviId)),
+      sujets: RELANCES.map((r) => ({
+        id: r.id, libelle: r.libelle, aide: r.aide, vers: r.vers, rythme: rythmeDe(this.#etat.rythmes, r.id), defaut: r.defaut,
+      })),
+      /** Préparer une relance est COMPRIS, et ne dépend d'aucun abonnement : c'est vérifié, pas affirmé. */
+      compris: !verrouillee(AUTOMATISATION_RELANCES, offre),
+      /** Envoyer sans personne relève de l'offre, et c'est dit une seule fois. */
+      envoiAuto: { verrouillee: verrou, motif: motifVerrou(AUTOMATISATION_ENVOI), phraseOffre: phraseOffre(offre) },
+    };
+  }
+
+  /**
+   * « C'est envoyé. » Une personne a relu la relance et l'a envoyée : le moteur le note, et ne la repropose pas
+   * avant le délai réglé. C'est tout l'anti-doublon — et c'est pour cela qu'une relance ne part jamais deux fois.
+   */
+  relanceEnvoyee(p: Profil, cle: unknown): { cle: string; fois: number; prochaine: string | null } {
+    if (!p.peutPreparer) throw new ErreurApi(403, 'interdit');
+    const id = typeof cle === 'string' ? cle : '';
+    const due = relancesDues(this.suivis(), this.#etat.rythmes, this.#etat.relancesFaites, this.#contexte())
+      .find((r) => r.cle === id);
+    if (due === undefined) throw new ErreurApi(404, 'introuvable', 'Cette relance n’est plus à faire : elle a déjà été notée, ou il n’y a plus rien à relancer.');
+    if (!this.#monde.estVisible(p, due.suiviId)) throw new ErreurApi(403, 'interdit');
+    const jour = this.#contexte().aujourdhui;
+    this.#etat.relancesFaites[id] = { fois: due.fois, dernierJour: jour };
+    this.#monde.tracer(p, 'suivi.relance', due.suiviId, `relance ${due.fois} notée pour « ${due.nom.slice(0, 80)} »`);
+    this.#changement();
+    const rythme = rythmeDe(this.#etat.rythmes, due.relance);
+    const reste = due.fois < rythme.maxFois;
+    return { cle: id, fois: due.fois, prochaine: reste ? `dans ${rythme.tousLesJours} jours` : null };
   }
 
   /** L'entreprise choisit ses portes, sujet par sujet. Tout décocher est un choix : plus rien ne sort pour ce sujet. */
@@ -279,6 +530,13 @@ export class Suivis {
       delete this.#etat.inscrits[cle];
       change = true;
     }
+    // les étapes choisies pour elle et les relances déjà parties s'en vont avec elle
+    if (this.#etat.etapesPar[id] !== undefined) { delete this.#etat.etapesPar[id]; change = true; }
+    for (const cle of Object.keys(this.#etat.relancesFaites)) {
+      if (!cle.includes(`:${id}:`)) continue;
+      delete this.#etat.relancesFaites[cle];
+      change = true;
+    }
     const avant = this.#etat.liens.length;
     this.#etat.liens = this.#etat.liens.filter((l) => l.suiviId !== id);
     if (change || this.#etat.liens.length !== avant) this.#changement();
@@ -287,15 +545,14 @@ export class Suivis {
   // ---------------------------------------------------------------- le lien partagé au client
 
   /**
-   * Crée un lien de suivi pour un client. Le jeton n'est rendu QU'ICI, une seule fois : seule son empreinte est
-   * gardée. Publier cette page relève de l'offre (`core/offre.ts`) : sans elle, rien n'est créé.
+   * Crée un lien de suivi. Le jeton n'est rendu QU'ICI, une seule fois : seule son empreinte est gardée.
+   *
+   * PARTAGER EST COMPRIS, et rien ici ne demande l'offre. Le lien n'envoie rien tout seul : l'entreprise le crée,
+   * le colle dans son message et l'envoie elle-même. Ce qui relève de l'offre est l'ENVOI AUTOMATIQUE à chaque
+   * étape (`AUTOMATISATION_ENVOI`), demandé là où il se règle — pas à la création d'un lien.
    */
   creerLien(p: Profil, suiviId: unknown, d: unknown = {}): { lien: VueLien; adresse: string | null; jeton: string } {
     if (!p.peutPreparer) throw new ErreurApi(403, 'interdit');
-    const offre = this.#offre();
-    if (verrouillee(AUTOMATISATION_PAGE, offre)) {
-      throw new ErreurApi(402, 'offre_requise', motifVerrou(AUTOMATISATION_PAGE));
-    }
     const id = typeof suiviId === 'string' ? suiviId : '';
     const trouve = this.#suivi(id);
     if (trouve === null) throw new ErreurApi(404, 'introuvable', 'Cette fiche n’existe pas, ou n’est pas un suivi.');
@@ -320,6 +577,26 @@ export class Suivis {
     this.#monde.tracer(p, 'suivi.lien_cree', id, `page de suivi partagée pour « ${trouve.objet.nom.slice(0, 80)} »`);
     this.#changement();
     return { lien: vueLien(lien), adresse: this.#adresse(jeton), jeton };
+  }
+
+  /**
+   * LE BOUTON « PARTAGER », en un geste. Il crée le lien de suivi et PRÉPARE le message — à son client, à son
+   * fournisseur, à son comptable — que l'entreprise n'a plus qu'à relire et à envoyer. Les trois garde-fous du lien
+   * sont les mêmes pour les trois destinataires (`core/suivi-client.ts`) : rien d'une autre entreprise, aucun prix
+   * ni marge, lien révocable. Et c'est COMPRIS : aucun abonnement n'est demandé ici.
+   */
+  partager(p: Profil, suiviId: unknown, d: unknown = {}): {
+    lien: VueLien; adresse: string | null; jeton: string; pour: string;
+    objet: string; message: string; libelle: string; retrait: string;
+  } {
+    const pour = estObj(d) && estDestinatairePartage(d.pour) ? d.pour : 'client';
+    const cree = this.creerLien(p, suiviId, d);
+    const nom = this.#monde.objetReel(typeof suiviId === 'string' ? suiviId : '')?.nom ?? '';
+    const t = messagePartage(pour, nom, cree.adresse, { entreprise: this.#monde.organisation.nom });
+    return {
+      ...cree, pour, libelle: defPartage(pour).libelle, objet: t.objet, message: t.message,
+      retrait: 'Vous pouvez retirer ce lien à tout moment : la page ne montre alors plus rien.',
+    };
   }
 
   /** L'adresse à envoyer au client ; null quand l'adresse publique du jeu n'est pas connue. */
@@ -368,6 +645,7 @@ export class Suivis {
       this.#monde.univers, lien, trouve?.objet ?? null, trouve?.suivi ?? null,
       this.#monde.organisation.nom,
       { photos: this.#photos(lien.suiviId), lienAvis: lien.lienAvis ?? null },
+      this.#etat.affichage,
     );
     // deuxième verrou du garde-fou : si un chiffre interne a trouvé un chemin jusque-là, la page se ferme
     if (page.etat === 'ouverte' && fuite(page).length > 0) return pageFermee('introuvable');
@@ -405,13 +683,24 @@ export class Suivis {
     if (!this.#monde.estVisible(p, trouve.objet.id)) throw new ErreurApi(403, 'interdit');
     const { objet, suivi } = trouve;
     const def = defSujet(suivi.sujet);
+    const dues = relancesDues(this.suivis(), this.#etat.rythmes, this.#etat.relancesFaites, this.#contexte(), {
+      entreprise: this.#monde.organisation.nom,
+    });
     return {
       id: objet.id, sujet: suivi.sujet, libelleSujet: suivi.libelleSujet, nom: objet.nom,
       etat: suivi.etat, termine: suivi.termine, etapes: suivi.etapes,
       destinataire: suivi.destinataire, responsable: suivi.responsable,
       portes: portesDe(this.#etat.portes, suivi.sujet),
+      /** Partager n'est jamais verrouillé : c'est vrai pour tous les sujets qui regardent quelqu'un de dehors. */
       pourLeClient: def?.pourLeClient === true,
       liens: this.liensDe(objet.id),
+      /** Les étapes de CETTE fiche : le modèle choisi, et ceux qu'elle peut prendre. */
+      modele: suivi.modele,
+      modeles: def === undefined ? [] : this.#modeles(def).map((m) => ({ id: m.id, nom: m.nom, origine: m.origine ?? 'entreprise', etapes: m.etapes.length })),
+      /** Ce qu'il y a à relancer sur cette fiche, préparé et prêt à relire. */
+      relances: dues.filter((r) => r.suiviId === objet.id),
+      /** À qui elle peut partager ce suivi, et avec quel message. */
+      destinataires: DESTINATAIRES.map((x) => ({ id: x, ...defPartage(x) })),
     };
   }
 }

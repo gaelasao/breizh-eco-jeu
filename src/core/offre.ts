@@ -47,9 +47,15 @@ export interface LectureOffre {
 const EN_ATTENTE_DE_PAIEMENT: readonly string[] = ['paiement_en_attente', 'paiement_echoue'];
 
 /**
- * Les six que l'entreprise garde quoi qu'il arrive : elles SIGNALENT, elles n'envoient rien.
- * Les quatre premières sont des automatisations ; les deux dernières, des gestes à faire une fois (écran Optimiser,
- * « À faire vous-même »), qui n'ont jamais rien envoyé non plus.
+ * Les huit que l'entreprise garde quoi qu'il arrive : elles SIGNALENT, elles n'envoient rien.
+ * Les quatre premières sont des automatisations ; les deux suivantes, des gestes à faire une fois (écran Optimiser,
+ * « À faire vous-même »), qui n'ont jamais rien envoyé non plus. Les deux dernières tiennent au suivi.
+ *
+ * POURQUOI PARTAGER UN SUIVI EST GRATUIT. Un lien de suivi n'envoie rien tout seul : l'entreprise le crée, le colle
+ * dans son message, et c'est elle qui l'envoie — exactement comme elle enverrait une adresse à la main. Rien ne part
+ * par le service de l'éditeur, rien ne s'engage sans qu'une personne l'ait voulu. Et c'est aussi ce qui fait
+ * connaître le produit : chaque client qui ouvre une page de suivi voit ce que Living Business sait faire. Ce qui
+ * reste compris dans l'offre, c'est l'ENVOI AUTOMATIQUE — le message qui part à chaque étape, sans personne.
  */
 export const GRATUITES: readonly string[] = [
   'trous-planning', // signale les trous du planning dès qu'ils apparaissent
@@ -58,6 +64,8 @@ export const GRATUITES: readonly string[] = [
   'relance-devis', // signale les devis sans réponse ; l'envoi reste un clic humain
   'doublons', // fusionne les doublons de clients et de fournisseurs
   'connecter', // branche vos outils au lieu de ressaisir
+  'page-suivi', // partage un lien de suivi ; c'est l'entreprise qui l'envoie, et c'est ce qui fait connaître le jeu
+  'relances-suivi', // prépare les relances (paiement, devis sans réponse, étape qui traîne) ; l'envoi reste humain
 ];
 
 const GRATUITES_SET: ReadonlySet<string> = new Set(GRATUITES);
@@ -88,6 +96,8 @@ const MOTIF_PAR_DEFAUT = `Celle-ci ne se contente pas de signaler : elle produit
 const MOTIFS: Readonly<Record<string, string>> = {
   // le tri du courrier est la raison d'être de l'écran Courrier : il reste compris, et il reste dit
   'courrier-urgent': `Trier votre courrier reste compris, sur l’écran Courrier. C’est le routage automatique — la tâche créée et attribuée à la bonne personne sans vous — qui est compris dans ${OFFRE}.`,
+  // partager un suivi et préparer une relance restent compris : c'est l'envoi SANS personne qui demande l'offre
+  'suivi-envoi': `Partager un suivi et préparer une relance restent compris, et le resteront. C’est l’envoi automatique — le message qui part à chaque étape, et la relance qui part sans que personne la relise — qui est compris dans ${OFFRE}. Rien ne vous empêche d’envoyer vous-même, comme aujourd’hui.`,
 };
 
 /**

@@ -36,6 +36,19 @@ export interface DefType {
    */
   genre?: 'm' | 'f';
   champs: readonly DefChamp[];
+  /**
+   * ÉTAPES PROPOSÉES par le métier, dans leur ordre (un chantier : terrassement, charpente, couverture…).
+   * Facultatif, et seulement une PROPOSITION : le moteur de suivi (`suivi.ts`) s'en sert comme modèle de départ,
+   * que l'entreprise garde, recopie ou remplace. Un type qui n'en déclare pas ne propose rien, et tout marche
+   * comme avant. Les étapes ne changent aucune donnée : elles ne font que nommer et ordonner.
+   */
+  etapes?: readonly DefEtapeType[];
+}
+
+/** Une étape proposée par le métier : un identifiant stable, et le nom tel qu'il s'affiche. */
+export interface DefEtapeType {
+  id: string;
+  libelle: string;
 }
 
 /** Vocabulaire commun avec le réseau Breizhcosystem. */
@@ -107,7 +120,7 @@ export class ErreurUnivers extends Error {
 // ------------------------------------------------------------------ validation
 
 const ID = /^[a-z][a-z0-9_]{0,39}$/;
-const LIMITES = { roles: 30, types: 100, champs: 50, choix: 50, regles: 100 } as const;
+const LIMITES = { roles: 30, types: 100, champs: 50, choix: 50, regles: 100, etapes: 30 } as const;
 
 type Obj = Record<string, unknown>;
 const estObj = (x: unknown): x is Obj => typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -166,6 +179,19 @@ export function validerUnivers(x: unknown): Univers {
         else if (cible.role !== undefined && !idsRoles.has(cible.role as string)) p.push(`${ou} ${c.id} : rôle cible inconnu`);
       }
       champs.set(c.id, c as unknown as DefChamp);
+    }
+    // étapes proposées par le métier : une liste de noms dans leur ordre, rien de plus
+    if (t.etapes !== undefined) {
+      const etapes = Array.isArray(t.etapes) ? t.etapes : (p.push(`type ${t.id} : etapes attendues`), []);
+      if (etapes.length > LIMITES.etapes) p.push(`type ${t.id} : trop d’étapes proposées`);
+      const idsEtapes = new Set<string>();
+      for (const e of etapes) {
+        const ou = `type ${t.id}, étape`;
+        if (!estObj(e) || typeof e.id !== 'string' || !ID.test(e.id)) { p.push(`${ou} : id invalide`); continue; }
+        if (idsEtapes.has(e.id)) p.push(`${ou} ${e.id} : doublon`);
+        idsEtapes.add(e.id);
+        if (!texte(e.libelle, 80)) p.push(`${ou} ${e.id} : libellé invalide`);
+      }
     }
     idsTypes.set(t.id, champs);
   }

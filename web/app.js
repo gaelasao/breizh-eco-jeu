@@ -26,6 +26,8 @@ import * as JEU from '/jeu.js';
 import { texteCsv } from '/csv.js';
 import * as REG from '/reglages.js';
 import * as SUIVI from '/suivi.js';
+// moteur de suivi : étapes décidées par l'entreprise, relances préparées, et ce que voit le client
+import * as RELANCES from '/relances.js';
 import * as RESEAU from '/reseau.js';
 // relevé du réseau (« ce que vos agents ont fait »), mis en forme ici, calculé là-bas
 import * as RELEVE from '/releve-reseau.js';
@@ -3529,6 +3531,7 @@ function rendreFiche() {
       resumeDep,
       o.type === 'courrier' && E.monde.profil.peutPreparer ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => basculerCourrierTraite(o, traite) }, icone(traite ? 'undo-2' : 'check'), traite ? 'Remettre à traiter' : 'Marquer comme traité') : null,
       alerteBodaccFiche(o),
+      blocSuivi(o),
       blocSatisfaction(o),
       h('div', { class: 'bz-fiche__groupes' },
         modifiable && o.famille !== 'organisation' ? h('dl', { class: 'bz-champs-fiche' }, ligneChampFiche(o, { id: '__nom', libelle: o.type === 'courrier' ? 'Objet' : 'Nom', type: 'texte', valeur: o.nom }, true)) : null,
@@ -3627,6 +3630,92 @@ function blocProposer(o) {
   return h('p', { class: 'bz-t-petit bz-texte-2 bz-ligne-icone' }, icone('bz-nexus', { taille: 'sm' }),
     h('span', {}, `Invitez ${sansDemo(o.nom)} sur Breizhcosystem : un mois offert à chacun, et vous êtes reliés directement. `,
       h('button', { type: 'button', class: 'bz-lien', onclick: () => proposerNexus(o), texte: 'Proposer Breizhcosystem' })));
+}
+
+/* ----- Le suivi d'une fiche : ses étapes, ce qu'il y a à relancer, et le bouton « Partager ».
+   Chargé à part (une fiche n'a pas besoin de son suivi pour s'ouvrir), et gardé le temps qu'on la regarde.
+   Partager est COMPRIS : c'est l'entreprise qui envoie le lien, rien ne part tout seul. */
+let SUIVI_FICHE = { id: null, vue: null, occupe: false };
+
+function chargerSuiviFiche(id) {
+  if (SUIVI_FICHE.id === id || SUIVI_FICHE.occupe) return;
+  SUIVI_FICHE = { id, vue: null, occupe: true };
+  void (async () => {
+    let vue = null;
+    try { vue = await api('GET', `/suivis/${id}`); } catch { vue = null; }
+    if (SUIVI_FICHE.id !== id) return;
+    SUIVI_FICHE = { id, vue, occupe: false };
+    if (E.selection === id) rendreFiche();
+  })();
+}
+
+/** « Partager » : un lien de suivi, le message préparé, et l'entreprise qui l'envoie elle-même. */
+async function partagerSuivi(id, pour) {
+  try {
+    const r = await api('POST', `/suivis/${id}/partager`, { pour });
+    SUIVI_FICHE = { id: null, vue: null, occupe: false };
+    const adresse = r.adresse ?? '';
+    await annoncer({
+      titre: r.libelle,
+      texte: `${r.objet}\n\n${r.message}\n\n${r.retrait}`,
+      confirmer: adresse ? 'Copier le lien' : 'Fermer',
+    });
+    if (adresse) { try { await navigator.clipboard.writeText(adresse); informer('Lien copié. Collez-le dans votre message.', 'ok'); } catch { informer(`Lien de suivi : ${adresse}`, 'ok'); } }
+    chargerSuiviFiche(id);
+  } catch (e) { informer(e.message, 'erreur'); }
+}
+
+function blocSuivi(o) {
+  const m = E.monde;
+  if (!['projet', 'commande', 'evenement', 'ressource'].includes(o.famille)) return null;
+  chargerSuiviFiche(o.id);
+  const v = SUIVI_FICHE.id === o.id ? SUIVI_FICHE.vue : null;
+  if (!v) return null;
+  const lienVivant = (v.liens ?? []).find((l) => !l.revoque) ?? null;
+  const etapes = (v.etapes ?? []).filter((e) => e.faite || e.jour !== null || e.declaree || e.enCours);
+  return h('section', { class: 'bz-fiche__section', 'aria-labelledby': 'fiche-suivi' },
+    h('div', { class: 'bz-fiche__section-tete' }, h('h3', { class: 'bz-t-titre-4', id: 'fiche-suivi', texte: 'Suivi' }),
+      v.termine ? h('span', { class: 'bz-badge bz-badge--ok', texte: 'Terminé' }) : null),
+    etapes.length
+      ? h('ol', { class: 'bz-liste-simple', role: 'list' }, etapes.map((e) => h('li', { class: 'bz-ligne-icone' },
+          icone(e.faite ? 'circle-check' : e.etat === 'depassee' ? 'octagon-alert' : e.enCours ? 'clock' : 'circle', { taille: 'sm' }),
+          h('span', { texte: e.libelle }),
+          e.jour ? h('span', { class: 'bz-t-micro bz-texte-2', texte: ` ${date(e.jour)}` }) : null)))
+      : h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Aucune étape annoncée pour l’instant.' }),
+    // les étapes de cette fiche : celles du métier, ou un modèle que l'entreprise a écrit
+    (v.modeles ?? []).length && m.profil.peutPreparer
+      ? h('div', { class: 'bz-champ' },
+          h('label', { class: 'bz-champ__libelle', for: 'suivi-modele', texte: 'Étapes suivies' }),
+          h('select', { id: 'suivi-modele', class: 'bz-champ__saisie', onchange: async (e) => {
+            try { await api('PUT', `/suivis/${o.id}/etapes`, { modele: e.target.value || null }); SUIVI_FICHE = { id: null, vue: null, occupe: false }; chargerSuiviFiche(o.id); informer('Étapes enregistrées.', 'ok'); } catch (err) { informer(err.message, 'erreur'); }
+          } },
+            h('option', { value: '', selected: v.modele === null, texte: 'Celles de mon métier' }),
+            v.modeles.map((x) => h('option', { value: x.id, selected: v.modele === x.id, texte: RELANCES.resumeModele(x) }))),
+          h('p', { class: 'bz-champ__aide', texte: 'Vos modèles s’écrivent dans Réglages, Suivi et relances.' }))
+      : null,
+    (v.relances ?? []).length
+      ? h('div', { class: 'bz-resultat', 'data-ton': RELANCES.tonRelance(v.relances[0].relance) },
+          iconeEtat(RELANCES.tonRelance(v.relances[0].relance), { decoratif: true }),
+          h('div', {}, h('strong', { texte: v.relances[0].phrase }),
+            h('span', { class: 'bz-t-petit bz-texte-2', texte: 'Relance préparée. Lisez-la, puis envoyez-la vous-même.' }),
+            h('div', { class: 'bz-groupe-boutons' },
+              h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => annoncer({ titre: v.relances[0].objet, texte: v.relances[0].message }) }, icone('eye', { taille: 'sm' }), 'Lire la relance'))))
+      : null,
+    v.pourLeClient && m.profil.peutPreparer
+      ? h('div', {},
+          h('p', { class: 'bz-t-petit bz-texte-2', texte: RELANCES.TEXTE_PARTAGE }),
+          h('div', { class: 'bz-groupe-boutons' }, (v.destinataires ?? []).map((d, i) => h('button', {
+            type: 'button', cle: `partager-${d.id}`, class: `bz-bouton bz-bouton--sm ${i === 0 ? 'bz-bouton--principal' : 'bz-bouton--secondaire'}`,
+            'data-infobulle': d.aide, onclick: () => partagerSuivi(o.id, d.id),
+          }, icone('link', { taille: 'sm' }), d.libelle))),
+          lienVivant
+            ? h('p', { class: 'bz-t-micro bz-texte-2' }, h('span', { texte: lienVivant.phrase }),
+                h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', onclick: async () => {
+                  if (!(await confirmerDialogue({ titre: 'Retirer ce lien ?', texte: 'La page ne montrera plus rien à qui l’ouvrira. Vous pourrez en créer un nouveau.', confirmer: 'Retirer', annuler: 'Garder', danger: true }))) return;
+                  try { await api('DELETE', `/suivis/liens/${lienVivant.id}`); SUIVI_FICHE = { id: null, vue: null, occupe: false }; chargerSuiviFiche(o.id); informer('Lien retiré.', 'ok'); } catch (e) { informer(e.message, 'erreur'); }
+                } }, icone('unlink', { taille: 'sm' }), 'Retirer le lien'))
+            : h('p', { class: 'bz-t-micro bz-texte-2', texte: RELANCES.TEXTE_GARDE_FOUS }))
+      : null);
 }
 
 function blocSatisfaction(o) {
@@ -5705,6 +5794,7 @@ function rendreReglages(sous = E.sousReglages) {
   const R = {
     entreprise: rendreEntreprise, acces: rendreAcces, reseau: rendreReseau, apparence: () => remplir(zoneReglages(), blocApparence({ titre: false })),
     clavier: rendreClavier, carte: () => remplir(zoneReglages(), blocCarte()), notifications: rendreNotifications, alertes: rendreAlertes, outils: rendreOutils, cles: rendreCles,
+    relances: rendreRelances,
     suivi: rendreSuivi, sauvegardes: rendreSauvegardes, 'en-ligne': rendreEnLigne, nexus: rendreReglagesNexus, confidentialite: rendreConfidentialite, 'a-propos': rendreAPropos,
   };
   return (R[page] ?? rendreEntreprise)();
@@ -5912,6 +6002,129 @@ function dessinerSuivi(V) {
           if (!(await confirmerDialogue({ titre: 'Ne plus suivre ce fichier ?', texte: SUIVI.TEXTE_DETACHER, confirmer: 'Ne plus suivre', annuler: 'Garder', danger: true }))) return;
           await appel(e.currentTarget, async () => { await api('DELETE', '/suivi'); return 'Living Business n’écrit plus dans ce fichier. Il reste chez vous.'; });
         } }, icone('unlink'), 'Ne plus suivre'))) : null);
+}
+
+// ----- Suivi et relances : les étapes que l'entreprise décide, ses relances, et ce que voit son client
+/* Rien n'est obligatoire ici : une entreprise qui ne vient jamais sur cette page garde les étapes de son métier,
+   le rythme de relance proposé, et un client qui voit le retard. web/relances.js décide QUOI dire. */
+async function rendreRelances() {
+  const Z = zoneReglages();
+  if (!Z) return;
+  let V;
+  let R;
+  const lire = async () => { V = await api('GET', '/suivis'); R = await api('GET', '/suivis/relances'); };
+  try { await lire(); } catch (e) {
+    if (zoneReglages()) remplir(zoneReglages(), blocVide({ titre: 'Le suivi n’a pas pu être chargé.', texte: e.message, role: 'alert', actions: h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => rendreRelances() }, icone('refresh-cw'), 'Réessayer') }));
+    return;
+  }
+  if (!zoneReglages()) return;
+  const S = { erreur: null, occupe: false, sujet: null, nom: '', etapes: [''] };
+  const ici = () => E.vue === 'reglages' && E.sousReglages === 'relances';
+  const agir = async (f) => {
+    if (S.occupe) return;
+    S.occupe = true; S.erreur = null; rendre();
+    try { await f(); } catch (e) { S.erreur = e.message; }
+    S.occupe = false;
+    if (ici()) { try { await lire(); } catch (e) { S.erreur = e.message; } }
+    rendre();
+  };
+  const bouton = (cle, classe, ico, texte, onclick) => h('button', { type: 'button', cle, class: `bz-bouton ${classe}`, 'aria-busy': S.occupe ? 'true' : null, onclick }, icone(ico, { taille: 'sm' }), texte);
+
+  // ---- ce qu'il y a à relancer aujourd'hui : préparé, jamais envoyé tout seul
+  const blocRelances = () => sectionReglage('rel-aujourdhui', 'À relancer', RELANCES.resumeRelances(R.relances),
+    R.relances.length
+      ? h('ul', { class: 'bz-liste-simple', role: 'list' }, R.relances.map((r) => h('li', { class: 'bz-resultat', 'data-ton': RELANCES.tonRelance(r.relance) },
+          iconeEtat(RELANCES.tonRelance(r.relance), { decoratif: true }),
+          h('div', {},
+            h('strong', { texte: r.phrase }),
+            h('span', { class: 'bz-t-micro bz-texte-2', texte: `${r.libelle} · ${RELANCES.versQui(r)}` }),
+            h('p', { class: 'bz-t-petit bz-texte-2', texte: r.objet }),
+            h('div', { class: 'bz-groupe-boutons' },
+              bouton(`rel-voir-${r.cle}`, 'bz-bouton--secondaire', 'eye', 'Lire le message', () => annoncer({ titre: r.objet, texte: r.message })),
+              bouton(`rel-fait-${r.cle}`, 'bz-bouton--principal', 'check', 'C’est envoyé', () => agir(async () => {
+                await api('POST', '/suivis/relances/envoyee', { cle: r.cle });
+                informer('Relance notée. Elle ne vous sera pas reproposée avant le délai que vous avez réglé.', 'ok');
+              })))))))
+      : null,
+    encadre('info', 'Chaque relance est préparée, pas envoyée.', RELANCES.TEXTE_COMPRIS));
+
+  // ---- le rythme de chaque relance : trois nombres, et une phrase qui les dit
+  const curseur = (r, c) => h('div', { class: 'bz-champ' },
+    h('label', { class: 'bz-champ__libelle', for: `ryt-${r.id}-${c.cle}`, texte: `${c.libelle} (${c.unite})` }),
+    h('input', { id: `ryt-${r.id}-${c.cle}`, class: 'bz-champ__saisie', type: 'number', inputmode: 'numeric', min: String(c.min), max: String(c.max), value: String(r.rythme[c.cle]),
+      onchange: (e) => agir(async () => {
+        await api('PUT', `/suivis/relances/${r.id}`, { ...r.rythme, [c.cle]: Number(e.target.value) });
+        informer('Rythme enregistré.', 'ok');
+      }) }));
+  const blocRythmes = () => sectionReglage('rel-rythmes', 'Le rythme de vos relances', 'Vous pouvez tout laisser tel quel : ces rythmes sont ceux que Living Business propose.',
+    R.sujets.map((r) => h('div', { class: 'bz-reglages__bloc' },
+      h('p', { class: 'bz-t-label', texte: r.libelle }),
+      h('p', { class: 'bz-t-petit bz-texte-2', texte: r.aide }),
+      h('p', { class: 'bz-t-petit', texte: RELANCES.phraseRythme(r.rythme) },
+        RELANCES.rythmeParDefaut(r.rythme, r.defaut) ? null : h('span', { class: 'bz-badge', texte: 'Réglé par vous' })),
+      h('div', { class: 'bz-grille-champs' }, RELANCES.CURSEURS.map((c) => curseur(r, c))))));
+
+  // ---- ce que voit le client : montrer le retard, ou dire seulement l'étape en cours
+  const blocRetard = () => sectionReglage('rel-retard', 'Ce que voit votre client', 'Sur la page de suivi que vous partagez. Votre écran, lui, dit toujours le retard.',
+    h('div', { class: 'bz-champ' }, h('div', { class: 'bz-segments', role: 'group', 'aria-label': 'Ce que la page dit du retard' },
+      RELANCES.POSITIONS_RETARD.map((pos) => h('button', {
+        type: 'button', cle: `retard-${pos.montrer ? 'oui' : 'non'}`, 'aria-pressed': V.affichage.montrerRetard === pos.montrer,
+        onclick: () => agir(async () => {
+          await api('PUT', '/suivis/affichage', { montrerRetard: pos.montrer });
+          informer(pos.montrer ? 'Votre client verra le retard.' : 'Votre client verra l’étape en cours, sans le retard.', 'ok');
+        }),
+      }, pos.libelle)))),
+    h('p', { class: 'bz-t-petit bz-texte-2', texte: (RELANCES.POSITIONS_RETARD.find((x) => x.montrer === V.affichage.montrerRetard) ?? RELANCES.POSITIONS_RETARD[0]).aide }),
+    encadre('info', 'Votre client lira :', RELANCES.apercuRetard(V.affichage.montrerRetard)));
+
+  // ---- les étapes, décidées par l'entreprise : des modèles réutilisables d'un chantier à l'autre
+  const champEtape = (i) => h('div', { class: 'bz-champ' },
+    h('label', { class: 'bz-champ__libelle', for: `etape-${i}`, texte: `Étape ${i + 1}` }),
+    h('input', { id: `etape-${i}`, class: 'bz-champ__saisie', type: 'text', autocomplete: 'off', maxlength: '80', value: S.etapes[i] ?? '', placeholder: 'Charpente',
+      oninput: (e) => { S.etapes[i] = e.target.value; } }));
+  const formModele = (sujet) => h('div', { class: 'bz-formulaire' },
+    h('div', { class: 'bz-champ' },
+      h('label', { class: 'bz-champ__libelle', for: 'modele-nom', texte: 'Nom du modèle' }),
+      h('input', { id: 'modele-nom', class: 'bz-champ__saisie', type: 'text', autocomplete: 'off', maxlength: '80', value: S.nom, placeholder: 'Toiture', oninput: (e) => { S.nom = e.target.value; } })),
+    h('div', { class: 'bz-grille-champs' }, S.etapes.map((_, i) => champEtape(i))),
+    h('div', { class: 'bz-groupe-boutons' },
+      bouton('modele-plus', 'bz-bouton--secondaire', 'plus', 'Une étape de plus', () => { S.etapes = [...S.etapes, '']; rendre(); }),
+      bouton('modele-garder', 'bz-bouton--principal', 'check', 'Garder ce modèle', () => agir(async () => {
+        const etapes = RELANCES.etapesPropres(S.etapes);
+        if (!RELANCES.modelePret(S.nom, S.etapes)) throw new Error(RELANCES.pourquoiPasPret(S.nom, S.etapes));
+        await api('POST', '/suivis/modeles', { sujet, nom: S.nom.trim(), etapes });
+        S.sujet = null; S.nom = ''; S.etapes = [''];
+        informer('Modèle enregistré. Vous pouvez le choisir sur chaque fiche.', 'ok');
+      }))),
+    messageEnLigne('attention', RELANCES.pourquoiPasPret(S.nom, S.etapes)));
+  const blocEtapes = () => sectionReglage('rel-etapes', 'Vos étapes', 'Chaque chantier, commande ou prestation peut suivre vos étapes, dans votre ordre et avec vos mots. Sans rien régler, ce sont celles de votre métier.',
+    V.sujets.map((s) => h('div', { class: 'bz-reglages__bloc' },
+      h('p', { class: 'bz-t-label', texte: s.libelle }),
+      s.modeles.length
+        ? h('ul', { class: 'bz-liste-simple', role: 'list' }, s.modeles.map((m) => h('li', {},
+            h('span', { texte: RELANCES.resumeModele(m) }),
+            h('span', { class: 'bz-t-micro bz-texte-2', texte: ` — ${RELANCES.origineModele(m)}` }),
+            m.origine === 'entreprise'
+              ? bouton(`modele-retirer-${m.id}`, 'bz-bouton--fantome', 'trash-2', 'Retirer', () => agir(async () => {
+                  if (!(await confirmerDialogue({ titre: 'Retirer ce modèle ?', texte: 'Les fiches qui s’en servaient reviennent aux étapes de votre métier. Rien n’est effacé de vos fiches.', confirmer: 'Retirer', annuler: 'Garder', danger: true }))) return;
+                  await api('DELETE', `/suivis/modeles/${m.id}`);
+                  informer('Modèle retiré.', 'ok');
+                }))
+              : null)))
+        : h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Aucun modèle pour l’instant : les étapes viennent de votre métier.' }),
+      S.sujet === s.id
+        ? formModele(s.id)
+        : h('div', { class: 'bz-groupe-boutons' }, bouton(`modele-ecrire-${s.id}`, 'bz-bouton--secondaire', 'list-checks', 'Écrire mes étapes', () => { S.sujet = s.id; S.nom = ''; S.etapes = ['']; rendre(); })))));
+
+  const rendre = () => {
+    const Y = zoneReglages();
+    if (!Y) return;
+    remplir(Y,
+      messageEnLigne('critique', S.erreur),
+      h('p', { class: 'bz-t-petit bz-texte-2', texte: RELANCES.PROMESSE }),
+      blocRelances(), blocRythmes(), blocRetard(), blocEtapes());
+  };
+  rendre();
 }
 
 // ----- Alertes : être prévenu en temps réel sur Telegram, WhatsApp ou son propre service

@@ -189,6 +189,15 @@ export function libelleSujet(u: Univers, s: DefSujetSuivi, nombre = 1): string {
   return t === null ? libelleType(u, s.types[0] ?? s.id, nombre) : libelleType(u, t, nombre);
 }
 
+/**
+ * Le nom d'UNE fiche suivie, dans le vocabulaire de l'entreprise. Un sujet peut couvrir plusieurs types (une
+ * commande client et une commande fournisseur sont toutes deux des « livraisons ») : c'est le type de la FICHE qui
+ * la nomme, pas le premier type du sujet — sinon une commande fournisseur s'annoncerait « Commande client ».
+ */
+export function libelleDuSuivi(u: Univers, s: DefSujetSuivi, o: ObjetMetier): string {
+  return s.types.includes(o.type) ? libelleType(u, o.type) : libelleSujet(u, s);
+}
+
 // ------------------------------------------------------------------ lire l'univers plutôt que coder en dur
 
 const champsDu = (u: Univers, typeId: string): readonly DefChamp[] => defType(u, typeId)?.champs ?? [];
@@ -247,6 +256,19 @@ export interface Etape {
   faite: boolean;
   /** La règle de l'univers (ou de `vehicules.ts`) qui a produit cette échéance ; null : le champ du suivi. */
   regle: string | null;
+  /** Vrai : c'est LÀ qu'en est le suivi (l'étape du parcours en cours, ou la première du modèle qui reste). */
+  enCours: boolean;
+  /** Depuis combien de jours le suivi n'a pas bougé, pour l'étape en cours ; null pour les autres. */
+  depuisJours: number | null;
+  /**
+   * Vrai : cette étape-là attend quelqu'un d'autre — le suivi est engagé et la réponse ne dépend plus de
+   * l'entreprise (un devis parti, une commande passée). Lu dans la STRUCTURE du parcours déclaré, jamais dans ses
+   * mots : la première valeur est ce que l'entreprise prépare, les valeurs « finies » sont la fin, et ce qui est
+   * entre les deux attend. C'est ce qui permet de relancer sans qu'aucune étape ne soit écrite en dur ici.
+   */
+  attente: boolean;
+  /** Vrai : étape d'un parcours DÉCLARÉ (modèle de l'entreprise), montrée même sans date : elle viendra. */
+  declaree: boolean;
 }
 
 export interface Suivi {
@@ -267,6 +289,152 @@ export interface Suivi {
   prochaine: Etape | null;
   /** Le plus pressant de toutes ses étapes ouvertes. */
   etat: EtatEtape;
+  /**
+   * L'étape en cours quand elle ATTEND quelqu'un d'autre, et depuis combien de jours le suivi n'a pas bougé.
+   * null : rien n'attend (le suivi est à l'entreprise, ou il est fini). C'est là que la relance d'un devis sans
+   * réponse se calcule — dans le moteur, et non plus dans deux modules qui comptaient sept jours chacun de leur côté.
+   */
+  attente: { etape: Etape; depuisJours: number } | null;
+  /** Le modèle d'étapes que l'entreprise a choisi pour ce suivi ; null : les étapes proposées par l'univers. */
+  modele: string | null;
+}
+
+// ------------------------------------------------------------------ les étapes, décidées par l'entreprise
+
+/**
+ * CE QUI TERMINE UNE ÉTAPE que l'entreprise a écrite. Deux formes, et pas une de plus : ce sont les deux mécaniques
+ * qui existaient déjà (une tâche rattachée, une valeur de parcours), nommées. Rien n'a été inventé pour les étapes
+ * personnalisées — l'entreprise choisit l'ORDRE et les MOTS, le moteur garde ses deux façons de savoir.
+ */
+export type FinEtape =
+  /** Une tâche rattachée au suivi, portant ce nom, passe à « terminée ». C'est la forme par défaut. */
+  | { de: 'tache' }
+  /** Le champ de parcours du sujet dépasse cette valeur (un devis « envoyé » puis « accepté »). */
+  | { de: 'parcours'; valeur: string };
+
+export interface EtapeModele {
+  /** Identifiant stable dans le modèle ; jamais affiché. */
+  id: string;
+  /** Le nom que l'entreprise a écrit (« Charpente »), ou celui que l'univers propose. */
+  libelle: string;
+  fin: FinEtape;
+}
+
+/**
+ * UN MODÈLE D'ÉTAPES, réutilisable d'un chantier à l'autre. Son `sujet` dit à quoi il s'applique (« chantier »,
+ * « livraison »…). `origine` dit d'où il vient : « univers » pour un modèle proposé par le métier, que l'entreprise
+ * peut recopier et modifier ; « entreprise » pour le sien.
+ */
+export interface ModeleEtapes {
+  id: string;
+  sujet: string;
+  nom: string;
+  etapes: readonly EtapeModele[];
+  origine?: 'univers' | 'entreprise';
+}
+
+export const ETAPES_MAX = 30;
+export const MODELES_MAX = 50;
+
+const sansAccent = (t: string): string => t.normalize('NFD').replace(/[̀-ͯ]/g, '');
+/** Deux noms d'étape qui désignent la même chose : la casse, les accents et les espaces ne comptent pas. */
+const memeNom = (a: string, b: string): boolean =>
+  sansAccent(a).toLocaleLowerCase('fr-FR').replace(/\s+/g, ' ').trim() === sansAccent(b).toLocaleLowerCase('fr-FR').replace(/\s+/g, ' ').trim();
+
+interface Parcours {
+  champ: string;
+  choix: readonly string[];
+  actuel: string;
+  rang: number;
+  finies: readonly string[];
+}
+
+function lireParcours(u: Univers, o: ObjetMetier, l: Extract<LectureEtapes, { de: 'parcours' }>): Parcours {
+  const choix = champsDu(u, o.type).find((c) => c.id === l.champ)?.choix ?? [];
+  const actuel = texteDe(o.champs[l.champ]);
+  return { champ: l.champ, choix, actuel, rang: choix.indexOf(actuel), finies: l.finies };
+}
+
+/**
+ * Une valeur de parcours qui ENGAGE l'entreprise auprès de quelqu'un d'autre : ni la première (ce qu'elle prépare
+ * chez elle), ni une valeur de fin. Rien n'est lu dans les mots du parcours — seulement dans sa forme. C'est ce qui
+ * permet de dire « ce devis attend une réponse » sans jamais écrire « envoyé » dans ce fichier.
+ */
+const valeurEngagee = (p: Parcours, valeur: string): boolean => p.choix.indexOf(valeur) > 0 && !p.finies.includes(valeur);
+
+/**
+ * LES MODÈLES QUE L'UNIVERS PROPOSE, pour que personne ne parte d'une page blanche. Deux sources, toutes deux
+ * déclaratives : les étapes que le type déclare (`DefType.etapes` : « Terrassement, Charpente, Couverture » pour un
+ * chantier de BTP), et, à défaut, le parcours du sujet. Un univers qui ne déclare rien ne propose rien — et tout
+ * marche comme avant.
+ */
+export function modelesUnivers(u: Univers, sujet: DefSujetSuivi): ModeleEtapes[] {
+  const t = typeNommant(u, sujet);
+  if (t === null) return [];
+  const res: ModeleEtapes[] = [];
+  const declarees = defType(u, t)?.etapes ?? [];
+  if (declarees.length > 0) {
+    res.push({
+      id: `univers:${sujet.id}`, sujet: sujet.id, nom: `${libelleType(u, t)} — étapes proposées`, origine: 'univers',
+      etapes: declarees.slice(0, ETAPES_MAX).map((e) => ({ id: e.id, libelle: e.libelle, fin: { de: 'tache' } as FinEtape })),
+    });
+  }
+  if (sujet.etapes.de === 'parcours') {
+    const choix = champsDu(u, t).find((c) => c.id === (sujet.etapes as { champ: string }).champ)?.choix ?? [];
+    if (choix.length > 0) {
+      res.push({
+        id: `univers:${sujet.id}:parcours`, sujet: sujet.id, origine: 'univers',
+        nom: `${libelleType(u, t)} — ${libelleChamp(u, t, (sujet.etapes as { champ: string }).champ).toLocaleLowerCase('fr-FR')}`,
+        etapes: choix.slice(0, ETAPES_MAX).map((v, i) => ({ id: `p${i}`, libelle: casseDePhrase(v), fin: { de: 'parcours', valeur: v } as FinEtape })),
+      });
+    }
+  }
+  return res;
+}
+
+const ID_MODELE = /^[A-Za-z0-9_:-]{1,60}$/;
+
+/**
+ * Un modèle reçu du navigateur (ou relu du disque), recontrôlé de bout en bout. Une étape sans nom, un sujet inconnu
+ * ou une valeur de parcours qui n'existe pas dans l'univers sont écartés : jamais une erreur à l'écran, jamais un
+ * modèle à moitié lisible enregistré.
+ */
+export function lireModele(x: unknown, u: Univers): ModeleEtapes | null {
+  if (typeof x !== 'object' || x === null || Array.isArray(x)) return null;
+  const b = x as Record<string, unknown>;
+  const sujet = typeof b.sujet === 'string' ? defSujet(b.sujet) : undefined;
+  if (sujet === undefined) return null;
+  const nom = typeof b.nom === 'string' ? b.nom.trim().slice(0, 80) : '';
+  if (nom.length === 0) return null;
+  const t = typeNommant(u, sujet);
+  const choix = t === null || sujet.etapes.de !== 'parcours'
+    ? []
+    : champsDu(u, t).find((c) => c.id === (sujet.etapes as { champ: string }).champ)?.choix ?? [];
+  const etapes: EtapeModele[] = [];
+  const vus = new Set<string>();
+  for (const e of Array.isArray(b.etapes) ? b.etapes : []) {
+    if (etapes.length >= ETAPES_MAX) break;
+    if (typeof e !== 'object' || e === null) continue;
+    const c = e as Record<string, unknown>;
+    const libelle = typeof c.libelle === 'string' ? c.libelle.trim().replace(/\s+/g, ' ').slice(0, 80) : '';
+    if (libelle.length === 0) continue;
+    const id = typeof c.id === 'string' && ID_MODELE.test(c.id) ? c.id : `e${etapes.length}`;
+    if (vus.has(id)) continue;
+    const fin = c.fin as Record<string, unknown> | undefined;
+    if (fin?.de === 'parcours') {
+      const valeur = typeof fin.valeur === 'string' ? fin.valeur : '';
+      // une valeur que l'univers ne déclare pas ne peut rien terminer : l'étape redevient une étape à cocher
+      if (!choix.includes(valeur)) { etapes.push({ id, libelle, fin: { de: 'tache' } }); vus.add(id); continue; }
+      etapes.push({ id, libelle, fin: { de: 'parcours', valeur } });
+      vus.add(id);
+      continue;
+    }
+    etapes.push({ id, libelle, fin: { de: 'tache' } });
+    vus.add(id);
+  }
+  if (etapes.length === 0) return null;
+  const id = typeof b.id === 'string' && ID_MODELE.test(b.id) ? b.id : '';
+  return { id, sujet: sujet.id, nom, etapes, origine: b.origine === 'univers' ? 'univers' : 'entreprise' };
 }
 
 export interface ContexteSuivi {
@@ -294,7 +462,11 @@ function prevenirDe(o: ObjetMetier, s: DefSujetSuivi, champAvantJours?: string, 
 
 function etape(
   id: string, libelle: string, jour: string | null, prevenir: number, ctx: ContexteSuivi,
-  o: { responsable?: string | null; faite?: boolean; regle?: string | null; compteur?: { reste: number; unite: UniteCompteur } | null } = {},
+  o: {
+    responsable?: string | null; faite?: boolean; regle?: string | null;
+    compteur?: { reste: number; unite: UniteCompteur } | null;
+    enCours?: boolean; depuisJours?: number | null; attente?: boolean; declaree?: boolean;
+  } = {},
 ): Etape {
   const restants = jour === null ? null : joursEntre(ctx.aujourdhui, jour);
   const faite = o.faite === true;
@@ -302,6 +474,8 @@ function etape(
     id, libelle: libelle.slice(0, 120), jour, joursRestants: restants, prevenirJours: prevenir,
     etat: faite ? 'faite' : etatDe(jour, restants, prevenir),
     responsable: o.responsable ?? null, compteur: o.compteur ?? null, faite, regle: o.regle ?? null,
+    enCours: o.enCours === true && !faite, depuisJours: o.depuisJours ?? null,
+    attente: o.attente === true && !faite, declaree: o.declaree === true,
   };
 }
 
@@ -313,23 +487,62 @@ export function suiviDe(
   u: Univers,
   o: ObjetMetier,
   ctx: ContexteSuivi,
-  { tachesLiees = [], objets = [] }: { tachesLiees?: readonly ObjetMetier[]; objets?: readonly ObjetMetier[] } = {},
+  { tachesLiees = [], objets = [], modele = null }: {
+    tachesLiees?: readonly ObjetMetier[]; objets?: readonly ObjetMetier[];
+    /** Le modèle d'étapes que l'entreprise a choisi pour CE suivi ; null : les étapes de l'univers, comme avant. */
+    modele?: ModeleEtapes | null;
+  } = {},
 ): Suivi | null {
   const s = sujetDe(o);
   if (s === null) return null;
   const etapes: Etape[] = [];
   let termine = false;
+  /** Depuis combien de jours la fiche n'a pas bougé : c'est l'âge de l'étape en cours. */
+  const depuis = joursEntre(jourDe(o.majLe) ?? ctx.aujourdhui, ctx.aujourdhui) ?? 0;
+  const parcours = s.etapes.de === 'parcours' ? lireParcours(u, o, s.etapes) : null;
+  const sonModele = modele !== null && modele.sujet === s.id ? modele : null;
+  /** Les noms d'étape que le modèle a déjà pris : une tâche rattachée ne compte pas deux fois. */
+  const prisParLeModele = new Set<string>();
 
-  // 1) le parcours, quand l'univers en déclare un : les valeurs de son champ « choix », dans leur ordre
-  if (s.etapes.de === 'parcours') {
-    const champ = s.etapes.champ;
-    const choix = champsDu(u, o.type).find((c) => c.id === champ)?.choix ?? [];
-    const actuel = texteDe(o.champs[champ]);
-    const rang = choix.indexOf(actuel);
-    termine = s.etapes.finies.includes(actuel);
-    for (const [i, valeur] of choix.entries()) {
+  // 1) les étapes, dans l'ordre : celles que L'ENTREPRISE a écrites si elle en a écrit, sinon celles de l'univers
+  if (sonModele !== null) {
+    let enCoursVu = false;
+    const parcoursFini = parcours !== null && parcours.finies.includes(parcours.actuel);
+    for (const e of sonModele.etapes) {
+      if (e.fin.de === 'parcours') {
+        const i = parcours === null ? -1 : parcours.choix.indexOf(e.fin.valeur);
+        const faite = parcours !== null && parcours.rang >= 0 && i >= 0 && (i < parcours.rang || (parcoursFini && i <= parcours.rang));
+        const encours: boolean = !faite && !enCoursVu;
+        enCoursVu = enCoursVu || encours;
+        etapes.push(etape(`modele:${e.id}`, e.libelle, null, s.prevenirJours, ctx, {
+          faite, declaree: true, enCours: encours, depuisJours: encours ? depuis : null,
+          attente: encours && parcours !== null && valeurEngagee(parcours, e.fin.valeur),
+        }));
+        continue;
+      }
+      // l'étape est terminée quand la tâche rattachée qui porte son nom l'est : la mécanique qui existait déjà
+      const t = tachesLiees.find((x) => memeNom(x.nom, e.libelle)) ?? null;
+      if (t !== null) prisParLeModele.add(t.id);
+      const faite = t !== null && texteDe(t.champs.statut).startsWith('termin');
+      const encours: boolean = !faite && !enCoursVu;
+      enCoursVu = enCoursVu || encours;
+      etapes.push(etape(`modele:${e.id}`, e.libelle, t === null ? null : jourDe(t.champs.echeance), s.prevenirJours, ctx, {
+        faite, declaree: true, enCours: encours, depuisJours: encours ? depuis : null,
+        responsable: t === null ? null : refDe(t.champs.responsable), regle: t === null ? null : 'tache_en_retard',
+      }));
+    }
+    // un modèle entièrement parcouru est un suivi terminé ; et un parcours arrivé au bout le reste, modèle ou pas
+    termine = (etapes.length > 0 && etapes.every((e) => e.faite)) || parcoursFini;
+  } else if (parcours !== null) {
+    // le parcours de l'univers : les valeurs de son champ « choix », dans leur ordre
+    termine = parcours.finies.includes(parcours.actuel);
+    for (const [i, valeur] of parcours.choix.entries()) {
       // l'échéance d'une étape de parcours n'est pas une date en soi : c'est l'étape en cours qui en porte une
-      etapes.push(etape(`parcours:${valeur}`, casseDePhrase(valeur), null, s.prevenirJours, ctx, { faite: rang >= 0 && i < rang }));
+      etapes.push(etape(`parcours:${valeur}`, casseDePhrase(valeur), null, s.prevenirJours, ctx, {
+        faite: parcours.rang >= 0 && i < parcours.rang,
+        enCours: i === parcours.rang, depuisJours: i === parcours.rang ? depuis : null,
+        attente: i === parcours.rang && valeurEngagee(parcours, valeur),
+      }));
     }
   }
   if (s.etapes.de === 'drapeau') termine = o.champs[s.etapes.champ] === true;
@@ -378,6 +591,8 @@ export function suiviDe(
   // 5) les tâches rattachées : les étapes que l'entreprise a écrites (un chantier et ses étapes)
   if (s.tachesEtapes === true) {
     for (const t of tachesLiees) {
+      // une tâche déjà prise par une étape du modèle n'y figure pas deux fois ; les autres restent visibles
+      if (prisParLeModele.has(t.id)) continue;
       const faite = texteDe(t.champs.statut).startsWith('termin');
       etapes.push(etape(
         `tache:${t.id}`, t.nom, jourDe(t.champs.echeance), s.prevenirJours, ctx,
@@ -397,11 +612,16 @@ export function suiviDe(
   const champDest = s.pourLeClient === true ? champDestinataire(u, o.type) : null;
   const ouvertes = etapes.filter((e) => !e.faite && e.etat !== 'sans_date');
   const prochaine = [...ouvertes].sort((a, b) => RANG[a.etat] - RANG[b.etat] || String(a.jour ?? '').localeCompare(String(b.jour ?? '')))[0] ?? null;
+  const finales = etapes.map((e) => ({ ...e, responsable: e.responsable ?? responsable }));
+  // ce qui attend quelqu'un d'autre : l'étape en cours, quand elle engage le suivi et que rien n'est encore fini
+  const quiAttend = termine ? undefined : finales.find((e) => e.attente && e.enCours);
   return {
-    id: o.id, sujet: s.id, nom: o.nom, libelleSujet: libelleSujet(u, s),
-    etapes: etapes.map((e) => ({ ...e, responsable: e.responsable ?? responsable })),
+    id: o.id, sujet: s.id, nom: o.nom, libelleSujet: libelleDuSuivi(u, s, o),
+    etapes: finales,
     responsable, destinataire: champDest === null ? null : refDe(o.champs[champDest]),
     termine, prochaine, etat: ouvertes.reduce<EtatEtape>((acc, e) => pirePresse(acc, e.etat), 'faite'),
+    attente: quiAttend === undefined ? null : { etape: quiAttend, depuisJours: quiAttend.depuisJours ?? 0 },
+    modele: sonModele?.id ?? null,
   };
 }
 
@@ -411,8 +631,14 @@ function jourEnDate(jour: string): Date {
   return new Date(a ?? 1970, (m ?? 1) - 1, j ?? 1);
 }
 
-/** Tous les suivis d'un ensemble d'objets, dans l'ordre des sujets puis du plus pressant. */
-export function suivis(u: Univers, objets: readonly ObjetMetier[], ctx: ContexteSuivi): Suivi[] {
+/**
+ * Tous les suivis d'un ensemble d'objets, dans l'ordre des sujets puis du plus pressant. `modele` dit, fiche par
+ * fiche, le modèle d'étapes que l'entreprise lui a choisi : absent, ce sont les étapes de l'univers, comme avant.
+ */
+export function suivis(
+  u: Univers, objets: readonly ObjetMetier[], ctx: ContexteSuivi,
+  { modele }: { modele?: (o: ObjetMetier, sujet: DefSujetSuivi) => ModeleEtapes | null } = {},
+): Suivi[] {
   const taches = objets.filter((o) => o.famille === 'tache');
   const parConcerne = new Map<string, ObjetMetier[]>();
   for (const t of taches) {
@@ -425,7 +651,9 @@ export function suivis(u: Univers, objets: readonly ObjetMetier[], ctx: Contexte
   const ordre = new Map(SUJETS.map((s, i) => [s.id, i]));
   const res: Suivi[] = [];
   for (const o of objets) {
-    const s = suiviDe(u, o, ctx, { tachesLiees: parConcerne.get(o.id) ?? [], objets });
+    const def = sujetDe(o);
+    const m = def === null || modele === undefined ? null : modele(o, def);
+    const s = suiviDe(u, o, ctx, { tachesLiees: parConcerne.get(o.id) ?? [], objets, modele: m });
     if (s !== null && s.etapes.length > 0) res.push(s);
   }
   return res.sort((a, b) => (ordre.get(a.sujet) ?? 99) - (ordre.get(b.sujet) ?? 99) || RANG[a.etat] - RANG[b.etat] || a.nom.localeCompare(b.nom, 'fr'));

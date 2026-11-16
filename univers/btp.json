@@ -9,6 +9,16 @@
   "types": [
     {
       "id": "projet", "libelle": "Chantier", "pluriel": "Chantiers", "icone": "grue",
+      "etapes": [
+        { "id": "preparation", "libelle": "Préparation" },
+        { "id": "terrassement", "libelle": "Terrassement" },
+        { "id": "gros_oeuvre", "libelle": "Gros œuvre" },
+        { "id": "charpente", "libelle": "Charpente" },
+        { "id": "couverture", "libelle": "Couverture" },
+        { "id": "second_oeuvre", "libelle": "Second œuvre" },
+        { "id": "finitions", "libelle": "Finitions" },
+        { "id": "reception", "libelle": "Réception" }
+      ],
       "champs": [
         { "id": "lot", "libelle": "Lot", "type": "choix", "choix": ["Gros œuvre", "Second œuvre", "Finitions"] },
         { "id": "adresse", "libelle": "Adresse du chantier", "type": "texte" }

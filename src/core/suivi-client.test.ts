@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { chargerUnivers } from '../config/univers.ts';
 import type { ObjetMetier, ValeurChamp } from './model.ts';
 import { contexteDe, suiviDe, type Suivi } from './suivi.ts';
-import { fuite, pageClient, pageFermee, pageSure, titrePage, vueLien, type LienSuivi } from './suivi-client.ts';
+import { fuite, lireAffichage, pageClient, pageFermee, pageSure, titrePage, vueLien, type LienSuivi } from './suivi-client.ts';
 import { personnaliser, type Univers } from './univers.ts';
 
 const U = await chargerUnivers('generique');
@@ -97,6 +97,54 @@ test('la demande d’avis n’arrive qu’à la fin, et seulement si l’entrepr
   const douteux = pageClient(U, lien(), o, suivi, 'Boulangerie', { lienAvis: 'javascript:alert(1)' });
   assert.ok(douteux.etat === 'ouverte');
   assert.equal(douteux.avis, null);
+});
+
+// ------------------------------------------------------------------ montrer le retard, ou dire l'étape en cours
+
+/** Un chantier dont la charpente est dépassée de deux jours : exactement le cas qui a posé la question. */
+function enRetard(): { objet: ObjetMetier; suivi: Suivi } {
+  const o = projet({ echeance: jour(20), client: 'cl1' });
+  const taches = [
+    tache('t1', 'Terrassement', { concerne: 'p1', echeance: jour(-20), statut: 'terminée' }),
+    tache('t2', 'Charpente', { concerne: 'p1', echeance: jour(-2), statut: 'à faire' }),
+  ];
+  const suivi = suiviDe(BTP, o, ctx, { tachesLiees: taches });
+  assert.ok(suivi);
+  return { objet: o, suivi };
+}
+
+test('par défaut la page dit le retard : « Charpente : dépassée de 2 jours »', () => {
+  const { objet: o, suivi } = enRetard();
+  assert.deepEqual(lireAffichage(undefined), { montrerRetard: true }, 'montrer est le défaut, et un réglage absent ne le change pas');
+  const p = pageClient(BTP, lien(), o, suivi, 'Charpente Kerlann');
+  assert.ok(p.etat === 'ouverte');
+  assert.match(p.phrase, /Charpente : dépassée de 2 jours/);
+  const charpente = p.etapes.find((e) => e.libelle === 'Charpente');
+  assert.equal(charpente?.etat, 'depassee', 'le client voit que ça coince');
+  assert.equal(charpente?.jour, jour(-2));
+});
+
+test('réglage fermé : la page dit l’étape en cours, et ne laisse plus deviner le retard', () => {
+  const { objet: o, suivi } = enRetard();
+  const p = pageClient(BTP, lien(), o, suivi, 'Charpente Kerlann', {}, { montrerRetard: false });
+  assert.ok(p.etat === 'ouverte');
+  assert.equal(p.phrase, 'Charpente : en cours', 'ni « dépassée », ni un nombre de jours');
+  assert.equal(p.prochaine, 'Charpente');
+  assert.equal(/dépass|retard|\d+ jours?/i.test(JSON.stringify(p)), false, 'rien dans la page ne dit le retard');
+  // les étapes RESTENT : seul le retard sort de la page, et ce qui est fait garde sa date
+  assert.deepEqual(p.etapes.map((e) => e.libelle), ['Échéance', 'Terrassement', 'Charpente']);
+  const faite = p.etapes.find((e) => e.libelle === 'Terrassement');
+  assert.equal(faite?.etat, 'faite');
+  assert.equal(faite?.jour, jour(-20), 'une étape terminée garde sa date : c’est de l’histoire, pas un retard');
+  const charpente = p.etapes.find((e) => e.libelle === 'Charpente');
+  assert.equal(charpente?.etat, 'a_venir', 'jamais alarmant, jamais mensonger : elle vient');
+  assert.equal(charpente?.jour, null);
+  // aucun nom de champ de la page du client ne ressemble à un mot d'argent (« encours »)
+  assert.equal(Object.keys(charpente ?? {}).some((k) => /encours/i.test(k)), false);
+  assert.deepEqual(p.avancement, { faites: 1, total: 3 }, 'l’avancement, lui, ne change pas');
+  // le réglage ne cache rien d'autre, et une valeur abîmée revient à « montrer »
+  assert.deepEqual(lireAffichage({ montrerRetard: 'peut-être' }), { montrerRetard: true });
+  assert.deepEqual(lireAffichage({ montrerRetard: false }), { montrerRetard: false });
 });
 
 // ------------------------------------------------------------------ garde-fou 1 : aucune donnée d'une autre entreprise
