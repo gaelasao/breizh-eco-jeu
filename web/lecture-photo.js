@@ -6,8 +6,8 @@
 
    ON NE TRANSCRIT PAS LE TICKET, ON CHERCHE TROIS CHOSES. Un ticket de caisse froissé photographié de travers se lit
    mal : viser trois champs tolère les trous, là où une transcription fidèle échouerait. Le montant se trouve près de
-   « TOTAL », « TTC », « NET À PAYER » ; la date aux formats français ; le
-   fournisseur dans l'en-tête, et mieux encore quand c'est un fournisseur déjà saisi ici.
+   « TOTAL », « TTC », « NET À PAYER » ; la date aux formats français ; le fournisseur dans l'en-tête — et mieux
+   encore quand c'est un fournisseur déjà saisi ici, qui revient alors avec SON orthographe.
    Formats visés : « 47,90 € », « 1 234,56 », « jj/mm/aaaa », « jj.mm.aa », « 14 mars 2026 ».
 
    JAMAIS FAUX EN SILENCE. Chaque champ est PROPOSÉ, jamais enregistré, et reste modifiable. Quand la confiance est
