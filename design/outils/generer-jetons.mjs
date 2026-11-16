@@ -378,7 +378,7 @@ ${p3Bloc(p3(sombre), 2)}
   --bz-d-2: 160ms;   /* survol, couleur, opacité */
   --bz-d-3: 240ms;   /* menus, popovers, onglets, toasts */
   --bz-d-4: 360ms;   /* feuilles, dialogues, transitions de vue, toit qui s'efface */
-  --bz-d-camera: 500ms;        /* vol de caméra 3D, interrompu par tout contact */
+  --bz-d-camera: 600ms;        /* vol de caméra 3D : elle glisse, elle ne saute pas ; interrompu par tout contact */
   --bz-d-celebration: 1200ms;  /* fin de quête sur la carte */
   --bz-d-ouverture: 1600ms;    /* ouverture du matin (une fois par jour, interrompue par toute action) */
   --bz-d-peinture: 1200ms;     /* « la maquette se peint » : durée totale */
@@ -460,7 +460,7 @@ ${p3Bloc(p3(sombre), 2)}
    ========================================================================== */
 :root {
 ${sceneBloc('jour')}
-  --bz-scene-soleil-bas: #ffd9a8;      /* teinte de la lumière principale à l'aube et au crépuscule */
+  --bz-scene-soleil-bas: #ffc98a;      /* teinte de la lumière principale à l'aube et au crépuscule */
 ${sceneBloc('nuit')}
   --bz-scene-peinture-perimee: 0.4;    /* saturation gardée par une donnée de plus de 7 jours */
 }

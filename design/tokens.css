@@ -461,7 +461,7 @@
   --bz-d-2: 160ms;   /* survol, couleur, opacité */
   --bz-d-3: 240ms;   /* menus, popovers, onglets, toasts */
   --bz-d-4: 360ms;   /* feuilles, dialogues, transitions de vue, toit qui s'efface */
-  --bz-d-camera: 500ms;        /* vol de caméra 3D, interrompu par tout contact */
+  --bz-d-camera: 600ms;        /* vol de caméra 3D : elle glisse, elle ne saute pas ; interrompu par tout contact */
   --bz-d-celebration: 1200ms;  /* fin de quête sur la carte */
   --bz-d-ouverture: 1600ms;    /* ouverture du matin (une fois par jour, interrompue par toute action) */
   --bz-d-peinture: 1200ms;     /* « la maquette se peint » : durée totale */
@@ -542,22 +542,24 @@
    sont interpolés en JS. Sols des quartiers : clients = pavés de granit rose (damier à deux tons) ; fournisseurs = enrobé et marquages blancs ; partenaires = dalles d’ardoise à joints décalés ; equipe = pelouse ; stock = planches de quai ; prospects = sable et étals rayés.
    ========================================================================== */
 :root {
-  --bz-scene-jour-ciel-zenith: #7fb6d3;
-  --bz-scene-jour-ciel-horizon: #dfeceb;
-  --bz-scene-jour-brume: #dfeceb;
-  --bz-scene-jour-mer: #2f8aa0;
-  --bz-scene-jour-mer-profonde: #1d5f74;
+  --bz-scene-jour-ciel-zenith: #4f94c6;
+  --bz-scene-jour-ciel-bas: #ffd9ae;
+  --bz-scene-jour-ciel-horizon: #e7e3d6;
+  --bz-scene-jour-brume: #d3d9d3;
+  --bz-scene-jour-nuage: #c5c8c6;
+  --bz-scene-jour-mer: #2b8197;
+  --bz-scene-jour-mer-profonde: #1a5468;
   --bz-scene-jour-ecume: #e9f5f3;
   --bz-scene-jour-sable: #e8dcc2;
-  --bz-scene-jour-lande: #9db37c;
-  --bz-scene-jour-granit: #a9a69e;
-  --bz-scene-jour-ardoise: #4b5763;
+  --bz-scene-jour-lande: #92ab72;
+  --bz-scene-jour-granit: #b0a69c;
+  --bz-scene-jour-ardoise: #47566a;
   --bz-scene-jour-chaux: #f4f0e7;
-  --bz-scene-jour-bois: #9a7652;
+  --bz-scene-jour-bois: #a07a52;
   --bz-scene-jour-platre: #ece8e1;
-  --bz-scene-jour-soleil: #fff4df;
-  --bz-scene-jour-hemi-ciel: #9fc3e0;
-  --bz-scene-jour-hemi-sol: #b9ab8f;
+  --bz-scene-jour-soleil: #ffe6b8;
+  --bz-scene-jour-hemi-ciel: #7fb2e0;
+  --bz-scene-jour-hemi-sol: #c2a68a;
   --bz-scene-jour-fenetres: #3c4a56;
   --bz-scene-jour-surbrillance: #2ba1b9;
   --bz-scene-jour-phare: #f2c84b;
@@ -570,17 +572,19 @@
   --bz-scene-jour-quartier-equipe: #a9c999;
   --bz-scene-jour-quartier-stock: #c1a58a;
   --bz-scene-jour-quartier-prospects: #e5d2ac;
-  --bz-scene-soleil-bas: #ffd9a8;      /* teinte de la lumière principale à l'aube et au crépuscule */
+  --bz-scene-soleil-bas: #ffc98a;      /* teinte de la lumière principale à l'aube et au crépuscule */
   --bz-scene-nuit-ciel-zenith: #08131f;
+  --bz-scene-nuit-ciel-bas: #1b2c3e;
   --bz-scene-nuit-ciel-horizon: #1f3346;
   --bz-scene-nuit-brume: #1a2b3b;
+  --bz-scene-nuit-nuage: #243343;
   --bz-scene-nuit-mer: #123542;
   --bz-scene-nuit-mer-profonde: #0a2230;
   --bz-scene-nuit-ecume: #6f8f98;
   --bz-scene-nuit-sable: #5f5a50;
   --bz-scene-nuit-lande: #3f4c3a;
-  --bz-scene-nuit-granit: #4f5357;
-  --bz-scene-nuit-ardoise: #262d35;
+  --bz-scene-nuit-granit: #52504f;
+  --bz-scene-nuit-ardoise: #242d3a;
   --bz-scene-nuit-chaux: #8b8c8a;
   --bz-scene-nuit-bois: #4e3d2e;
   --bz-scene-nuit-platre: #3a3e44;
