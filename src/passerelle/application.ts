@@ -198,7 +198,10 @@ export class Application {
       appel: (methode, chemin, corps) => this.nexus.relais(methode, chemin, corps), relancer: () => this.tempsReel.relancer(),
     });
     monde.brancherNexus(() => this.nexus.etatPavillon());
-    this.automatisations = new Automatisations(monde, this.enquetes, this.synchro, { etat: etat?.automatisations ?? null, changement, trous: () => monde.trousPlanningReel(), trousProchains: () => monde.trousPlanningReel('prochains') });
+    // `droits` : les derniers droits que le réseau a confirmés, lus tels quels, sans appel (voir ../core/offre.ts) —
+    // l'écran Optimiser s'affiche toujours, relié ou non, réseau joignable ou non.
+    this.automatisations = new Automatisations(monde, this.enquetes, this.synchro, { etat: etat?.automatisations ?? null, changement, trous: () => monde.trousPlanningReel(), trousProchains: () => monde.trousPlanningReel('prochains'),
+      droits: () => { const e = this.nexus.etat(); return { relie: e.relie, plan: e.droits?.plan ?? null, etatAbonnement: e.droits?.etatAbonnement ?? null }; } });
     // alertes : le module lit ce que le jeu voit déjà (situations, fiches, connecteurs, réseau) et n'écrit rien dans le monde
     this.alertes = new Alertes({
       maintenant: () => monde.maintenant(),
@@ -692,7 +695,12 @@ export class Application {
     // alertes : une passe par minute, qui ne fait rien tant qu'aucun canal n'est branché
     const t16 = setInterval(() => { void this.alertes.passer().catch(() => undefined); }, 60_000);
     const t17 = setTimeout(() => { void this.alertes.passer().catch(() => undefined); }, 30_000);
-    const tous = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17];
+    // droits de l'entreprise sur le réseau : relus toutes les 15 min quand elle est reliée, pour que les
+    // automatisations comprises dans l'offre agissent même si personne n'a ouvert un écran (voir ../core/offre.ts)
+    const droitsDus = () => { if (this.nexus.relie) void this.nexus.etatPavillon().catch(() => undefined); };
+    const t18 = setInterval(droitsDus, 15 * 60_000);
+    const t19 = setTimeout(droitsDus, 2000);
+    const tous = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17, t18, t19];
     for (const t of tous) t.unref?.();
     this.#minuteries.push(...tous);
     this.tempsReel.demarrer();

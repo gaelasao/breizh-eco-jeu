@@ -37,15 +37,15 @@ test('« J’automatise » : entreprise vide — rien à regarder, chaque automa
   const app = await Application.creer({ connexion: 'comptes' });
   const p = app.monde.initialiser({ nom: 'Maël', entreprise: 'Kerlann', depart: 'vide' });
   const etat = (id: string) => app.automatisations.preparation(p).recettes.find((r) => r.id === id);
-  assert.equal(etat('relance-factures')?.etat, 'a_brancher');
-  assert.match(etat('relance-factures')?.manque ?? '', /factures/);
-  assert.equal(etat('avis-bas')?.etat, 'a_brancher');
-  app.monde.creerObjet(p, 's', { type: 'entreprise', nom: 'Cave du Port', roles: ['client'], champs: {} });
-  assert.equal(etat('avis-bas')?.etat, 'prete', 'un client suffit pour demander des avis');
-  assert.equal(etat('relance-factures')?.etat, 'a_brancher', 'toujours aucune facture');
+  assert.equal(etat('relance-devis')?.etat, 'a_brancher');
+  assert.match(etat('relance-devis')?.manque ?? '', /devis/);
+  assert.equal(etat('trous-planning')?.etat, 'a_brancher');
+  app.monde.creerObjet(p, 's', { type: 'employe', nom: 'Erwan Kermarrec', champs: {} });
+  assert.equal(etat('trous-planning')?.etat, 'prete', 'une personne suffit pour surveiller le planning');
+  assert.equal(etat('relance-devis')?.etat, 'a_brancher', 'toujours aucun devis');
   const fait = app.automatisations.toutActiver(p);
-  assert.ok(fait.activees.includes('avis-bas') && !fait.activees.includes('relance-factures'));
-  assert.ok(fait.aBrancher.some((r) => r.id === 'relance-factures' && /factures/.test(r.manque ?? '')));
+  assert.ok(fait.activees.includes('trous-planning') && !fait.activees.includes('relance-devis'));
+  assert.ok(fait.aBrancher.some((r) => r.id === 'relance-devis' && /devis/.test(r.manque ?? '')));
 });
 
 test('aucune piste à zéro : « brancher vos outils » n’est proposé qu’avec au moins une fiche tenue à la main', async () => {
