@@ -127,17 +127,27 @@ test('composants tiers : LICENCES-TIERS.md dit que rien ne s’oppose à une dis
   assert.match(section, /ne remplace pas l'avis d'un juriste/);
   // chaque famille de composants embarqués y est nommée avec sa licence
   for (const [nom, licence] of [['three.js', 'MIT'], ['camera-controls', 'MIT'], ['uPlot', 'MIT'], ['uFuzzy', 'MIT'], ['@github/combobox-nav', 'MIT'],
-    ['Lucide', 'ISC'], ['KayKit', 'CC0 1.0'], ['Inter', 'SIL OFL 1.1'], ['Fraunces', 'SIL OFL 1.1'], ['Atkinson Hyperlegible Next', 'SIL OFL 1.1'], ['Node.js', 'Apache 2.0']] as const) {
+    ['Lucide', 'ISC'], ['KayKit', 'CC0 1.0'], ['Inter', 'SIL OFL 1.1'], ['Fraunces', 'SIL OFL 1.1'], ['Atkinson Hyperlegible Next', 'SIL OFL 1.1'], ['Node.js', 'Apache 2.0'],
+    ['tesseract.js', 'Apache 2.0'], ['fra.traineddata', 'Apache 2.0']] as const) {
     assert.ok(section.includes(nom), `${nom} examiné`);
     assert.ok(section.includes(licence), `${nom} : licence ${licence} nommée`);
   }
-  // les licences des dépendances d'exécution sont bien celles que le fichier annonce (paquets npm installés)
+  // les licences des dépendances d'exécution sont bien celles que le fichier annonce (paquets npm installés).
+  // Deux licences permissives seulement : MIT, et Apache 2.0 (compatible avec la version 3 des licences GNU).
   const pkg = JSON.parse(lire('package.json')) as { dependencies: Record<string, string> };
   for (const nom of Object.keys(pkg.dependencies)) {
     const dep = JSON.parse(lire(`node_modules/${nom}/package.json`)) as { license?: string };
-    assert.equal(dep.license, 'MIT', `${nom} : licence déclarée par le paquet`);
-    assert.ok(existsSync(new URL(`node_modules/${nom}/LICENSE`, RACINE)), `${nom} : texte de licence joint au paquet`);
+    assert.ok(['MIT', 'Apache-2.0'].includes(dep.license ?? ''), `${nom} : licence déclarée par le paquet (${dep.license})`);
+    const textes = ['LICENSE', 'LICENSE.md'].filter((f) => existsSync(new URL(`node_modules/${nom}/${f}`, RACINE)));
+    assert.ok(textes.length, `${nom} : texte de licence joint au paquet`);
   }
+  // le cœur WebAssembly du moteur de lecture vient d'un paquet séparé, embarqué lui aussi : même contrôle
+  const coeur = JSON.parse(lire('node_modules/tesseract.js-core/package.json')) as { license?: string };
+  assert.equal(coeur.license, 'Apache-2.0', 'tesseract.js-core : licence déclarée par le paquet');
+  assert.ok(existsSync(new URL('node_modules/tesseract.js-core/LICENSE', RACINE)), 'tesseract.js-core : texte de licence joint');
+  // le modèle français est joint au dépôt : son empreinte est inscrite dans LICENCES-TIERS.md, et vérifiée ici
+  const empreinte = sha256(readFileSync(new URL('web/lecture/fra.traineddata.gz', RACINE)));
+  assert.ok(lire('LICENCES-TIERS.md').includes(empreinte), `fra.traineddata.gz : empreinte ${empreinte} inscrite dans LICENCES-TIERS.md`);
   // aucune police ne déclare de nom réservé (un sous-ensemble est une version modifiée au sens de l'OFL)
   for (const f of ['inter-OFL.txt', 'fraunces-OFL.txt', 'atkinson-OFL.txt']) assert.doesNotMatch(lire(`web/licences/${f}`), /with Reserved Font Name/i, f);
   // formes lisibles des bibliothèques servies minifiées : là où le fichier le dit

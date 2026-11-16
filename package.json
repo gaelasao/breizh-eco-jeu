@@ -34,6 +34,7 @@
     "@github/combobox-nav": "3.0.2",
     "@leeoniya/ufuzzy": "1.0.19",
     "camera-controls": "3.1.2",
+    "tesseract.js": "7.0.0",
     "three": "0.187.0",
     "uplot": "1.6.32"
   }

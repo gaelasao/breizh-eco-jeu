@@ -4,10 +4,14 @@
    En cache : la page hors ligne, ses feuilles de style (bz.css, thème), ses polices et l'icône ; et, pour la carte 3D
    (direction de design §5.10), les modèles KayKit et les bibliothèques versionnées (cache d'abord), three.js et ses
    modules (réseau d'abord, cache hors ligne). L'image instantanée de la carte (lb-carte-instantanee) est rangée par
-   scene.js et n'est jamais effacée ici. Jamais l'API ni les données de l'entreprise. */
+   scene.js et n'est jamais effacée ici. Jamais l'API ni les données de l'entreprise.
+   Lecture d'un justificatif photographié (/lecture/<version>/…) : le moteur et le modèle français portent leur
+   version dans le chemin, donc cache d'abord — une fois la première photo prise, la lecture marche HORS LIGNE, au
+   fond d'un hangar sans réseau. Rien n'est demandé tant que personne n'a photographié de justificatif. */
 const CACHE = 'lb-hors-ligne-v3';
 const CACHE_CARTE = 'lb-carte-modeles-v1';
-const GARDES = new Set([CACHE, CACHE_CARTE, 'lb-carte-instantanee']);
+const CACHE_LECTURE = 'lb-lecture-justificatifs-v1';
+const GARDES = new Set([CACHE, CACHE_CARTE, CACHE_LECTURE, 'lb-carte-instantanee']);
 const HORS_LIGNE = ['/hors-ligne.html', '/hors-ligne.css', '/icone-192.png', '/bz/bz.css', '/bz/theme.js', '/polices/inter-fr-4.1.woff2', '/polices/fraunces-fr-titre.woff2'];
 
 self.addEventListener('install', (e) => {
@@ -34,6 +38,11 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   if (HORS_LIGNE.includes(url.pathname)) { e.respondWith(fetch(r).catch(() => depuisCache(url.pathname))); return; }
+  // moteur de lecture et modèle français : version dans le chemin, donc immuables → cache d'abord, et hors ligne
+  if (/^\/lecture\/\d+\.\d+\.\d+\/[\w.-]+$/.test(url.pathname)) {
+    e.respondWith(caches.open(CACHE_LECTURE).then((c) => c.match(r).then((x) => x ?? fetch(r).then((rep) => { if (rep.ok) c.put(r, rep.clone()); return rep; }))));
+    return;
+  }
   // carte 3D : modèles et bibliothèques à version dans le chemin, immuables → cache d'abord
   if (url.pathname.startsWith('/modeles/') || /^\/vendor\/[\w.-]+@\d+\.\d+\.\d+\.js$/.test(url.pathname)) {
     e.respondWith(caches.open(CACHE_CARTE).then((c) => c.match(r).then((x) => x ?? fetch(r).then((rep) => { if (rep.ok) c.put(r, rep.clone()); return rep; }))));

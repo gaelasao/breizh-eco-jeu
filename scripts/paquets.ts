@@ -43,7 +43,7 @@ import { fileURLToPath } from 'node:url';
 import { adresseNexus } from '../src/passerelle/bureau.ts';
 import { ETIQUETTE } from '../src/passerelle/demarrage.ts';
 import { CODE_SOURCE, FICHIER_LICENCE, FICHIER_NOTICE, IDENTIFIANT_LICENCE } from '../src/passerelle/licence.ts';
-import { BIBLIOTHEQUES } from '../src/passerelle/statiques.ts';
+import { BIBLIOTHEQUES, LECTURE_FICHIERS } from '../src/passerelle/statiques.ts';
 import { lireCles, verifierSignatureDetachee, type ClePublique } from './openpgp.ts';
 import { controlerArbre, ecrireProvenance, empreinteVerrou, exporterCommit, FICHIER_PROVENANCE, installerDependances, type Provenance } from './provenance.ts';
 import { lireSignataires } from './signer-publication.ts';
@@ -60,6 +60,10 @@ const DEPENDANCES = [
   ...['controls', 'loaders', 'environments', 'postprocessing', 'shaders', 'utils', 'math'].map((d) => `three/examples/jsm/${d}`),
   // bibliothèques du système de design (servies par src/passerelle/statiques.ts) ; les polices sont dans web/polices/
   ...[...new Set(BIBLIOTHEQUES.flatMap((b) => [`${b.paquet}/package.json`, `${b.paquet}/${b.licence}`, `${b.paquet}/${b.fichier}`]))],
+  // lecture d'un justificatif photographié : le moteur voyage avec le paquet, pour qu'une entreprise qui installe
+  // Living Business sur son serveur n'ait rien à aller chercher ailleurs. Le modèle français est dans web/lecture/.
+  'tesseract.js/package.json', 'tesseract.js/LICENSE.md', 'tesseract.js-core/package.json', 'tesseract.js-core/LICENSE',
+  ...[...new Set(LECTURE_FICHIERS.map((f) => `${f.paquet}/${f.fichier}`))],
 ];
 
 // ---------------------------------------------------------------- lanceurs et notice
@@ -177,7 +181,7 @@ export function notice(c: Cible, version: string, versionNode: string, nexus: st
     `   de contact de la page « Mentions légales » de Breizhcosystem${nexus ? ` (${nexus}/mentions-legales)` : ''}, objet « Sécurité ».`,
     '   Sans données réelles de votre entreprise ni mot de passe, et sans rendre le problème public avant le correctif.',
     '',
-    `Inclus : Node.js ${versionNode} (licence MIT, voir app/LICENCE-NODE.txt), three.js, camera-controls, uPlot, uFuzzy et combobox-nav (MIT), icônes Lucide (ISC), polices Inter, Fraunces et Atkinson Hyperlegible Next (OFL). Détail : app/LICENCES-TIERS.md. Liste des composants et de leurs empreintes (CycloneDX) : app/SBOM.cdx.json.`,
+    `Inclus : Node.js ${versionNode} (licence MIT, voir app/LICENCE-NODE.txt), three.js, camera-controls, uPlot, uFuzzy et combobox-nav (MIT), tesseract.js et le modèle de lecture français (Apache 2.0), icônes Lucide (ISC), polices Inter, Fraunces et Atkinson Hyperlegible Next (OFL). Détail : app/LICENCES-TIERS.md. Liste des composants et de leurs empreintes (CycloneDX) : app/SBOM.cdx.json.`,
     '',
   ];
   return lignes.join(s === 'windows' ? '\r\n' : '\n');

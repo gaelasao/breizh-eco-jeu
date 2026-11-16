@@ -192,14 +192,15 @@ test('écran « Saisir » : l’appareil photo du téléphone, deux gestes, et a
 
 test('écran « Saisir » : la photo d’abord, les champs ensuite, et ce qui manque est dit', () => {
   const app = lire('web/app.js');
-  const envoi = app.slice(app.indexOf('async function envoyerPhoto(fichier)'), app.indexOf('/** Les trois champs,'));
+  const envoi = app.slice(app.indexOf('async function envoyerPhoto(fichier)'), app.indexOf('\n * Le lecteur de justificatifs'));
   // refus local avant de dépenser le réseau du chantier, puis envoi, puis les trois champs tout de suite
   assert.match(envoi, /S\.erreurPhoto = SAISIE\.problemePhoto\(fichier\);/);
   // chaque refus se lit près de ce qu'il concerne (§4.16) : la photo sous son bouton, la note sous le sien
   assert.match(app, /messageEnLigne\(S\.erreurPhoto \? 'critique' : null, S\.erreurPhoto\),/);
   assert.match(app, /messageEnLigne\(S\.erreurNote \? 'critique' : null, S\.erreurNote\)\) : null,/);
   assert.match(envoi, /api\('POST', `\/justificatifs\$\{concerne \? `\?concerne=\$\{encodeURIComponent\(concerne\)\}` : ''\}`, fichier\)/);
-  assert.match(envoi, /ouvrirJustificatif\(j, \{ neuf: true \}\)/, 'les trois champs s’ouvrent sur la photo qui vient d’être prise');
+  // la photo déjà en mémoire est passée à la fenêtre : montrée à côté des champs, et lue sur l'appareil
+  assert.match(envoi, /ouvrirJustificatif\(j, \{ neuf: true, fichier \}\)/, 'les trois champs s’ouvrent sur la photo qui vient d’être prise');
   // rien n'est enregistré sans la personne : la proposition d'un agent est montrée, puis validée à la main
   assert.match(app, /Montant, date et fournisseur proposés par \$\{champs\.propose\.par\} après lecture de la photo/);
   assert.match(app, /rien n’est enregistré tant que vous n’avez pas appuyé sur « Enregistrer »/);

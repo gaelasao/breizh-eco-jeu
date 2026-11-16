@@ -31,6 +31,8 @@ export const TYPES: Record<string, string> = {
   '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8',
 };
+const TYPE_WASM = 'application/wasm';
+const TYPE_GZIP = 'application/gzip';
 
 /**
  * Bibliothèques JS épinglées (version exacte dans package.json ET dans le chemin servi). Source unique : la passerelle
@@ -43,6 +45,33 @@ export const BIBLIOTHEQUES: ReadonlyArray<{ paquet: string; version: string; fic
   { paquet: '@github/combobox-nav', version: '3.0.2', fichier: 'dist/index.js', chemin: '/vendor/combobox-nav@3.0.2.js', licence: 'LICENSE' },
   { paquet: '@leeoniya/ufuzzy', version: '1.0.19', fichier: 'dist/uFuzzy.mjs', chemin: '/vendor/ufuzzy@1.0.19.js', licence: 'LICENSE' },
 ];
+
+/**
+ * Lecture d'un justificatif photographié : le moteur (tesseract.js, Apache-2.0) et le modèle français, servis
+ * DEPUIS ICI et jamais depuis un réseau de diffusion tiers — la photo ne quitte pas l'appareil, et l'adresse de
+ * l'entreprise ne part nulle part. Rien de tout ça n'est dans ce qui se télécharge au premier écran : web/app.js ne
+ * le demande qu'à la PREMIÈRE photo (web/lecture-moteur.js), et web/sw.js le garde ensuite pour le hors-ligne.
+ * La version est dans le chemin : cache immuable, et une mise à jour change l'adresse.
+ */
+export const LECTURE_VERSION = '7.0.0';
+export const LECTURE_BASE = `/lecture/${LECTURE_VERSION}/`;
+/**
+ * Le cœur existe en deux formes : avec les instructions vectorielles du processeur (prise par tout navigateur depuis
+ * 2021) et sans (filet de sécurité). Le navigateur choisit, et UNE SEULE est téléchargée. Chacune est un petit
+ * fichier JavaScript et son WebAssembly à côté, dans le MÊME dossier : c'est là que le moteur va le chercher.
+ */
+export const LECTURE_FICHIERS: ReadonlyArray<{ paquet: 'tesseract.js' | 'tesseract.js-core'; fichier: string; nom: string; type: string }> = [
+  { paquet: 'tesseract.js', fichier: 'dist/tesseract.esm.min.js', nom: 'tesseract.esm.min.js', type: TYPES['.js'] as string },
+  { paquet: 'tesseract.js', fichier: 'dist/worker.min.js', nom: 'worker.min.js', type: TYPES['.js'] as string },
+  { paquet: 'tesseract.js-core', fichier: 'tesseract-core-simd-lstm.js', nom: 'tesseract-core-simd-lstm.js', type: TYPES['.js'] as string },
+  { paquet: 'tesseract.js-core', fichier: 'tesseract-core-simd-lstm.wasm', nom: 'tesseract-core-simd-lstm.wasm', type: TYPE_WASM },
+  { paquet: 'tesseract.js-core', fichier: 'tesseract-core-lstm.js', nom: 'tesseract-core-lstm.js', type: TYPES['.js'] as string },
+  { paquet: 'tesseract.js-core', fichier: 'tesseract-core-lstm.wasm', nom: 'tesseract-core-lstm.wasm', type: TYPE_WASM },
+];
+/** Versions attendues : servies seulement si c'est bien celles-là (sinon, saisie à la main, et rien ne casse). */
+export const LECTURE_VERSIONS: Readonly<Record<string, string>> = { 'tesseract.js': '7.0.0', 'tesseract.js-core': '7.0.0' };
+/** Modèle français, joint au dépôt (web/lecture/) : voir LICENCES-TIERS.md pour sa source et son empreinte. */
+export const LECTURE_MODELE = 'fra.traineddata.gz';
 
 /** Sous-dossiers de web/ servis tels quels, avec les extensions admises. */
 const DOSSIERS: ReadonlyArray<{ dossier: string; extensions: ReadonlySet<string> }> = [
@@ -123,6 +152,18 @@ export function fichiersStatiques(racine: URL = new URL('../../', import.meta.ur
   }
   const three = new URL('three/build/', modules);
   for (const nom of ['three.module.js', 'three.core.js']) liste.set(`/vendor/${nom}`, { source: new URL(nom, three), type: TYPES['.js'] as string, cache: 'no-cache' });
+  // Lecture d'un justificatif : le moteur (node_modules, versions vérifiées) et le modèle français (web/lecture/).
+  const versionDe = (paquet: string): string => {
+    try { return (JSON.parse(readFileSync(new URL(`${paquet}/package.json`, modules), 'utf8')) as { version?: string }).version ?? ''; } catch { return ''; }
+  };
+  const lectureOk = Object.entries(LECTURE_VERSIONS).every(([p, v]) => versionDe(p) === v);
+  if (lectureOk) {
+    for (const f of LECTURE_FICHIERS) {
+      liste.set(`${LECTURE_BASE}${f.nom}`, { source: new URL(`${f.paquet}/${f.fichier}`, modules), type: f.type, cache: IMMUABLE });
+    }
+    const modele = new URL(`lecture/${LECTURE_MODELE}`, web);
+    if (estFichier(modele)) liste.set(`${LECTURE_BASE}${LECTURE_MODELE}`, { source: modele, type: TYPE_GZIP, cache: IMMUABLE });
+  }
   // Bibliothèques épinglées : servies seulement si la version installée est bien celle du chemin
   for (const b of BIBLIOTHEQUES) {
     let version = '';

@@ -48,8 +48,13 @@ export interface OptionsServeur {
 }
 
 const ENTETES_SECURITE: Record<string, string> = {
+  // `wasm-unsafe-eval` : lire un justificatif photographié compile du WebAssembly (le moteur de lecture, servi par
+  // cette passerelle et par personne d'autre — c'est ce que dit `script-src 'self'`). Sans cette permission, Chrome
+  // refuse de le compiler. Elle n'autorise rien d'autre : ni `eval`, ni script en ligne, ni script venu d'ailleurs.
+  // `blob:` dans `img-src` : la photo qu'on vient de prendre est montrée À CÔTÉ des champs lus, depuis la mémoire du
+  // navigateur, sans la retélécharger — ce qui compte sur un chantier. Un blob ne peut venir que de la page elle-même.
   'content-security-policy':
-    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'no-referrer',
   'cross-origin-opener-policy': 'same-origin',

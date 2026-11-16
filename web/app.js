@@ -10691,18 +10691,48 @@ async function envoyerPhoto(fichier) {
     await chargerSaisie();
     S.envoi = false;
     rendreSaisie();
-    ouvrirJustificatif(j, { neuf: true });
+    // la photo est déjà dans la mémoire du navigateur : on la passe telle quelle, pour la montrer et pour la LIRE
+    // sans la retélécharger — sur un chantier, chaque mégaoctet compte.
+    ouvrirJustificatif(j, { neuf: true, fichier });
   } catch (e) {
     S.envoi = false;
     if (!e.session) { S.erreurPhoto = e.message; rendreSaisie(); annoncer(e.message); }
   }
 }
 
-/** Les trois champs, dans une fenêtre qui tient dans un pouce : montant, date, fournisseur. Et la photo, à la demande. */
-function ouvrirJustificatif(j, { neuf = false } = {}) {
-  const champs = SAISIE.champsAvecProposition(j, { aujourdhui: jourLocal() });
+/**
+ * Le lecteur de justificatifs (web/lecture-moteur.js), chargé à la PREMIÈRE photo et pas avant : qui ne photographie
+ * jamais rien ne télécharge jamais rien. Le moteur lui-même (WebAssembly et modèle français) arrive encore plus tard,
+ * à la première lecture, depuis Living Business et jamais d'ailleurs. Absent, `null` : les trois champs se tapent.
+ */
+let LECTEUR = null;
+const lecteurJustificatif = () => (LECTEUR ??= import('/lecture-moteur.js').catch(() => null));
+
+/** Les fournisseurs déjà saisis ici : c'est ce qui rend la lecture du nom sûre quand on retourne au même dépôt. */
+const fournisseursDejaVus = () => [...new Set((E.saisie.liste ?? []).map((x) => x.fournisseur).filter(Boolean))];
+
+/**
+ * Les trois champs, dans une fenêtre qui tient dans un pouce : montant, date, fournisseur.
+ *
+ * `fichier` : la photo qu'on vient de prendre, encore en mémoire. Quand elle est là, elle est MONTRÉE à côté des
+ * champs (on vérifie d'un coup d'œil) et LUE sur l'appareil : ce qui en sort est marqué « lu sur la photo », remplit
+ * seulement les champs encore vides, et reste modifiable. Rien n'est enregistré sans un appui sur « Enregistrer ».
+ * Sans `fichier` (on rouvre un justificatif rangé), rien ne change : la photo reste à la demande.
+ */
+function ouvrirJustificatif(j, { neuf = false, fichier = null } = {}) {
+  const etat = { erreur: null, envoi: false, photo: false, lu: null, lecture: null, avis: '', noeud: null };
+  const relire = () => SAISIE.champsAvecProposition(j, { aujourdhui: jourLocal(), lu: etat.lu });
+  let champs = relire();
   const v = { montant: champs.montant, date: champs.date, fournisseur: champs.fournisseur || SAISIE.champsProposes(E.saisie.liste, { concerne: j.concerne, aujourdhui: jourLocal() }).fournisseur };
-  const etat = { erreur: null, envoi: false, photo: false };
+  // ce que la personne a tapé ne se fait jamais écraser par une lecture qui arrive après
+  const tape = { montant: false, date: false, fournisseur: false };
+  const apercu = fichier ? URL.createObjectURL(fichier) : null;
+  const motLecture = () => `${etat.lecture.etape}… ${Math.round(etat.lecture.part * 100)} %`;
+  /** Sous un champ : d'où vient sa valeur. Vide pour ce qu'une personne a enregistré ou tapé. */
+  const origine = (de, nom) => {
+    const t = SAISIE.origineChamp(tape[nom] ? 'moi' : de);
+    return t ? h('span', { class: 'bz-champ__aide', texte: `${t} — à vérifier` }) : null;
+  };
   const dlg = dialogueVivant({
     titre: neuf ? 'Photo enregistrée' : 'Le justificatif',
     surtitre: j.concerneNom ? sansDemo(j.concerneNom) : null,
@@ -10711,17 +10741,25 @@ function ouvrirJustificatif(j, { neuf = false } = {}) {
       corps: [
         messageEnLigne(etat.erreur ? 'critique' : null, etat.erreur),
         champs.propose ? messageEnLigne('info', `Montant, date et fournisseur proposés par ${champs.propose.par} après lecture de la photo.`, 'Vérifiez-les : rien n’est enregistré tant que vous n’avez pas appuyé sur « Enregistrer ».') : null,
+        // la photo qu'on vient de prendre, À CÔTÉ des champs : c'est elle qui permet de vérifier d'un coup d'œil
+        apercu ? h('img', { class: 'bz-justificatif__photo', src: apercu, alt: 'La photo que vous venez de prendre', decoding: 'async' }) : null,
+        etat.lecture ? (etat.noeud = h('p', { class: 'bz-t-petit bz-ligne-icone', role: 'status' }, icone('loader-circle', { taille: 'sm' }), h('span', { texte: motLecture() }))) : null,
+        etat.lu ? messageEnLigne('info', etat.lu.phrase) : null,
+        etat.avis ? messageEnLigne('attention', etat.avis) : null,
         h('div', { class: 'bz-champ' },
           h('label', { class: 'bz-champ__libelle', for: 'jt-montant', texte: 'Montant TTC' }),
-          h('input', { id: 'jt-montant', class: 'bz-champ__saisie', type: 'text', inputmode: 'decimal', autocomplete: 'off', maxlength: '12', value: v.montant, placeholder: 'Par exemple 128,40', oninput: (e) => { v.montant = e.target.value; } })),
+          h('input', { id: 'jt-montant', class: 'bz-champ__saisie', type: 'text', inputmode: 'decimal', autocomplete: 'off', maxlength: '12', value: v.montant, placeholder: 'Par exemple 128,40', oninput: (e) => { v.montant = e.target.value; tape.montant = true; } }),
+          origine(champs.montantDe, 'montant')),
         h('div', { class: 'bz-champ' },
           h('label', { class: 'bz-champ__libelle', for: 'jt-date', texte: 'Date du justificatif' }),
-          h('input', { id: 'jt-date', class: 'bz-champ__saisie', type: 'date', value: v.date, oninput: (e) => { v.date = e.target.value; } })),
+          h('input', { id: 'jt-date', class: 'bz-champ__saisie', type: 'date', value: v.date, oninput: (e) => { v.date = e.target.value; tape.date = true; } }),
+          origine(champs.dateDe, 'date')),
         h('div', { class: 'bz-champ' },
           h('label', { class: 'bz-champ__libelle', for: 'jt-fournisseur', texte: 'Fournisseur' }),
-          h('input', { id: 'jt-fournisseur', class: 'bz-champ__saisie', type: 'text', autocomplete: 'off', maxlength: '120', value: v.fournisseur, placeholder: 'Point P, Leroy Merlin, station…', oninput: (e) => { v.fournisseur = e.target.value; } })),
-        // la photo pèse des mégaoctets : elle n'est téléchargée que si on la demande
-        etat.photo
+          h('input', { id: 'jt-fournisseur', class: 'bz-champ__saisie', type: 'text', autocomplete: 'off', maxlength: '120', value: v.fournisseur, placeholder: 'Point P, Leroy Merlin, station…', oninput: (e) => { v.fournisseur = e.target.value; tape.fournisseur = true; } }),
+          origine(champs.fournisseurDe, 'fournisseur')),
+        // la photo pèse des mégaoctets : rouverte plus tard, elle n'est téléchargée que si on la demande
+        apercu ? null : etat.photo
           ? h('img', { class: 'bz-justificatif__photo', src: `/api/v1/justificatifs/${j.id}/photo`, alt: `Photo du justificatif de ${j.fournisseur || 'ce fournisseur'}`, loading: 'lazy', decoding: 'async' })
           : h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => { etat.photo = true; dlg.rendre(); } }, icone('eye'), `Revoir la photo (${SAISIE.poids(j.octets)})`),
         // le second chemin, facultatif : l'agent de l'entreprise lit la photo et propose. Dit tel quel, sans jargon :
@@ -10738,6 +10776,39 @@ function ouvrirJustificatif(j, { neuf = false } = {}) {
       ],
     }),
   });
+  if (apercu) dlg.d.addEventListener('close', () => URL.revokeObjectURL(apercu), { once: true });
+  if (fichier) lireLaPhotoPrise();
+
+  /**
+   * Lit la photo SUR L'APPAREIL et propose ce qu'elle a trouvé. Jamais bloquant : les champs sont déjà là, et on
+   * peut taper pendant. Si le moteur ne se charge pas, l'écran reste exactement ce qu'il était, et on le dit.
+   */
+  async function lireLaPhotoPrise() {
+    const M = await lecteurJustificatif();
+    if (!M || !M.moteurPossible(window)) return; // navigateur trop ancien : rien d'annoncé, rien de cassé
+    etat.lecture = { etape: M.ETAPES.moteur, part: 0 };
+    dlg.rendre();
+    const r = await M.lirePhoto(fichier, {
+      aujourdhui: jourLocal(),
+      fournisseursConnus: fournisseursDejaVus(),
+      // la progression s'écrit dans la ligne déjà affichée : redessiner la fenêtre ferait sauter le curseur
+      surProgres: (p) => { etat.lecture = p; if (etat.noeud?.isConnected) etat.noeud.querySelector('span').textContent = motLecture(); },
+    });
+    etat.lecture = null;
+    etat.noeud = null;
+    if (!dlg.d.isConnected) return; // fenêtre déjà refermée : on ne touche plus à rien
+    if (r.echec) { etat.avis = r.echec; dlg.rendre(); return; }
+    etat.lu = { ...r.lu, phrase: M.direCeQuiEstLu(r.lu) };
+    champs = relire();
+    // « photo » ne sort que si le champ n'a ni valeur enregistrée ni proposition d'agent : ce qui est lu remplace
+    // alors le pré-remplissage à l'aveugle (date du jour, dernier fournisseur), mais jamais ce qui vient d'être tapé
+    if (!tape.montant && champs.montantDe === 'photo') v.montant = champs.montant;
+    if (!tape.date && champs.dateDe === 'photo') v.date = champs.date;
+    if (!tape.fournisseur && champs.fournisseurDe === 'photo') v.fournisseur = champs.fournisseur;
+    dlg.rendre();
+    annoncer(etat.lu.phrase);
+  }
+
   async function enregistrer() {
     etat.erreur = null;
     etat.envoi = true;
