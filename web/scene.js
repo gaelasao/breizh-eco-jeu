@@ -3261,8 +3261,8 @@ void main() {
     uLot.uMasque.value[MASQUE.centreVille] = modeDep ? 0 : 1;
     faisceau = ph.faisceau;
     lanterne = ph.lanterne;
-    const etatNexus = { endormi: 'éteint, découverte', gratuit: 'allumé, gratuit', actif: 'allumé, relié', en_attente: 'paiement en attente', hors_ligne: 'hors ligne' }[monde.pavillon.apparence] ?? '';
-    puce({ texte: 'Phare Breizhcosystem', detail: etatNexus, sorte: 'principal', objet: { id: '__pavillon' }, monde: ph.g.position, hauteur: 19, id: '__pavillon', categorie: 'noms' });
+    const etatPhare = { endormi: 'éteint, découverte', gratuit: 'allumé, gratuit', actif: 'allumé, relié', en_attente: 'paiement en attente', hors_ligne: 'hors ligne' }[monde.pavillon.apparence] ?? '';
+    puce({ texte: 'Phare Breizhcosystem', detail: etatPhare, sorte: 'principal', objet: { id: '__pavillon' }, monde: ph.g.position, hauteur: 19, id: '__pavillon', categorie: 'noms' });
 
     // circulation illustrative (voitures réelles sur les voies de droite)
     const boucles = [[[-88, -2], [88, -2]], [[88, 2], [-88, 2]], [[-44, -66], [-44, 34]], [[48, 34], [48, -66]], [[-2, -66], [-2, 34]], [[2, 34], [2, -66]], [[80, -38.3], [-80, -38.3]], [[-80, 38.6], [80, 38.6]]];
