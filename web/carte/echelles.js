@@ -179,18 +179,22 @@ export function compte(role, n, libelles = {}) {
   return `${n} ${n > 1 ? plusieurs : un}`;
 }
 
-/** Détail d'un groupe : « 7 clients, 2 fournisseurs » (les deux rôles les plus nombreux, puis « et 3 autres »). */
-export function detailGroupe(groupe, libelles = {}) {
-  const parts = groupe.roles.slice(0, 2).map(([r, n]) => compte(r, n, libelles));
-  const reste = groupe.roles.slice(2).reduce((s, [, n]) => s + n, 0);
-  if (reste) parts.push(`et ${reste} ${reste > 1 ? 'autres' : 'autre'}`);
+/**
+ * Détail d'un groupe : « 7 clients, 2 fournisseurs » (les rôles les plus nombreux, puis « et 3 autres »).
+ * `max` : combien de rôles sont nommés — un seul sur un téléphone, où une étiquette trop large ne tient pas dans
+ * l'écran et serait simplement effacée par le placement (§5.6). `reste` : dire ou non ce qui n'est pas nommé.
+ */
+export function detailGroupe(groupe, libelles = {}, { max = 2, reste = true } = {}) {
+  const parts = groupe.roles.slice(0, max).map(([r, n]) => compte(r, n, libelles));
+  const autres = groupe.roles.slice(max).reduce((s, [, n]) => s + n, 0);
+  if (autres && reste) parts.push(`et ${autres} ${autres > 1 ? 'autres' : 'autre'}`);
   return parts.join(', ');
 }
 
-/** Phrase annoncée quand on arrive sur un groupe : « 12 clients dans le Morbihan ». */
+/** Phrase annoncée quand on arrive sur un groupe : « 12 clients dans le Morbihan ». Toujours entière, elle est dite. */
 export function phraseGroupe(groupe, libelles = {}) {
   const ou = groupe.niveau === 'communes' ? 'à' : 'dans';
-  return `${detailGroupe(groupe, libelles)} ${ou} ${groupe.nom}`;
+  return `${detailGroupe(groupe, libelles, { max: 4 })} ${ou} ${groupe.nom}`;
 }
 
 /**

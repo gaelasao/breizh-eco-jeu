@@ -4079,7 +4079,8 @@ void main() {
         const vol = chezSoi ? distanceInitiale() : volVers(niveau);
         const p = puce({
           // identifiant propre à la carte (jamais un objet des données) : les flèches le parcourent, Entrée y descend
-          id: `__pays:${prefixe || 'c'}${g.cle}`, texte: g.nom, detail: detailGroupe(g, LIBELLES_ROLE),
+          // sur un téléphone, un seul rôle nommé : une étiquette plus large que l'écran serait simplement effacée
+          id: `__pays:${prefixe || 'c'}${g.cle}`, texte: g.nom, detail: detailGroupe(g, LIBELLES_ROLE, estTelephone ? { max: 1, reste: false } : {}),
           sorte, lodMin, lod, categorie: 'noms', vol,
           objet: { famille: niveau === 'communes' ? 'lieu' : 'departement' },
           monde, hauteur: 0,

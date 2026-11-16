@@ -44,7 +44,7 @@ type Echelles = {
   bornes: (d: number, o: { plateau: { x0: number; x1: number; z0: number; z1: number }; emprise?: { x0: number; x1: number; z0: number; z1: number } | null; aspect?: number }) => { x0: number; x1: number; z0: number; z1: number };
   regrouper: (points: readonly Repere[], niveau: string, ancres?: Map<string, { lon: number; lat: number; nom?: string }>) => Groupe[];
   compte: (role: string, n: number, libelles?: Record<string, [string, string]>) => string;
-  detailGroupe: (g: Groupe, libelles?: Record<string, [string, string]>) => string;
+  detailGroupe: (g: Groupe, libelles?: Record<string, [string, string]>, o?: { max?: number; reste?: boolean }) => string;
   phraseGroupe: (g: Groupe, libelles?: Record<string, [string, string]>) => string;
   manque: (o: { total?: number; places?: number; horsMetropole?: number }) => { texte: string; detail: string; absents: number; horsMetropole: number } | null;
   volVers: (niveau: string) => number;
@@ -168,6 +168,11 @@ test('échelles : on groupe plutôt que d’écrire trois cents étiquettes, et 
   // au-delà de deux rôles, on résume plutôt que d'aligner la liste
   const melange = E.regrouper([r('g', 'client', '35000', '35', '53'), r('h', 'fournisseur', '35000', '35', '53'), r('i', 'chantier', '35000', '35', '53'), r('j', 'prospect', '35000', '35', '53')], 'communes');
   assert.equal(E.detailGroupe(melange[0] as Groupe, LIBELLES), '1 chantier, 1 client, et 2 autres');
+  // sur un téléphone, un seul rôle : une étiquette plus large que l'écran serait simplement effacée (§5.6)
+  assert.equal(E.detailGroupe(morbihan as Groupe, LIBELLES, { max: 1, reste: false }), '3 clients');
+  assert.equal(E.detailGroupe(melange[0] as Groupe, LIBELLES, { max: 1, reste: false }), '1 chantier');
+  // la phrase annoncée, elle, reste entière : elle est dite, pas placée dans une boîte
+  assert.equal(E.phraseGroupe(melange[0] as Groupe, LIBELLES), '1 chantier, 1 client, 1 fournisseur, 1 prospect à 35000');
 });
 
 test('échelles : une carte vide n’est jamais muette, elle dit ce qui manque', async () => {
