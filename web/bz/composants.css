@@ -516,10 +516,9 @@
   /* ---- Pile d'actions : chacune traitable ou reportable */
   .bz-actions { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border: var(--bz-bord-1) solid var(--bz-carte-bord); border-radius: var(--bz-r-3);
     background: var(--bz-surface); box-shadow: var(--bz-elev-carte); }
-  .bz-action { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--bz-e-1) var(--bz-e-3); padding: var(--bz-e-3) var(--bz-e-4); }
-  /* Séparateur rentré de la marge de la carte : un filet qui touche les deux bords fait formulaire administratif ;
-     rentré, il sépare sans quadriller. (Pseudo-élément : une bordure, elle, va forcément d'un bord à l'autre.) */
-  .bz-action { position: relative; }
+  /* Filet rentré : touchant les deux bords, il faisait formulaire administratif. Pseudo-élément, car une bordure
+     irait forcément d'un bord à l'autre. */
+  .bz-action { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--bz-e-1) var(--bz-e-3); padding: var(--bz-e-3) var(--bz-e-4); }
   .bz-action + .bz-action::before { content: ""; position: absolute; inset-block-start: 0; inset-inline: var(--bz-e-4);
     border-block-start: var(--bz-bord-1) solid var(--bz-bordure-decor); }
   .bz-action[data-surligne] { background: var(--bz-marque-doux); }
@@ -784,16 +783,14 @@
 
   /* ---------------------------------------------------------------- assistant à étapes (§4.21, §4.14, §6.1 P4) */
   /* Dialogue lg sur ordinateur (liste d'étapes à gauche), feuille plein écran sur téléphone (barre de 4 px + texte). */
-  /* Hauteur bornée plutôt que fixe : à 46 rem imposées, la première étape (deux choix) laissait un tiers de vide sous
-     le texte — un dialogue qui a l'air inachevé. Le plancher évite qu'une étape très courte rétrécisse le dialogue à
-     rien, le plafond l'empêche de dépasser l'écran, et entre les deux il prend la taille de son contenu.
-     fit-content, pas auto : un dialogue modal est positionné par ses quatre côtés, et auto le ferait remplir l'écran.
-     Le passage d'une étape à l'autre s'accompagne au lieu de sauter, là où le navigateur sait interpoler fit-content. */
+  /* Hauteur bornée plutôt que fixe : à 46 rem imposées, la première étape en laissait un tiers vide — un dialogue qui
+     a l'air inachevé. Entre plancher et plafond, il prend la taille de son contenu, et le passage d'une étape à
+     l'autre s'accompagne. fit-content et non auto : un dialogue modal est posé par ses quatre côtés, auto le
+     ferait remplir l'écran. */
   .bz-assistant { block-size: fit-content; min-block-size: min(30rem, 100dvh - 2 * var(--bz-e-4)); max-block-size: min(46rem, 100dvh - 2 * var(--bz-e-4));
     interpolate-size: allow-keywords; transition: block-size var(--bz-d-3) var(--bz-c-standard), opacity var(--bz-d-3) var(--bz-c-effet),
       translate var(--bz-d-4) var(--bz-ressort-doux), overlay var(--bz-d-3) allow-discrete, display var(--bz-d-3) allow-discrete; }
-  /* Le cadre suit la hauteur du contenu (un block-size: 100% la rendrait de nouveau fixe : un pourcentage se résout
-     ici sur le plafond du dialogue). Il s'étire dans ce qui reste quand le contenu dépasse. */
+  /* Le cadre suit le contenu : un block-size: 100% se résoudrait sur le plafond et figerait de nouveau la hauteur. */
   .bz-assistant .bz-dialogue__cadre { flex: 1 1 auto; min-block-size: 0; }
   .bz-assistant__entete { display: flex; flex-direction: column; gap: var(--bz-e-0-5); min-inline-size: 0; }
   .bz-assistant__grille { flex: 1; min-block-size: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -1193,9 +1190,8 @@
   .bz-liste__texte { display: flex; flex-direction: column; min-inline-size: 0; }
   .bz-liste__lien { color: var(--bz-texte); font-weight: var(--bz-g-fort); text-decoration: none; }
   .bz-liste__lien:hover { text-decoration: underline; }
-  /* Toute la colonne du nom (avatar, nom, méta) est la cible du lien, à la souris comme au doigt : viser un nom de
-     24 px de haut faisait hésiter, et c'est le geste le plus fréquent d'une liste. La cible s'arrête au nom : les
-     autres colonnes restent sélectionnables et copiables. (Au toucher, c'était déjà le cas — §4.0.) */
+  /* Toute la colonne du nom ouvre la fiche, à la souris comme au doigt (§4.0) : viser le nom seul faisait hésiter sur
+     le geste le plus fréquent d'une liste. La cible s'arrête là : les autres colonnes restent copiables. */
   .bz-tableau__nom { position: relative; }
   .bz-tableau__nom .bz-liste__ligne { min-block-size: var(--bz-cible-min); }
   .bz-tableau__nom .bz-liste__lien::after { content: ""; position: absolute; inset: 0; }
@@ -1508,19 +1504,18 @@
   :root[data-mouvement="reduit"] .bz-icone.bz-tourne { animation: none; }
   @media (forced-colors: active) { .bz-xp__remplissage, .bz-barre__segment { fill: Highlight; } .bz-xp__piste { fill: Canvas; stroke: CanvasText; } .bz-proposition, .bz-kanban__carte, .bz-quete, .bz-trophee { border-color: CanvasText; } }
 
-  /* ================================================================ mouvement (§3.7)
-     Un changement d'état s'accompagne ; il ne saute pas. Tout se mesure en jetons (--bz-d-*, --bz-c-*), et toute
-     distance passe par --bz-deplacement, que « Animations réduites » met à zéro : le mouvement disparaît alors
-     complètement, l'état d'arrivée reste le même, et rien ne dépend d'un transitionend.
-     ---------------------------------------------------------------- */
+  /* ---------------------------------------------------------------- mouvement (§3.7)
+     Un changement d'état s'accompagne, il ne saute pas. Durées et courbes en jetons, distances multipliées par
+     --bz-deplacement, que « Animations réduites » met à zéro : le mouvement disparaît, l'arrivée ne change pas,
+     et rien n'attend un transitionend. */
 
-  /* Survols et états : la couleur glisse au lieu de claquer. Jamais de mouvement, juste la teinte. */
+  /* Survols et états : la teinte glisse au lieu de claquer ; aucun déplacement. */
   .bz-rail__lien, .bz-onglets-bas__lien, .bz-menu [role="menuitem"], .bz-puce, .bz-tableau__tri, .bz-reglages__section {
     transition: background-color var(--bz-d-2) var(--bz-c-effet), color var(--bz-d-2) var(--bz-c-effet), border-color var(--bz-d-2) var(--bz-c-effet); }
   .bz-onglets [role="tab"] { transition: color var(--bz-d-2) var(--bz-c-effet), border-color var(--bz-d-3) var(--bz-c-standard); }
   .bz-tableau tbody tr, .bz-liste__lien { transition: background-color var(--bz-d-2) var(--bz-c-effet); }
 
-  /* Une tuile ou une carte cliquable se soulève un peu sous le curseur : elle dit « je suis un objet », pas une case. */
+  /* Tuile ou carte cliquable : se soulève sous le curseur, donc c'est un objet et pas une case. */
   .bz-tuile, .bz-carte:has(.bz-carte__lien) {
     transition: background-color var(--bz-d-2) var(--bz-c-effet), box-shadow var(--bz-d-2) var(--bz-c-standard), translate var(--bz-d-2) var(--bz-c-standard); }
   @media (hover: hover) {
@@ -1528,13 +1523,11 @@
       box-shadow: var(--bz-elev-flottant); translate: 0 calc(var(--bz-deplacement) * -1 * var(--bz-e-0-5)); }
   }
 
-  /* La fiche arrive du bord où elle est ancrée (du bas sur téléphone, de la droite sur ordinateur) au lieu
-     d'apparaître d'un coup. Animation et non transition : elle se rejoue à chaque ouverture, même si l'élément reste. */
+  /* La fiche arrive de son bord. Animation et non transition : elle se rejoue à chaque ouverture. */
   .bz-fiche:not([hidden]) { animation: bz-fiche-entre var(--bz-d-4) var(--bz-ressort-doux) both; }
   @keyframes bz-fiche-entre { from { opacity: 0; translate: 0 calc(var(--bz-deplacement) * 2rem); } }
 
-  /* Menus et popovers : montent de deux pixels en s'ouvrant, et s'effacent en se fermant. Sans [popover] ni
-     allow-discrete (iOS < 17), la règle est simplement ignorée : l'ouverture reste instantanée. */
+  /* Menus et popovers : montent en s'ouvrant. Sans [popover] ni allow-discrete (iOS < 17), simplement ignoré. */
   .bz-menu, .bz-popover {
     opacity: 1; translate: 0 0;
     transition: opacity var(--bz-d-2) var(--bz-c-effet), translate var(--bz-d-3) var(--bz-c-entree),
@@ -1542,8 +1535,7 @@
   .bz-menu:not(:popover-open), .bz-popover:not(:popover-open) { opacity: 0; translate: 0 calc(var(--bz-deplacement) * -1 * var(--bz-e-1)); }
   @starting-style { .bz-menu:popover-open, .bz-popover:popover-open { opacity: 0; translate: 0 calc(var(--bz-deplacement) * -1 * var(--bz-e-1)); } }
 
-  /* Changement d'écran : prêt pour document.startViewTransition() côté application. Sans lui, rien ne se passe —
-     aucune règle ci-dessous ne s'applique tant que l'application ne demande pas la transition. */
+  /* Changement d'écran : prêt pour document.startViewTransition(). Sans cet appel, rien de tout ceci ne s'applique. */
   @media (prefers-reduced-motion: no-preference) {
     ::view-transition-old(root) { animation: bz-vue-sort var(--bz-d-2) var(--bz-c-sortie) both; }
     ::view-transition-new(root) { animation: bz-vue-entre var(--bz-d-3) var(--bz-c-entree) both; }
