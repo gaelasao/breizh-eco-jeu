@@ -4170,13 +4170,19 @@ void main() {
       }
     }
     const aspect = canvas.clientWidth / Math.max(1, canvas.clientHeight) || 1.6;
-    const b = bornes(d, { plateau: { x0, x1, z0, z1 }, emprise: { x0: EMPRISE.x0 + posePays.x, x1: EMPRISE.x1 + posePays.x, z0: EMPRISE.z0 + posePays.z, z1: EMPRISE.z1 + posePays.z }, aspect });
+    // en plein vol, le chemin de chez soi reste ouvert : sinon un retour partant de la France serait rogné en route
+    const enVol = performance.now() - volCamera <= dureeVol() + 120;
+    const b = bornes(d, { plateau: { x0, x1, z0, z1 }, emprise: { x0: EMPRISE.x0 + posePays.x, x1: EMPRISE.x1 + posePays.x, z0: EMPRISE.z0 + posePays.z, z1: EMPRISE.z1 + posePays.z }, aspect, retour: enVol });
     // seulement quand elles changent : setBoundary redemande une image à camera-controls, et la carte ne se
     // reposerait plus jamais (§5.10 — zéro image calculée à l'arrêt)
     if (b.x0 !== boitePays.min.x || b.x1 !== boitePays.max.x || b.z0 !== boitePays.min.z || b.z1 !== boitePays.max.z) {
       boitePays.min.set(b.x0, 0, b.z0);
       boitePays.max.set(b.x1, 8, b.z1);
       controles.setBoundary(boitePays);
+      /* La boîte qui se referme pousse la visée vers le centre du pays : il faut une image de plus pour l'y conduire.
+         `demander` et non `reveiller` — c'est le dézoom qui glisse, personne n'a touché à la carte, et l'ambiance ne
+         repart donc pas. La boîte ne bouge plus à distance constante : la visée arrive, et tout s'arrête (§5.10). */
+      if (!forcer) demander();
     }
     // plan lointain : 1 400 dans la ville (le tampon de profondeur y sépare un marquage de sa chaussée), étendu ensuite
     const far = planLointain(d);

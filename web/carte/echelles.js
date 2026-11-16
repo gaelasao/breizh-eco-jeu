@@ -5,8 +5,8 @@
    écrans : c'est une seule course de caméra, de 6 à 4 800 unités, où ce qu'on voit change par fondus.
 
      6 → 360     la ville (ce qui existait avant : 1 unité = 1 mètre)
-     330 → 900   la carte du pays se referme sur la ville, par un anneau qui se resserre
-     420 → 1 250 les communes où l'entreprise a quelque chose, une par une
+     380 → 900   la carte du pays se referme sur la ville, par un anneau qui se resserre
+     470 → 1 250 les communes où l'entreprise a quelque chose, une par une
      1 100 → 2 600  les départements, les communes y sont regroupées
      2 400 → 4 800  les régions, les départements y sont regroupés
 
@@ -107,14 +107,21 @@ export const etendueVue = (distance) => distance * LARGEUR_PAR_DISTANCE;
  * rognée de la moitié de ce qu'on voit : quand l'écran est plus large que la France, il ne reste qu'un point, et la
  * caméra se recentre d'elle-même sur le pays — comme toute carte qui se respecte.
  * `plateau` et `emprise` : { x0, x1, z0, z1 } ; `aspect` : largeur / hauteur de la vue.
+ * `retour` : un vol est en cours. Les bornes rognent la visée même en plein vol ; sans cela, un retour vers sa ville
+ * serait arraché en route par une boîte encore serrée sur le centre du pays. Le temps du vol, le plateau reste donc
+ * dans les bornes, quelle que soit l'échelle d'où l'on part.
  */
-export function bornes(distance, { plateau, emprise, aspect = 1.6 }) {
+export function bornes(distance, { plateau, emprise, aspect = 1.6, retour = false }) {
   if (distance <= DISTANCES.ville || !emprise) return plateau;
   const h = etendueVue(distance) / 2;
   const serre = (a, b, marge) => (b - a > 2 * marge ? [a + marge, b - marge] : [(a + b) / 2, (a + b) / 2]);
   const [x0, x1] = serre(emprise.x0, emprise.x1, h * Math.max(1, aspect / 1.6));
   const [z0, z1] = serre(emprise.z0, emprise.z1, h);
-  // le plateau reste toujours atteignable : on peut rentrer chez soi depuis n'importe où
+  /* Passé ce point la carte est partout, et elle se recentre alors sur le pays : une carte de France montre la France,
+     pas le coin où l'on habite. Le glissement est continu — la boîte ne pousse la caméra qu'à mesure qu'elle se
+     referme, et à 4 800 elle n'est plus qu'un point. On rentre chez soi en rezoomant, ou d'un clic sur sa commune. */
+  if (!villeVisible(distance) && !retour) return { x0, x1, z0, z1 };
+  // tant qu'on voit encore sa ville, elle reste atteignable : dézoomer ne doit jamais arracher de chez soi
   return {
     x0: Math.min(x0, plateau.x0), x1: Math.max(x1, plateau.x1),
     z0: Math.min(z0, plateau.z0), z1: Math.max(z1, plateau.z1),

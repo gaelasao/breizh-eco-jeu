@@ -41,7 +41,7 @@ type Echelles = {
   opaciteTraces: (d: number) => { departements: number; regions: number };
   polaireMax: (d: number) => number;
   etendueVue: (d: number) => number;
-  bornes: (d: number, o: { plateau: { x0: number; x1: number; z0: number; z1: number }; emprise?: { x0: number; x1: number; z0: number; z1: number } | null; aspect?: number }) => { x0: number; x1: number; z0: number; z1: number };
+  bornes: (d: number, o: { plateau: { x0: number; x1: number; z0: number; z1: number }; emprise?: { x0: number; x1: number; z0: number; z1: number } | null; aspect?: number; retour?: boolean }) => { x0: number; x1: number; z0: number; z1: number };
   regrouper: (points: readonly Repere[], niveau: string, ancres?: Map<string, { lon: number; lat: number; nom?: string }>) => Groupe[];
   compte: (role: string, n: number, libelles?: Record<string, [string, string]>) => string;
   detailGroupe: (g: Groupe, libelles?: Record<string, [string, string]>, o?: { max?: number; reste?: boolean }) => string;
@@ -123,10 +123,23 @@ test('échelles : on se redresse au-dessus de la carte, et la caméra se recentr
   const large = E.bornes(1200, { plateau, emprise });
   assert.ok(large.x0 < plateau.x0 && large.x1 > plateau.x1, 'au dézoom, on peut se promener sur le pays');
   assert.ok(large.x0 > emprise.x0, 'mais pas au-delà de ce qu’on voit déjà : la vue reste pleine de carte');
+  // tant qu'on voit sa ville, elle reste atteignable : dézoomer n'arrache jamais de chez soi
+  const prochePlateau = { x0: 1200, x1: 1300, z0: 1200, z1: 1300 }; // une ville hors de ce que la boîte serrée garde
+  const encoreLa = E.bornes(D.carteSeule - 1, { plateau: prochePlateau, emprise });
+  assert.ok(encoreLa.x0 <= prochePlateau.x0 && encoreLa.x1 >= prochePlateau.x1, 'sa ville reste dans les bornes');
+  // écran plus large que la France : il ne reste qu'un point, et la caméra se pose dessus — une carte de France
+  // montre la France, pas le coin où l'on habite. On rentre chez soi en rezoomant, ou d'un clic sur sa commune.
   const tout = E.bornes(D.max, { plateau, emprise });
-  // écran plus large que la France : il ne reste qu'un point (plus le plateau, pour pouvoir rentrer chez soi)
-  assert.ok(tout.x1 - tout.x0 <= plateau.x1 - plateau.x0 + 1e-9, 'au dézoom complet, la caméra se recentre d’elle-même');
-  assert.ok(tout.x0 <= plateau.x0 && tout.x1 >= plateau.x1, 'le plateau reste toujours atteignable');
+  assert.ok(tout.x1 - tout.x0 <= 1e-9 && tout.z1 - tout.z0 <= 1e-9, 'au dézoom complet, la caméra se recentre d’elle-même');
+  assert.equal(tout.x0, (emprise.x0 + emprise.x1) / 2, 'et ce point est le centre du pays, pas sa ville');
+  // et le chemin du retour reste ouvert : en rezoomant, les bornes rouvrent sur sa ville avant qu'elle reparaisse
+  const retour = E.bornes(D.carteSeule, { plateau, emprise });
+  assert.ok(retour.x0 <= plateau.x0 && retour.x1 >= plateau.x1, 'en rezoomant, on retrouve le chemin de chez soi');
+  // en plein vol, le plateau reste dans les bornes à toute échelle : un retour vers sa ville part de la France entière
+  // sans être rogné en route (les bornes rabotent la visée pendant le vol, pas seulement à l'arrivée)
+  const enVol = E.bornes(D.max, { plateau, emprise, retour: true });
+  assert.ok(enVol.x0 <= plateau.x0 && enVol.x1 >= plateau.x1, 'un vol de retour n’est jamais arraché de sa destination');
+  assert.ok(enVol.z0 <= plateau.z0 && enVol.z1 >= plateau.z1);
   // un clic descend d'un cran, jamais de deux
   assert.ok(E.volVers('regions') > E.volVers('departements'));
   assert.ok(E.volVers('departements') > E.volVers('communes'));
