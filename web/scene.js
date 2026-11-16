@@ -3856,8 +3856,10 @@ void main() {
      est posé vient d'un code postal réel, et ce qui n'en a pas n'y figure pas. La carte dit alors ce qui manque,
      plutôt que de poser un client au hasard au milieu de son département.
 
-     Un seul maillage pour les terres, un pour chaque sorte de bordure, un maillage instancié pour les repères : cinq
-     appels de dessin pour la France entière. La ville, recouverte, n'est plus calculée du tout. */
+     Un seul maillage pour les terres, un pour chaque sorte de bordure, un maillage instancié pour les repères. La
+     ville, recouverte, n'est plus calculée du tout : mesuré en rendu logiciel sur l'entreprise d'exemple, il reste
+     9 appels de dessin et 8 356 triangles pour la France entière, 11 là où les bordures des départements sont encore
+     visibles — contre une centaine d'appels et 250 000 triangles dans la ville. */
   const P0 = projection(); // les tracés sont construits une fois, autour du centre de la Bretagne…
   // … et le groupe se déplace pour poser la commune de l'entreprise exactement sur sa ville (0,02 : juste au-dessus du sol)
   const posePays = new THREE.Vector3(VUE.cible.x - P0.x(P0.lon0), 0.02, VUE.cible.z - P0.z(P0.lat0));
