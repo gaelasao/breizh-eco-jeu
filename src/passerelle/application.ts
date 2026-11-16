@@ -214,6 +214,11 @@ export class Application {
         const r = await this.nexus.echanges();
         return r.echanges.filter((e) => e.attend === 'vous').length;
       },
+      // installation en ligne (même source que la passerelle, voir en-ligne.ts) : sans elle, pas de lien cliquable
+      // dans les messages, et l'écran de réglage le dit avant qu'on compte dessus
+      enLigne: () => process.env.LB_EN_LIGNE === '1',
+      // derniers droits confirmés, lus tels quels : écrire au client relève de l'offre (voir ../core/offre.ts)
+      offre: () => { const e = this.nexus.etat(); return { relie: e.relie, plan: e.droits?.plan ?? null, etatAbonnement: e.droits?.etatAbonnement ?? null }; },
     }, this.#chiffreur, { etat: etat?.alertes ?? null, changement, ...(f ? { fetch: f } : {}) });
     monde.abonner((ev) => {
       this.synchro.surChangement(ev.action);

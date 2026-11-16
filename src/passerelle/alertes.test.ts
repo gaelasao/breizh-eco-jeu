@@ -5,11 +5,14 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { AddressInfo } from 'node:net';
 import type { ObjetMetier } from '../core/model.ts';
 import type { Situation } from '../core/situation.ts';
 import type { Univers } from '../core/univers.ts';
 import type { Profil } from '../demo/donnees.ts';
 import { Alertes, QUAND_DEFAUT, SUJETS, SUJETS_DEFAUT, VERSION_WHATSAPP, type SourcesAlertes } from './alertes.ts';
+import { Application } from './application.ts';
+import { creerServeur } from './http.ts';
 import { ErreurApi } from './monde.ts';
 import { chiffreurEphemere } from './stockage.ts';
 
@@ -21,8 +24,10 @@ const JETON = `${'1'.repeat(9)}:${'A'.repeat(35)}`;
 const JETON_META = `EA${'b'.repeat(40)}`;
 
 const SOURCE = { id: 'saisie', libelle: 'Saisie', derniereSynchro: null };
+/** La famille suit le type, comme dans un vrai monde : une tâche est de famille « tache », un chantier de famille « projet ». */
+const FAMILLES: Record<string, ObjetMetier['famille']> = { article: 'ressource', vehicule: 'ressource', tache: 'tache', projet: 'projet', tiers: 'tiers' };
 const objet = (id: string, type: string, nom: string, champs: Record<string, unknown> = {}): ObjetMetier => ({
-  id, orgId: 'org', famille: type === 'article' ? 'ressource' : 'commande', type, roles: [], nom,
+  id, orgId: 'org', famille: FAMILLES[type] ?? 'commande', type, roles: [], nom,
   champs: champs as ObjetMetier['champs'], provenance: 'declare', source: SOURCE, majLe: '2026-11-10T08:00:00.000Z',
   disponibilite: 'disponible', mode: 'reel',
 });
@@ -31,10 +36,26 @@ const situation = (objetId: string, regle: string, description: string, gravite:
   preuve: { valeur: 1, seuil: 0, source: SOURCE, observeLe: '2026-11-10T08:00:00.000Z', provenance: 'declare', fraicheur: 'fraiche' },
 });
 
+/**
+ * Un univers d'essai : le vocabulaire de l'entreprise, comme en vrai. Les rappels d'entretien s'y posent (type visé,
+ * champ de date, condition « terminé ») — rien de tout cela n'est écrit dans le module.
+ */
 const UNIVERS = {
+  id: 'essai', nom: 'Essai', version: 1, roles: [],
+  types: [
+    { id: 'facture', famille: 'commande', libelle: 'Facture', pluriel: 'Factures', champs: [{ id: 'montant', libelle: 'Montant', type: 'montant', unite: '€' }] },
+    { id: 'article', famille: 'ressource', libelle: 'Matériau', pluriel: 'Matériaux', champs: [{ id: 'quantite', libelle: 'Quantité', type: 'nombre' }] },
+    { id: 'vehicule', famille: 'ressource', libelle: 'Véhicule', pluriel: 'Véhicules', champs: [{ id: 'controle_technique', libelle: 'Contrôle technique', type: 'date' }] },
+    { id: 'projet', famille: 'projet', libelle: 'Chantier', pluriel: 'Chantiers', champs: [
+      { id: 'client', libelle: 'Client', type: 'reference' },
+      { id: 'fin_le', libelle: 'Travaux terminés le', type: 'date' },
+      { id: 'statut', libelle: 'Statut', type: 'choix', choix: ['en cours', 'réceptionné'] },
+    ] },
+  ],
   regles: [{ id: 'retard_paiement', libelle: 'Retard de paiement', type: 'facture', champ: 'retard', sens: 'max', seuil: 0, unite: 'jours' },
     { id: 'stock_minimum', libelle: 'Stock', type: 'article', champ: 'quantite', sens: 'min', seuil: 10 }],
-  echeances: [{ id: 'controle_technique', libelle: 'Contrôle technique', type: 'vehicule', champ: 'controle_technique', avantJours: 30 }],
+  echeances: [{ id: 'controle_technique', libelle: 'Contrôle technique', type: 'vehicule', champ: 'controle_technique', avantJours: 30 },
+    { id: 'fin_chantier', libelle: 'Fin de chantier', type: 'projet', champ: 'fin_le', termine: { champ: 'statut', valeurs: ['réceptionné'] } }],
 } as unknown as Univers;
 
 /** Le monde simulé : ce que le module lit, et une horloge qu'on avance à la main. */
@@ -45,6 +66,10 @@ function monde() {
     situations: [] as Situation[],
     connecteurs: [] as { nom: string; message: string | null }[],
     reseau: null as number | null,
+    /** Installation en ligne : sans elle, aucun lien « C'est fait » dans les messages (il ne ramènerait nulle part). */
+    enLigne: false,
+    /** Derniers droits confirmés par le réseau (voir ../core/offre.ts) : l'entreprise travaille seule par défaut. */
+    offre: { relie: false, plan: null, etatAbonnement: null } as { relie: boolean; plan: 'gratuit' | 'active' | null; etatAbonnement: string | null },
   };
   const src: SourcesAlertes = {
     maintenant: () => m.le,
@@ -53,6 +78,8 @@ function monde() {
     univers: () => UNIVERS,
     connecteursEnErreur: () => m.connecteurs,
     reseau: async () => m.reseau,
+    enLigne: () => m.enLigne,
+    offre: () => m.offre,
   };
   return { m, src };
 }
@@ -591,6 +618,386 @@ test('relecture : un état enregistré revient tel quel, un canal illisible est 
 
   const casse = { ...etat, canaux: [{ ...etat.canaux[0], id: 'pas-un-id' }] } as unknown as ReturnType<Alertes['instantane']>;
   assert.equal(new Alertes(monde().src, chiffreurEphemere(), { etat: casse }).reglages(ADMIN).canaux.length, 0);
+});
+
+// ---------------------------------------------------------------- le tri : ce qui mérite d'interrompre
+
+test('tri : dix choses qui tombent d’un coup font UN message, pas dix', async () => {
+  const x = alertes();
+  await brancherTelegram(x);
+  x.m.objets = Array.from({ length: 10 }, (_, i) => objet(`f${i}`, 'facture', `F-20${i}`, { montant: 1000 + i }));
+  x.m.situations = x.m.objets.map((o) => situation(o.id, 'retard_paiement', 'Retard de paiement : 42 jours', 'critique'));
+
+  assert.equal(await x.a.passer(), 1);
+  assert.equal(x.S.envois.length, 1, 'un seul message pour la salve entière');
+  const envoi = x.S.envois[0] ?? '';
+  assert.match(envoi, /^Urgent : 10 choses à regarder\./);
+  assert.match(envoi, /• et 5 autres choses à voir\./, 'cinq lignes, puis le compte du reste');
+  assert.doesNotMatch(envoi, /\/g\//, 'un geste ne vaut que pour UNE décision : pas de lien dans un message groupé');
+  assert.equal(x.a.reglages(ADMIN).enAttente, 0);
+});
+
+test('tri : une urgence et une chose ordinaire dans la même minute partent ensemble', async () => {
+  const x = alertes();
+  await brancherTelegram(x);
+  x.a.regler(ADMIN, { sujets: [...SUJETS_DEFAUT, 'stock_bas'] });
+  x.m.objets = [objet('f1', 'facture', 'F-2043', { montant: 1450 }), objet('a1', 'article', 'Panneau 19 mm', { quantite: 4 })];
+  x.m.situations = [situation('f1', 'retard_paiement', 'Retard de paiement : 92 jours', 'critique'), situation('a1', 'stock_minimum', 'Stock : 4 (minimum 10)')];
+
+  assert.equal(await x.a.passer(), 1);
+  assert.equal(x.S.envois.length, 1, 'un lot par passage, jamais deux messages pour la même minute');
+  assert.match(x.S.envois[0] ?? '', /F-2043/);
+  assert.match(x.S.envois[0] ?? '', /Panneau 19 mm/);
+});
+
+test('tri : une chose peu importante n’interrompt personne, une urgence vraie passe seule', async () => {
+  const x = alertes();
+  await brancherTelegram(x);
+  x.a.regler(ADMIN, { sujets: [...SUJETS_DEFAUT, 'stock_bas'] });
+  x.m.le = new Date('2026-11-14T23:00:00'); // samedi, en pleine nuit : hors de tout
+  x.m.objets = [objet('a1', 'article', 'Panneau 19 mm', { quantite: 4 })];
+  x.m.situations = [situation('a1', 'stock_minimum', 'Stock : 4 (minimum 10)')];
+  assert.equal(await x.a.passer(), 0, 'un stock bas ne réveille personne');
+  assert.equal(x.a.reglages(ADMIN).enAttente, 1, 'ce n’est pas perdu : cela partira lundi');
+
+  x.m.objets = [...x.m.objets, objet('f1', 'facture', 'F-2043', { montant: 1450 })];
+  x.m.situations = [...x.m.situations, situation('f1', 'retard_paiement', 'Retard de paiement : 92 jours', 'critique')];
+  assert.equal(await x.a.passer(), 1);
+  const envoi = x.S.envois[0] ?? '';
+  assert.match(envoi, /^Urgent — F-2043/);
+  assert.doesNotMatch(envoi, /Panneau/, 'l’urgence ne traîne pas le reste avec elle hors des heures');
+  assert.equal(x.a.reglages(ADMIN).enAttente, 1);
+});
+
+test('tri : deux urgences coup sur coup ne font pas sonner deux fois', async () => {
+  const x = alertes();
+  await brancherTelegram(x);
+  x.m.le = new Date('2026-11-14T23:00:00'); // samedi, en pleine nuit
+  x.m.objets = [objet('f1', 'facture', 'F-1', {})];
+  x.m.situations = [situation('f1', 'retard_paiement', 'Retard de paiement : 92 jours', 'critique')];
+  assert.equal(await x.a.passer(), 1);
+
+  x.m.le = new Date('2026-11-14T23:02:00'); // deux minutes plus tard, une deuxième
+  x.m.objets = [...x.m.objets, objet('f2', 'facture', 'F-2', {})];
+  x.m.situations = [...x.m.situations, situation('f2', 'retard_paiement', 'Retard de paiement : 120 jours', 'critique')];
+  assert.equal(await x.a.passer(), 0, 'la pause tient');
+  assert.equal(x.a.reglages(ADMIN).enAttente, 1);
+
+  x.m.le = new Date('2026-11-14T23:12:00'); // dix minutes après la première
+  assert.equal(await x.a.passer(), 1);
+  assert.equal(x.S.envois.length, 2);
+  assert.match(x.S.envois[1] ?? '', /F-2/);
+});
+
+test('tri : ce qu’une tâche prend déjà en charge ne sonne pas (le « en cours » de l’écran Aujourd’hui)', async () => {
+  const x = alertes();
+  await brancherTelegram(x);
+  const facture = objet('f1', 'facture', 'F-2043', { montant: 1450 });
+  x.m.objets = [facture, objet('t1', 'tache', 'Relancer la Menuiserie', { concerne: 'f1', statut: 'en cours' })];
+  x.m.situations = [situation('f1', 'retard_paiement', 'Retard de paiement : 92 jours', 'critique')];
+  assert.equal(await x.a.passer(), 0, 'on a agi : il reste à attendre que la donnée le prouve');
+  assert.equal(x.a.reglages(ADMIN).enAttente, 0);
+  assert.equal(x.S.envois.length, 0);
+
+  // la tâche est terminée et la facture n'est toujours pas payée : la situation revient en tête, et elle sonne
+  x.m.objets = [facture, objet('t1', 'tache', 'Relancer la Menuiserie', { concerne: 'f1', statut: 'terminée' })];
+  assert.equal(await x.a.passer(), 1);
+  assert.match(x.S.envois[0] ?? '', /F-2043/);
+});
+
+test('tri : une donnée manquante est à vérifier, pas à faire : elle ne part jamais', async () => {
+  const x = alertes();
+  await brancherTelegram(x);
+  x.m.objets = [objet('f1', 'facture', 'F-2043', {})];
+  x.m.situations = [{ ...situation('f1', 'retard_paiement', 'Retard de paiement : donnée manquante'), statut: 'a_verifier' }];
+  assert.equal(await x.a.passer(), 0);
+  assert.equal(x.a.reglages(ADMIN).enAttente, 0);
+});
+
+// ---------------------------------------------------------------- le geste dans le message
+
+test('geste : « C’est fait » et « Plus tard » dans le message, et jamais rejoués deux fois', async () => {
+  const x = alertes();
+  x.m.enLigne = true;
+  await brancherTelegram(x);
+  x.a.regler(ADMIN, { adresseJeu: 'https://jeu.exemple.fr' });
+  x.m.objets = [objet('f1', 'facture', 'F-2043', { montant: 1450 })];
+  x.m.situations = [situation('f1', 'retard_paiement', 'Retard de paiement : 42 jours')];
+  assert.equal(await x.a.passer(), 1);
+
+  const envoi = x.S.envois[0] ?? '';
+  assert.match(envoi, /\nC’est fait : https:\/\/jeu\.exemple\.fr\/g\/[A-Za-z0-9_-]{32}$/m);
+  assert.match(envoi, /\nPlus tard : https:\/\/jeu\.exemple\.fr\/g\/[A-Za-z0-9_-]{32}$/m);
+  const liens = [...envoi.matchAll(/\/g\/([A-Za-z0-9_-]{32})/g)].map((m) => m[1] as string);
+  assert.equal(liens.length, 2);
+  // le jeton n'est jamais gardé : seule son empreinte est enregistrée
+  const etat = JSON.stringify(x.a.instantane());
+  for (const j of liens) assert.equal(etat.includes(j), false, 'le jeton du geste n’est pas dans l’état');
+
+  // un aperçu ne décide rien (un service qui déplie les liens d'un message ne doit rien jouer)
+  const vu = x.a.apercuGeste(liens[0]);
+  assert.equal(vu.trouve, true);
+  assert.equal(vu.deja, false);
+  assert.equal(vu.geste, 'fait');
+  assert.match(vu.quoi, /F-2043/);
+  assert.equal(x.a.apercuGeste(liens[0]).deja, false, 'deux aperçus ne jouent toujours rien');
+
+  const fait = x.a.faireGeste(liens[0]);
+  assert.equal(fait.ok, true);
+  assert.equal(fait.deja, false);
+  assert.match(fait.texte, /La fiche n’a pas été modifiée/);
+
+  // rejoué : on le dit, on ne refait rien — et l'autre lien de la même alerte ne sert plus non plus
+  assert.equal(x.a.faireGeste(liens[0]).deja, true);
+  assert.match(x.a.faireGeste(liens[0]).titre, /déjà/);
+  assert.equal(x.a.faireGeste(liens[1]).deja, true);
+  assert.equal(x.S.envois.length, 1, 'un geste n’envoie rien de nouveau');
+});
+
+test('geste : « C’est fait » vaut aussi pour le résumé du matin ; « Plus tard » ramène la chose demain', async () => {
+  const x = alertes();
+  x.m.enLigne = true;
+  await brancherTelegram(x);
+  x.a.regler(ADMIN, { sujets: [...SUJETS_DEFAUT, 'resume_matin'], quand: { heure: '18:00' }, adresseJeu: 'https://jeu.exemple.fr' });
+  x.m.objets = [objet('f1', 'facture', 'F-2043', { montant: 1450 })];
+  x.m.situations = [situation('f1', 'retard_paiement', 'Retard de paiement : 42 jours')];
+  assert.equal(await x.a.passer(), 1);
+  const liens = [...(x.S.envois[0] ?? '').matchAll(/\/g\/([A-Za-z0-9_-]{32})/g)].map((m) => m[1] as string);
+  const plusTard = liens[1] as string;
+  assert.equal(x.a.faireGeste(plusTard).geste, 'plus_tard');
+
+  x.m.le = new Date('2026-11-10T18:05:00');
+  assert.equal(await x.a.passer(), 1, 'le résumé du soir part');
+  assert.match(x.S.envois[1] ?? '', /^Ce matin : rien à régler/, 'remis à demain : il n’est pas resservi aujourd’hui');
+
+  x.m.le = new Date('2026-11-11T18:05:00'); // demain
+  assert.equal(await x.a.passer(), 1);
+  assert.match(x.S.envois[2] ?? '', /Ce matin : 1 chose à régler/, 'et demain, on en reparle');
+  assert.match(x.S.envois[2] ?? '', /F-2043/);
+});
+
+test('geste : « C’est fait » enlève la chose de la file, et le résumé ne la ressert pas', async () => {
+  const x = alertes();
+  x.m.enLigne = true;
+  await brancherTelegram(x);
+  x.a.regler(ADMIN, { sujets: [...SUJETS_DEFAUT, 'resume_matin'], quand: { heure: '18:00' }, adresseJeu: 'https://jeu.exemple.fr' });
+  x.m.objets = [objet('f1', 'facture', 'F-2043', { montant: 1450 })];
+  x.m.situations = [situation('f1', 'retard_paiement', 'Retard de paiement : 42 jours')];
+  await x.a.passer();
+  const liens = [...(x.S.envois[0] ?? '').matchAll(/\/g\/([A-Za-z0-9_-]{32})/g)].map((m) => m[1] as string);
+  x.a.faireGeste(liens[0] as string);
+
+  x.m.le = new Date('2026-11-10T18:05:00');
+  await x.a.passer();
+  assert.match(x.S.envois[1] ?? '', /^Ce matin : rien à régler/);
+  x.m.le = new Date('2026-11-11T18:05:00');
+  await x.a.passer();
+  assert.match(x.S.envois[2] ?? '', /^Ce matin : rien à régler/, 'tranché une fois, plus jamais resservi tant que cela dure');
+});
+
+test('geste : un jeton inventé, trop vieux ou vide ne donne rien', async () => {
+  const x = alertes();
+  x.m.enLigne = true;
+  await brancherTelegram(x);
+  x.a.regler(ADMIN, { adresseJeu: 'https://jeu.exemple.fr' });
+  x.m.objets = [objet('f1', 'facture', 'F-2043', {})];
+  x.m.situations = [situation('f1', 'retard_paiement', 'Retard de paiement : 42 jours')];
+  await x.a.passer();
+  const lien = ([...(x.S.envois[0] ?? '').matchAll(/\/g\/([A-Za-z0-9_-]{32})/g)].map((m) => m[1] as string)[0]) as string;
+
+  for (const faux of ['', 'court', 'A'.repeat(32), '../../etc/passwd']) {
+    const r = x.a.faireGeste(faux);
+    assert.equal(r.ok, false, faux);
+    assert.match(r.titre, /n’est plus valable/);
+  }
+  x.m.le = new Date('2026-11-20T10:00:00'); // plus d'une semaine après
+  assert.equal(x.a.apercuGeste(lien).trouve, false, 'un geste n’attend pas indéfiniment');
+});
+
+test('geste : sans installation joignable, aucun lien mort dans les messages — et l’écran le dit avant', async () => {
+  const x = alertes(); // installation posée sur un ordinateur : pas en ligne
+  await brancherTelegram(x);
+  x.a.regler(ADMIN, { adresseJeu: 'https://jeu.exemple.fr' });
+  x.m.objets = [objet('f1', 'facture', 'F-2043', {})];
+  x.m.situations = [situation('f1', 'retard_paiement', 'Retard de paiement : 42 jours')];
+  await x.a.passer();
+  assert.doesNotMatch(x.S.envois[0] ?? '', /\/g\//, 'un lien qui ne ramène nulle part n’est pas écrit');
+  assert.match(x.S.envois[0] ?? '', /https:\/\/jeu\.exemple\.fr\/#\/type:facture/, 'le lien vers l’écran reste');
+
+  const dit = x.a.reglages(ADMIN).geste;
+  assert.equal(dit.possible, false);
+  assert.equal(dit.etat, 'hors_ligne');
+  assert.match(dit.phrase, /ne ramènerait nulle part/);
+  assert.match(dit.phrase, /Mettre en ligne/);
+
+  // en ligne, mais sans adresse : rien à cliquer non plus, et c'est dit aussi
+  x.m.enLigne = true;
+  x.a.regler(ADMIN, { adresseJeu: null });
+  assert.equal(x.a.reglages(ADMIN).geste.etat, 'sans_adresse');
+  // en ligne, avec l'adresse de cet ordinateur : le lien ne vaudrait que là
+  x.a.regler(ADMIN, { adresseJeu: 'http://localhost:4173' });
+  assert.equal(x.a.reglages(ADMIN).geste.etat, 'adresse_locale');
+  assert.match(x.a.reglages(ADMIN).geste.phrase, /ne vaut que sur cet ordinateur/);
+  // et en ligne avec une adresse publique : c'est bon, et c'est dit
+  x.a.regler(ADMIN, { adresseJeu: 'https://jeu.exemple.fr' });
+  assert.equal(x.a.reglages(ADMIN).geste.possible, true);
+  assert.equal(x.a.reglages(ADMIN).geste.etat, 'en_ligne');
+});
+
+// ---------------------------------------------------------------- rappel d'entretien chez le client
+
+test('entretien : un travail terminé il y a deux ans prévient l’ENTREPRISE, jamais le client', async () => {
+  const x = alertes();
+  await brancherTelegram(x);
+  x.a.regler(ADMIN, { sujets: ['entretien_client'], adresseJeu: 'https://jeu.exemple.fr' });
+  // le vocabulaire vient de l'univers : « Chantier », « Travaux terminés le », et « réceptionné » pour terminé
+  const r = x.a.ajouterEntretien(ADMIN, { type: 'projet', champ: 'fin_le', apresMois: 24 });
+  assert.equal(r.libelleType, 'Chantier');
+  assert.equal(r.libelleChamp, 'Travaux terminés le');
+  assert.equal(r.apres, '2 ans');
+  // ce qu'on peut viser vient de l'univers : un travail ou une affaire qui porte une date, avec SES mots
+  const possibles = x.a.reglages(ADMIN).entretiensPossibles;
+  assert.deepEqual(possibles.map((t) => t.libelle), ['Chantier']);
+  assert.deepEqual(possibles[0]?.champs, [{ id: 'fin_le', libelle: 'Travaux terminés le' }]);
+
+  x.m.objets = [
+    objet('c1', 'tiers', 'Menuiserie du Port', { email: 'contact@exemple.fr', telephone: '0298000000', siret: '12345678900011' }),
+    objet('p1', 'projet', 'Toiture Kerjean', { client: 'c1', fin_le: '2024-10-01', statut: 'réceptionné' }),
+    objet('p2', 'projet', 'Charpente Plouzané', { client: 'c1', fin_le: '2024-09-01', statut: 'en cours' }),
+    objet('p3', 'projet', 'Bardage Guipavas', { client: 'c1', fin_le: '2026-06-01', statut: 'réceptionné' }),
+  ];
+  assert.equal(await x.a.passer(), 1);
+  const envoi = x.S.envois[0] ?? '';
+  // « 2 ans » : le temps vraiment écoulé depuis la fin des travaux (deux ans et un mois), pas le délai réglé
+  assert.match(envoi, /^Chantier Toiture Kerjean \(Menuiserie du Port\) — 2 ans déjà\./);
+  assert.match(envoi, /Un entretien est peut-être à proposer/);
+  assert.match(envoi, /Living Business n’écrit rien au client/);
+  assert.doesNotMatch(envoi, /Charpente Plouzané/, 'un chantier encore en cours n’est pas un travail terminé');
+  assert.doesNotMatch(envoi, /Bardage Guipavas/, 'cinq mois, ce n’est pas deux ans');
+  assert.doesNotMatch(envoi, /contact@exemple\.fr|0298000000|12345678900011/, 'rien du client au-delà de son nom');
+  // le seul appel sortant est le canal de l'entreprise : le client n'a rien reçu
+  assert.deepEqual([...new Set(x.S.appels.map((a) => a.url.hostname))], ['api.telegram.org']);
+});
+
+test('entretien : le temps dit est celui qui s’est écoulé, jamais le délai réglé', async () => {
+  const x = alertes();
+  await brancherTelegram(x);
+  x.a.regler(ADMIN, { sujets: ['entretien_client'] });
+  x.a.ajouterEntretien(ADMIN, { type: 'projet', champ: 'fin_le', apresMois: 6 });
+  x.m.objets = [
+    objet('p1', 'projet', 'Toiture Kerjean', { fin_le: '2019-05-20', statut: 'réceptionné' }),
+    objet('p2', 'projet', 'Abri de jardin', { fin_le: '2026-04-20', statut: 'réceptionné' }),
+  ];
+  assert.equal(await x.a.passer(), 1);
+  const envoi = x.S.envois[0] ?? '';
+  assert.match(envoi, /Toiture Kerjean — 7 ans déjà/, 'un chantier de 2019 n’a pas « six mois »');
+  assert.match(envoi, /Abri de jardin — 6 mois déjà/);
+});
+
+test('entretien : un travail qui pose encore problème n’est pas un travail fini', async () => {
+  const x = alertes();
+  await brancherTelegram(x);
+  x.a.regler(ADMIN, { sujets: ['entretien_client'] });
+  x.a.ajouterEntretien(ADMIN, { type: 'projet', champ: 'fin_le', apresMois: 24 });
+  x.m.objets = [objet('p1', 'projet', 'Toiture Kerjean', { fin_le: '2024-10-01', statut: 'réceptionné' })];
+  x.m.situations = [situation('p1', 'retard_projet', 'Retard du chantier : 12 jours')];
+  assert.equal(await x.a.passer(), 0);
+
+  x.m.situations = [];
+  assert.equal(await x.a.passer(), 1);
+  assert.match(x.S.envois[0] ?? '', /Toiture Kerjean/);
+});
+
+test('entretien : les réglages fautifs sont refusés en nommant le problème', () => {
+  const x = alertes();
+  for (const [d, code] of [
+    [{ type: 'navire', champ: 'fin_le', apresMois: 24 }, 'type_inconnu'],
+    [{ type: 'projet', champ: 'statut', apresMois: 24 }, 'champ_invalide'],
+    [{ type: 'projet', champ: 'fin_le', apresMois: 0 }, 'delai_invalide'],
+    [{ type: 'projet', champ: 'fin_le', apresMois: 121 }, 'delai_invalide'],
+    [{ type: 'projet', champ: 'fin_le', apresMois: 2.5 }, 'delai_invalide'],
+  ] as const) {
+    assert.throws(() => x.a.ajouterEntretien(ADMIN, d), (e: unknown) => e instanceof ErreurApi && e.code === code, JSON.stringify(d));
+  }
+  const r = x.a.ajouterEntretien(ADMIN, { type: 'projet', champ: 'fin_le', apresMois: 24 });
+  assert.throws(() => x.a.ajouterEntretien(ADMIN, { type: 'projet', champ: 'fin_le', apresMois: 24 }),
+    (e: unknown) => e instanceof ErreurApi && e.code === 'rappel_en_double');
+  assert.throws(() => x.a.ajouterEntretien(SIMPLE, { type: 'projet', champ: 'fin_le', apresMois: 12 }),
+    (e: unknown) => e instanceof ErreurApi && e.statut === 403);
+  assert.deepEqual(x.a.supprimerEntretien(ADMIN, r.id), { ok: true, id: r.id });
+  assert.equal(x.a.reglages(ADMIN).entretiens.length, 0);
+  assert.throws(() => x.a.supprimerEntretien(ADMIN, r.id), (e: unknown) => e instanceof ErreurApi && e.statut === 404);
+});
+
+test('entretien : écrire au client relève de l’offre, prévenir l’entreprise reste compris', async () => {
+  const x = alertes();
+  await brancherTelegram(x);
+  x.a.regler(ADMIN, { sujets: ['entretien_client'] });
+  x.a.ajouterEntretien(ADMIN, { type: 'projet', champ: 'fin_le', apresMois: 24 });
+  x.m.objets = [objet('p1', 'projet', 'Toiture Kerjean', { fin_le: '2024-10-01', statut: 'réceptionné' })];
+
+  // entreprise non reliée : elle est prévenue quand même, et l'envoi au client est présenté, pas caché
+  const sansOffre = x.a.reglages(ADMIN).ecrireAuClient;
+  assert.equal(sansOffre.compris, false);
+  assert.equal(sansOffre.offre, 'Breizhcosystem ACTIVE');
+  assert.match(sansOffre.phrase, /Vous prévenir est compris dans Living Business/);
+  assert.match(sansOffre.phrase, /compris dans Breizhcosystem ACTIVE/, 'réservé, mais dit, jamais caché');
+  assert.match(sansOffre.phrase, /Rien ne vous empêche d’écrire vous-même/);
+  assert.equal(await x.a.passer(), 1, 'prévenir l’entreprise ne dépend d’aucune offre');
+
+  x.m.offre = { relie: true, plan: 'active', etatAbonnement: null };
+  const avec = x.a.reglages(ADMIN).ecrireAuClient;
+  assert.equal(avec.compris, true);
+  assert.match(avec.phrase, /écran Optimiser/, 'l’envoi passe par ce qui existe, pas par un deuxième mécanisme');
+  assert.match(avec.phrase, /n’écrit à personne sans que vous l’ayez activé/);
+});
+
+test('entretien : relu du disque, un rappel revient tel quel', async () => {
+  const x = alertes();
+  x.a.ajouterEntretien(ADMIN, { type: 'projet', champ: 'fin_le', apresMois: 36 });
+  const etat = JSON.parse(JSON.stringify(x.a.instantane())) as ReturnType<Alertes['instantane']>;
+  const relu = new Alertes(monde().src, chiffreurEphemere(), { etat });
+  const r = relu.reglages(ADMIN).entretiens[0];
+  assert.equal(r?.type, 'projet');
+  assert.equal(r?.apres, '3 ans');
+  const casse = { ...etat, entretiens: [{ ...etat.entretiens[0], id: 'pas-un-id' }] } as unknown as ReturnType<Alertes['instantane']>;
+  assert.equal(new Alertes(monde().src, chiffreurEphemere(), { etat: casse }).reglages(ADMIN).entretiens.length, 0);
+});
+
+// ---------------------------------------------------------------- la page du geste, servie par l'installation
+
+test('geste : la page /g/<jeton> est servie, et le lien ne décide rien avant le bouton', async () => {
+  const app = await Application.creer({ exemple: 'pme' });
+  const serveur = creerServeur(app);
+  try {
+    await new Promise<void>((ok) => serveur.listen(0, '127.0.0.1', ok));
+    const base = `http://127.0.0.1:${(serveur.address() as AddressInfo).port}`;
+    const jeton = 'z'.repeat(32);
+
+    // la page : aucune session, elle se charge et demande le geste à la passerelle
+    const page = await fetch(`${base}/g/${jeton}`);
+    assert.equal(page.status, 200);
+    const html = await page.text();
+    assert.match(html, /\/geste\.js/);
+    assert.match(page.headers.get('content-security-policy') ?? '', /script-src 'self'/);
+
+    // l'aperçu (GET) ne joue rien et ne demande aucune session
+    const vu = await fetch(`${base}/api/public/alertes/geste/${jeton}`, { headers: { accept: 'application/json' } });
+    assert.equal(vu.status, 200);
+    const a = await vu.json() as { trouve: boolean; titre: string };
+    assert.equal(a.trouve, false, 'jeton inconnu de cette installation');
+    assert.match(a.titre, /n’est plus valable/);
+
+    // le POST répond aussi, sans rien casser, et refuse une autre origine
+    const fait = await fetch(`${base}/api/public/alertes/geste/${jeton}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(fait.status, 200);
+    assert.equal(((await fait.json()) as { ok: boolean }).ok, false);
+    const ailleurs = await fetch(`${base}/api/public/alertes/geste/${jeton}`, { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://ailleurs.exemple.fr' }, body: '{}' });
+    assert.equal(ailleurs.status, 403);
+  } finally {
+    await new Promise<void>((ok) => serveur.close(() => ok()));
+    app.arreter();
+  }
 });
 
 test('supprimer un canal arrête tout de suite les envois', async () => {

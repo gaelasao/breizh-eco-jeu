@@ -1,0 +1,4 @@
+/* Page du geste fait depuis un message d'alerte (« C'est fait », « Plus tard ») — jetons Breizhcosystem (/bz/bz.css). */
+body { display: flex; flex-direction: column; align-items: center; padding: calc(var(--bz-sa-haut) + var(--bz-e-8)) var(--bz-goutiere) calc(var(--bz-sa-bas) + var(--bz-e-8)); }
+#geste { inline-size: 100%; max-inline-size: 32rem; }
+.geste-pied { margin-top: var(--bz-e-4); text-align: center; }
