@@ -9024,22 +9024,43 @@ function automatisationsUnifiees(O, A, Pr) {
       declenchements: c?.declenchements ?? 0, dernier: c?.dernier ?? null,
       objets: piste?.objets ?? [],
     };
-  }).sort((a, b) => ETAT_AUTOMATISATION[a.etat].rang - ETAT_AUTOMATISATION[b.etat].rang || b.heuresMois - a.heuresMois || a.nom.localeCompare(b.nom, 'fr'));
+  }).sort((a, b) => Number(a.verrouillee) - Number(b.verrouillee) || ETAT_AUTOMATISATION[a.etat].rang - ETAT_AUTOMATISATION[b.etat].rang || b.heuresMois - a.heuresMois || a.nom.localeCompare(b.nom, 'fr'))
+    .map(motifUneFois());
 }
+
+/* Le motif d'un verrou se lit en clair UNE fois par raison : la raison générale en tête du bloc réservé, l'exception
+   du courrier sur sa propre ligne. Les suivantes le gardent sous « Pourquoi » — répété huit fois, il harcèlerait. */
+const motifUneFois = () => {
+  const dits = new Set();
+  return (x) => {
+    const direMotif = x.verrouillee && !!x.motif && !dits.has(x.motif);
+    if (direMotif) dits.add(x.motif);
+    return { ...x, direMotif };
+  };
+};
+
+/* Réservée à l'offre : elle garde sa place dans la liste, sous celles qui sont à portée, avec son gain chiffré sur les
+   données de l'entreprise et son motif en clair. Le partage et ce que vaut ce verrou : src/core/offre.ts. */
+const OFFRE_ACTIVE = 'Breizhcosystem ACTIVE';
+const VERROU = Object.freeze({ ton: 'info', icone: 'lock', texte: `Avec ${OFFRE_ACTIVE}` });
 
 /** Une ligne de la liste : état, nom, gain, un seul geste, et le « pourquoi » replié. */
 function ligneAutomatisation(x, i, admin, basculer) {
   const e = ETAT_AUTOMATISATION[x.etat];
+  const v = x.verrouillee ? VERROU : null;
   const id = `automatisation-${i}`;
   const gain = x.heuresMois ? `${nf.format(x.heuresMois)} h par mois${x.euroMois ? ` · ${nfEuro.format(x.euroMois)}` : ''}, estimé` : null;
   const etat = x.etat === 'a_brancher' && x.manque ? `Il manque : ${x.manque}` : e.libelle;
-  return h('li', { class: 'bz-action', 'data-ton': e.ton },
+  // réservée : c'est cela qu'on lit d'abord, le gain juste après — sur ses propres chiffres, jamais un exemple
+  const tete = v ? v.texte : etat;
+  return h('li', { class: 'bz-action', 'data-ton': v ? v.ton : e.ton },
     // l'état se lit en toutes lettres sous le nom : l'icône ne porte ni alarme ni couleur seule
-    icone(e.icone, { classe: 'bz-action__icone', libelle: e.libelle }),
+    icone(v ? v.icone : e.icone, { classe: 'bz-action__icone', libelle: tete }),
     h('div', { class: 'bz-action__texte' },
       h('p', { class: 'bz-action__titre', id, texte: x.nom }),
-      h('p', { class: 'bz-action__detail' }, h('strong', { texte: etat }), gain ? h('span', { class: 'bz-t-chiffre bz-texte-2', 'data-certitude': 'estime', texte: ` · ${gain}` }) : null),
+      h('p', { class: 'bz-action__detail' }, h('strong', { texte: tete }), gain ? h('span', { class: 'bz-t-chiffre bz-texte-2', 'data-certitude': 'estime', texte: ` · ${gain}` }) : null),
       x.etat === 'active' ? h('p', { class: 'bz-action__preuve', texte: x.declenchements ? `Déclenchée ${pluriel(x.declenchements, 'fois', 'fois')} · ${dateRelative(x.dernier)}` : 'Pas encore déclenchée : elle agira dès qu’un cas se présentera.' }) : null,
+      v && x.motif && x.direMotif ? h('p', { class: 'bz-action__preuve', texte: x.motif }) : null,
       h('details', { class: 'bz-repli bz-repli--sobre' },
         h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'Pourquoi' }), icone('chevron-down', { taille: 'sm' })),
         h('div', { class: 'bz-repli__corps bz-pile bz-pile--serre' },
@@ -9047,12 +9068,16 @@ function ligneAutomatisation(x, i, admin, basculer) {
           x.piste ? h('ul', { class: 'bz-proposition__raisons' },
             h('li', { texte: x.piste.constat }),
             h('li', { class: 'bz-texte-2', texte: `Hypothèse : ${enMinuscule(x.piste.hypothese)}` })) : null,
+          // réservée : son motif et l'état de ses données restent dits, rien n'est caché derrière le verrou
+          v && x.motif && !x.direMotif ? h('p', { class: 'bz-t-petit', texte: x.motif }) : null,
+          v ? h('p', { class: 'bz-t-petit bz-texte-2', texte: x.etat === 'a_brancher' && x.manque ? `Living Business ne voit pas encore ${x.manque}.` : 'Les données qu’elle regarde sont déjà là.' }) : null,
           x.versOutil ? h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Les envois vers l’extérieur passent par votre outil d’automatisation ; sans lui, elle prépare la tâche et vous envoyez.' }) : null))),
     h('div', { class: 'bz-action__boutons' },
-      admin && x.etat === 'prete' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', cle: `recette-${x.id}`, 'aria-describedby': id, onclick: () => basculer(x.id, true) }, icone('zap', { taille: 'sm' }), 'Mettre en marche') : null,
+      admin && x.etat === 'prete' && !v ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', cle: `recette-${x.id}`, 'aria-describedby': id, onclick: () => basculer(x.id, true) }, icone('zap', { taille: 'sm' }), 'Mettre en marche') : null,
       admin && x.etat === 'active' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', cle: `recette-${x.id}`, 'aria-describedby': id, onclick: () => basculer(x.id, false) }, icone('pause', { taille: 'sm' }), 'Arrêter') : null,
-      admin && x.etat === 'a_brancher' ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', 'aria-describedby': id, onclick: () => ouvrirAssistant() }, icone('plug', { taille: 'sm' }), 'Connecter mes données') : null,
-      !admin ? h('span', { class: 'bz-t-petit bz-texte-2', texte: x.etat === 'prete' ? 'À mettre en marche par la direction.' : '' }) : null,
+      admin && x.etat === 'a_brancher' && !v ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', 'aria-describedby': id, onclick: () => ouvrirAssistant() }, icone('plug', { taille: 'sm' }), 'Connecter mes données') : null,
+      admin && v ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', 'aria-describedby': id, onclick: () => changerVue('nexus') }, icone('bz-nexus', { taille: 'sm' }), 'Voir Breizhcosystem') : null,
+      !admin ? h('span', { class: 'bz-t-petit bz-texte-2', texte: x.etat === 'prete' && !v ? 'À mettre en marche par la direction.' : '' }) : null,
       x.objets.length ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', 'aria-describedby': id, onclick: () => ouvrirSurCarte(x.objets[0]) }, icone('eye', { taille: 'sm' }), `Voir ${pluriel(x.objets.length, 'élément concerné', 'éléments concernés')}`) : null));
 }
 
@@ -9077,24 +9102,34 @@ function autresGains(O, admin) {
           o.objets.length ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', 'aria-describedby': `gain-${i}`, onclick: () => ouvrirSurCarte(o.objets[0]) }, icone('eye', { taille: 'sm' }), `Voir ${pluriel(o.objets.length, 'élément concerné', 'éléments concernés')}`) : null))))));
 }
 
+/** Ce qui reste hors de portée après « Tout automatiser », en une phrase, avec son gain chiffré (ou rien). */
+function phraseReservees(Pr) {
+  if (!Pr.reservees) return null;
+  const gain = Pr.heuresMoisReservees ? ` : environ ${nf.format(Pr.heuresMoisReservees)} h par mois${Pr.euroMoisReservees ? ` · ${nfEuro.format(Pr.euroMoisReservees)}` : ''}, estimé sur vos données` : '';
+  return `${pluriel(Pr.reservees, 'automatisation reste comprise', 'automatisations restent comprises')} dans ${OFFRE_ACTIVE}${gain}.`;
+}
+
 /**
  * « J'automatise » : d'un geste, tout ce qui est prêt se met en marche. Ce qui ne peut pas l'être est dit, avec ce
  * qu'il faut relier. Pédagogie d'abord : ce qu'est une automatisation, ce qu'elle fera, ce qui reste à une personne.
  */
 function blocAutomatiser(Pr, admin, apres) {
-  const pretes = Pr.recettes.filter((r) => r.etat === 'prete');
-  const manquantes = Pr.recettes.filter((r) => r.etat === 'a_brancher');
-  if (!pretes.length && !manquantes.length) return resultatAssistant('ok', 'Tout ce que Living Business sait automatiser est déjà en marche.');
+  const pretes = Pr.recettes.filter((r) => r.etat === 'prete' && !r.verrouillee);
+  const manquantes = Pr.recettes.filter((r) => r.etat === 'a_brancher' && !r.verrouillee);
+  if (!pretes.length && !manquantes.length && !Pr.reservees) return resultatAssistant('ok', 'Tout ce que Living Business sait automatiser est déjà en marche.');
   const phrase = pretes.length
     ? `${pluriel(pretes.length, 'automatisation est prête', 'automatisations sont prêtes')} avec les données déjà reliées${Pr.heuresMois ? ` : environ ${nf.format(Pr.heuresMois)} h récupérées par mois, estimé` : ''}.`
-    : 'Rien de plus à mettre en marche pour l’instant : il manque d’abord des données.';
+    : manquantes.length ? 'Rien de plus à mettre en marche pour l’instant : il manque d’abord des données.'
+    : 'Tout ce qui est à votre portée est déjà en marche.';
   return h('section', { class: 'bz-carte bz-pile bz-optimiser__tout', 'aria-labelledby': 'tout-titre' },
     h('h2', { class: 'bz-t-titre-4', id: 'tout-titre', texte: 'J’automatise' }),
     h('p', { class: 'bz-t-corps', texte: phrase }),
     manquantes.length ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `${pluriel(manquantes.length, 'autre attend', 'autres attendent')} des données que Living Business ne voit pas encore.` }) : null,
+    // ce qui reste hors de portée est dit ici, une fois, sans insister et sans parler d’argent perdu
+    Pr.reservees ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `${phraseReservees(Pr)}${Pr.phraseOffre ? ` ${Pr.phraseOffre}` : ''}` }) : null,
     h('div', { class: 'bz-groupe-boutons' },
       pretes.length && admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'tout-automatiser', onclick: () => ouvrirToutAutomatiser(Pr, admin, apres) }, icone('zap'), 'Tout automatiser') : null,
-      !pretes.length || !admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirToutAutomatiser(Pr, admin, apres) }, icone('list-checks'), pretes.length ? 'Voir le détail' : 'Voir ce qui manque') : null,
+      !pretes.length || !admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => ouvrirToutAutomatiser(Pr, admin, apres) }, icone('list-checks'), pretes.length || !manquantes.length ? 'Voir le détail' : 'Voir ce qui manque') : null,
       pretes.length && !admin ? h('span', { class: 'bz-t-petit bz-texte-2', texte: 'À mettre en marche par la direction.' }) : null));
 }
 
@@ -9102,9 +9137,11 @@ function blocAutomatiser(Pr, admin, apres) {
 const DELAI_AUTOMATISATIONS = 700;
 function ouvrirToutAutomatiser(Pr, admin, apres) {
   const S = { erreur: null, envoi: false };
-  const pretes = Pr.recettes.filter((r) => r.etat === 'prete');
-  const manquantes = Pr.recettes.filter((r) => r.etat === 'a_brancher');
+  const pretes = Pr.recettes.filter((r) => r.etat === 'prete' && !r.verrouillee);
+  const manquantes = Pr.recettes.filter((r) => r.etat === 'a_brancher' && !r.verrouillee);
   const actives = Pr.recettes.filter((r) => r.etat === 'active');
+  // chaque automatisation dans un seul groupe : à mettre en marche, en attente de données, réservée, déjà en marche
+  const reservees = Pr.recettes.filter((r) => r.verrouillee);
   const versOutil = pretes.some((r) => r.versOutil);
   const ligne = (r, sous) => h('li', { class: 'bz-pile bz-pile--serre' },
     h('p', { class: 'bz-t-label', texte: r.nom }),
@@ -9139,7 +9176,9 @@ function ouvrirToutAutomatiser(Pr, admin, apres) {
       } catch { /* hors ligne : le menu se mettra à jour à la prochaine lecture */ }
       const creees = Math.max(0, nbTaches() - avant);
       const marche = activees.length ? `${pluriel(activees.length, 'automatisation mise', 'automatisations mises')} en marche : ${activees.length > 1 ? 'elles agissent' : 'elle agit'} dès maintenant sur vos données réelles.` : 'Rien de plus à mettre en marche.';
-      informer(creees ? `${marche} ${pluriel(creees, 'tâche préparée', 'tâches préparées')}.` : marche, 'ok',
+      // ce qui n'a pas été allumé est dit dans le même message : une phrase, pas une relance
+      const reste = phraseReservees(Pr);
+      informer(`${creees ? `${marche} ${pluriel(creees, 'tâche préparée', 'tâches préparées')}.` : marche}${reste ? ` ${reste}` : ''}`, 'ok',
         creees ? { libelle: creees > 1 ? 'Voir les tâches' : 'Voir la tâche', faire: () => changerVue('famille:tache') } : null);
       rubriquesDejaDites.delete('taches');
       apres?.();
@@ -9158,6 +9197,9 @@ function ouvrirToutAutomatiser(Pr, admin, apres) {
         groupe('Prêtes à mettre en marche', pretes, (r) => (r.heuresMois ? `Environ ${nf.format(r.heuresMois)} h par mois, estimé sur vos données d’aujourd’hui.` : 'Rien à traiter aujourd’hui : elle agira dès qu’un cas se présentera.')),
         groupe('Il manque des données', manquantes, (r) => `Living Business ne voit pas encore ${r.manque}.`),
         manquantes.length && admin ? h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { D.fermer(); ouvrirAssistant(); } }, icone('plug'), 'Connecter mes données')) : null,
+        // « Tout automatiser » n'allume que ce qui est à portée : ce qui reste est montré ici, avec son gain et sa raison
+        groupe(`Comprises dans ${OFFRE_ACTIVE}`, reservees, (r) => `${r.heuresMois ? `Environ ${nf.format(r.heuresMois)} h par mois${r.euroMois ? ` · ${nfEuro.format(r.euroMois)}` : ''}, estimé sur vos données d’aujourd’hui. ` : ''}${r.motif ?? ''}`),
+        reservees.length && Pr.phraseOffre ? h('p', { class: 'bz-t-petit bz-texte-2', texte: Pr.phraseOffre }) : null,
         groupe('Déjà en marche', actives, () => null),
       ],
       pied: [
@@ -9212,6 +9254,8 @@ function suiteTacheRepetitive(t, T, { admin = false, basculer = null } = {}) {
     const validation = c.verdict !== 'a_automatiser_en_validant' ? ''
       : a.versOutil && T.outilBranche ? ' Votre outil d’automatisation reçoit l’événement : prévoyez-y une étape où vous validez avant l’envoi.'
       : ' Elle prépare une tâche pour une personne : rien ne part sans vous.';
+    // réservée à l'offre : on le dit ici aussi, avec son motif — jamais une automatisation promise puis refusée
+    if (a.verrouillee) return resultatAssistant('info', `« ${a.nom} » fait cette tâche, avec ${OFFRE_ACTIVE}.`, { detail: `${ceQuElleFait} ${a.motif ?? ''}`.trim() });
     if (a.etat === 'active') return resultatAssistant('ok', `« ${a.nom} » fait déjà cette tâche : elle est en marche.`, { detail: `${ceQuElleFait}${validation}` });
     if (a.etat === 'prete') {
       return resultatAssistant('info', `« ${a.nom} » fait déjà cette tâche : elle est prête, il reste à la mettre en marche.`, {
@@ -9409,7 +9453,7 @@ function ouvrirTacheRepetitive(T, Pr, { tache = null, idee = null } = {}, apres 
         ...question('Une automatisation de Living Business fait-elle déjà cette tâche ?', `Living Business a ${pluriel(Pr.recettes.length, 'automatisation prête', 'automatisations prêtes')} à l’emploi. Si l’une d’elles correspond, il n’y a rien à construire : il suffit de la mettre en marche.`),
         liste('tache-recette', 'Automatisation existante', [['', 'Non, aucune ne correspond'], ...Pr.recettes.map((x) => [x.id, x.nom])], v.recette, (val) => { v.recette = val; D.rendre(); }),
         erreurChamp(),
-        r ? resultatAssistant('info', `Celle-ci le fait déjà : ${enMinuscule(r.nom)}.`, { detail: `Quand : ${enMinuscule(r.quand)}. Alors : ${enMinuscule(r.alors)}. Aujourd’hui, ${ETAT_RECETTE[r.etat]}${r.etat === 'a_brancher' && r.manque ? ` : Living Business ne voit pas encore ${r.manque}` : ''}.` })
+        r ? resultatAssistant('info', `Celle-ci le fait déjà : ${enMinuscule(r.nom)}.`, { detail: `Quand : ${enMinuscule(r.quand)}. Alors : ${enMinuscule(r.alors)}. ${r.verrouillee ? `Elle est comprise dans ${OFFRE_ACTIVE}` : `Aujourd’hui, ${ETAT_RECETTE[r.etat]}${r.etat === 'a_brancher' && r.manque ? ` : Living Business ne voit pas encore ${r.manque}` : ''}`}.` })
           : h('p', { class: 'bz-t-petit', texte: 'Aucune ne correspond ? Continuez : le résultat vous dira ce qu’il reste à faire.' }),
       ];
     }
@@ -9479,7 +9523,8 @@ async function rendreOptimiser() {
     rendreOptimiser();
   };
   const liste = automatisationsUnifiees(O, A, Pr);
-  const compte = (etat) => liste.filter((x) => x.etat === etat).length;
+  // une réservée n'est ni « prête » ni « en attente de données » : elle est comptée à part, et elle reste dans la liste
+  const compte = (etat) => liste.filter((x) => x.etat === etat && !x.verrouillee).length;
   E.optimiserOnglet ??= lireLocal('lb-optimiser-onglet');
   const onglet = E.optimiserOnglet === 'taches' ? 'taches' : 'automatisations';
   const choisirOnglet = (id) => { E.optimiserOnglet = id; ecrireLocal('lb-optimiser-onglet', id); rendreOptimiser(); };
@@ -9504,7 +9549,7 @@ async function rendreOptimiser() {
     h('div', { class: 'bz-pile', role: 'tabpanel', id: 'panneau-optimiser', 'aria-labelledby': `onglet-${onglet}`, tabindex: '0' },
       onglet === 'automatisations' ? [
         // une seule liste, un seul mot : chaque automatisation porte son état
-        h('p', { class: 'bz-t-petit bz-texte-2', texte: `${pluriel(compte('prete'), 'prête à mettre en marche', 'prêtes à mettre en marche')} · ${pluriel(compte('active'), 'en marche', 'en marche')} · ${pluriel(compte('a_brancher'), 'en attente de données', 'en attente de données')}. Calculé sur vos données réelles ; chaque estimation dit son hypothèse.` }),
+        h('p', { class: 'bz-t-petit bz-texte-2', texte: `${pluriel(compte('prete'), 'prête à mettre en marche', 'prêtes à mettre en marche')} · ${pluriel(compte('active'), 'en marche', 'en marche')} · ${pluriel(compte('a_brancher'), 'en attente de données', 'en attente de données')}${Pr.reservees ? ` · ${pluriel(Pr.reservees, `comprise dans ${OFFRE_ACTIVE}`, `comprises dans ${OFFRE_ACTIVE}`)}` : ''}. Calculé sur vos données réelles ; chaque estimation dit son hypothèse.` }),
         liste.length ? h('ul', { class: 'bz-actions', role: 'list' }, liste.map((x, i) => ligneAutomatisation(x, i, admin, basculer)))
           : blocVide({ titre: 'Rien à automatiser pour l’instant.', texte: 'Connectez vos données : les automatisations se proposent toutes seules.',
             actions: admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirAssistant() }, icone('plug'), 'Connecter mes données') : null }),
