@@ -9,7 +9,7 @@
       "id": "article", "libelle": "Produit", "pluriel": "Produits",
       "champs": [{ "id": "prix_vente", "libelle": "Prix de vente", "type": "montant", "unite": "€" }]
     },
-    { "id": "commande_client", "libelle": "Vente", "pluriel": "Ventes" },
+    { "id": "commande_client", "libelle": "Vente", "pluriel": "Ventes", "genre": "f" },
     { "id": "particulier", "libelle": "Client particulier", "pluriel": "Clients particuliers" },
     { "id": "projet", "masque": true },
     { "id": "vehicule", "masque": true }
