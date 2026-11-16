@@ -1016,6 +1016,10 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
     if (ms && methode === 'GET') return envoyer(res, 200, app.suivis.fiche(profil, ms[1]));
     ms = /^\/suivis\/(obj-[A-Za-z0-9-]{1,60})\/lien$/.exec(chemin);
     if (ms && methode === 'POST') return envoyer(res, 200, app.suivis.creerLien(profil, ms[1], await lireCorps(req)));
+    // rappels d'entretien chez le client : une échéance lointaine sur un travail terminé (l'entreprise est prévenue, pas le client)
+    if (methode === 'POST' && chemin === '/alertes/entretiens') return envoyer(res, 200, app.alertes.ajouterEntretien(profil, await lireCorps(req, LIMITE_ALERTES)));
+    ma = /^\/alertes\/entretiens\/(ent-[a-f0-9]{12})$/.exec(chemin);
+    if (methode === 'DELETE' && ma) return envoyer(res, 200, app.alertes.supprimerEntretien(profil, ma[1]));
     if (methode === 'POST' && chemin === '/monde/exemple') return envoyer(res, 200, monde.changerExemple(profil, sid, ((await lireCorps(req)) as { jeu?: unknown }).jeu));
     if (methode === 'POST' && chemin === '/monde/vider-demo') return envoyer(res, 200, monde.viderDemo(profil, sid, await lireCorps(req), app.comptes.profilsAvecCompte()));
     throw new ErreurApi(404, 'introuvable');
@@ -1055,6 +1059,21 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
     if (req.method === 'POST') {
       if (!memeOrigine(req)) throw new ErreurApi(403, 'origine');
       return envoyer(res, 200, app.enquetes.repondre(jeton, await lireCorps(req), adresse));
+    }
+    throw new ErreurApi(405, 'methode');
+  }
+
+  /**
+   * Geste fait depuis un message d'alerte (« C'est fait », « Plus tard ») : seul le jeton donne accès, à ce geste-là.
+   * GET n'écrit RIEN (un aperçu de lien déplié par un service ne doit rien décider) ; seul le POST, venu de la page
+   * servie par cette installation, joue le geste — et une seule fois.
+   */
+  async function gestePublic(req: IncomingMessage, res: ServerResponse, jeton: string) {
+    limiterIp(req);
+    if (req.method === 'GET') return envoyer(res, 200, app.alertes.apercuGeste(jeton));
+    if (req.method === 'POST') {
+      if (!memeOrigine(req)) throw new ErreurApi(403, 'origine');
+      return envoyer(res, 200, app.alertes.faireGeste(jeton));
     }
     throw new ErreurApi(405, 'methode');
   }
@@ -1112,6 +1131,9 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
         const page = app.suivis.page(sv[1] as string);
         return envoyer(res, page.etat === 'ouverte' ? 200 : 404, page);
       }
+      // geste fait depuis un message d'alerte : « C'est fait », « Plus tard » (page /g/<jeton>)
+      const geste = /^\/api\/public\/alertes\/geste\/([A-Za-z0-9_-]{1,64})$/.exec(chemin);
+      if (geste) return await gestePublic(req, res, geste[1] as string);
       // page du téléphone (« Mettre en ligne ») : seul le jeton, valable 10 minutes ; aucune donnée renvoyée
       const tel = /^\/api\/public\/telephone\/([A-Za-z0-9_-]{1,64})$/.exec(chemin);
       if (tel) {
@@ -1125,6 +1147,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       if (req.method !== 'GET' && req.method !== 'HEAD') return envoyer(res, 405, { erreur: 'methode' });
       const f = /^\/f\/[A-Za-z0-9_-]{1,64}$/.test(chemin) ? statiques.get('/formulaire.html')
         : /^\/s\/[A-Za-z0-9_-]{1,64}$/.test(chemin) ? statiques.get('/suivi-client.html')
+        : /^\/g\/[A-Za-z0-9_-]{1,64}$/.test(chemin) ? statiques.get('/geste.html')
         : chemin === '/telephone' ? statiques.get('/telephone.html')
         : /^\/(invitation|secours)\/[A-Za-z0-9_-]{43}$/.test(chemin) || chemin === '/installation' ? statiques.get('/') : statiques.get(chemin);
       if (!f) return envoyer(res, 404, { erreur: 'introuvable' });

@@ -15,13 +15,44 @@
  *   jamais écrits dans un journal (ce qui pourrait contenir un jeton est remplacé par « … » avant d'être noté).
  * - Appels sortants : toujours par `sortant.ts` (HTTPS, anti-SSRF, pas de redirection, taille et délai bornés).
  *
+ * LA RÈGLE DU TRI, EN TOUTES LETTRES. Une notification de trop et le canal est mort : l'entreprise coupe tout, et on
+ * ne la prévient plus de rien. Donc on ne pousse pas tout.
+ *   N'interrompt quelqu'un que ce que l'écran Aujourd'hui met en tête : une situation OUVERTE, que PERSONNE N'A
+ *   ENCORE PRISE EN CHARGE, ni remise à plus tard — et seule une situation CRITIQUE sort des heures autorisées.
+ *   Un message par décision réelle, jamais un flux.
+ * Ce classement n'est pas inventé ici : c'est celui de `web/aujourdhui.js` (`planAujourdhui`, `suiviDe`), lui-même
+ * nourri par `../core/situation.ts`. Repris point par point, et tenu par le code :
+ *   · `statut` autre qu'« ouverte » (donnée manquante, source périmée) : jamais poussé — c'est à vérifier, pas à faire ;
+ *   · une tâche ouverte porte déjà sur l'objet (le « en cours » de l'écran) : plus rien ne sonne, on a agi ;
+ *   · `gravite` « critique » seule force le silence, le week-end et le plafond (et l'entreprise peut le refuser) ;
+ *   · UN LOT PAR PASSAGE : ce que le jeu voit dans la même minute part en UN message, jamais en deux ;
+ *   · deux urgences coup sur coup : la seconde attend `PAUSE_URGENCE_MS` ou la prochaine fenêtre, pas un second coup
+ *     de téléphone ;
+ *   · « C'est fait » et « Plus tard » faits depuis un message valent pour les messages suivants, résumé du matin
+ *     compris : ce que la personne a tranché ne lui est pas resservi.
+ *
+ * LE GESTE DANS LE MESSAGE, ET SA LIMITE DITE AVANT. Chaque alerte seule porte deux liens à usage unique — « C'est
+ * fait », « Plus tard » — qui reviennent dans le jeu (`/g/<jeton>`, seule l'empreinte du jeton est gardée, comme les
+ * liens de formulaire). Ces liens ne sont mis dans les messages QUE si l'installation est en ligne (LB_EN_LIGNE=1, un
+ * serveur joignable depuis le téléphone) : sur un ordinateur posé au bureau, le lien ne ramènerait nulle part, alors
+ * il n'est pas écrit du tout — et l'écran de réglage dit pourquoi AVANT que la personne compte dessus. Un geste n'est
+ * joué qu'une fois : rejouer le lien ne refait rien, il le dit et s'arrête.
+ *
+ * LE RAPPEL D'ENTRETIEN CHEZ LE CLIENT. Une échéance lointaine rattachée à un travail TERMINÉ : un toit posé en 2024,
+ * et en 2026 l'entreprise reçoit « ce chantier a deux ans, un contrôle est peut-être à proposer ». Le message va à
+ * L'ENTREPRISE, jamais au client : c'est elle qui décide d'écrire, le logiciel n'écrit à personne tout seul. Le
+ * vocabulaire (type visé, champ de date, condition « terminé ») vient de l'univers de l'entreprise, jamais d'ici.
+ * Prévenir l'entreprise est compris dans Living Business ; écrire au client à sa place relève de l'offre et passe par
+ * ce qui existe déjà (`../core/offre.ts`, écran Optimiser) : rien de tel n'est refait ici.
+ *
  * Documentation suivie pour chaque appel : voir `docs/CONNECTEURS.md`, section « Alertes ».
  */
-import { createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import type { ObjetMetier } from '../core/model.ts';
+import { lireOffre, OFFRE, type EtatOffre, type LectureOffre } from '../core/offre.ts';
 import type { Situation } from '../core/situation.ts';
 import { mesure, pluriel } from '../core/texte.ts';
-import type { Univers } from '../core/univers.ts';
+import { defType, libelleType, typesVisibles, type Univers } from '../core/univers.ts';
 import type { Profil } from '../demo/donnees.ts';
 import { ErreurApi } from './monde.ts';
 import { appeler, recuperateurProtege, verifierUrl, type Recuperateur } from './sortant.ts';
@@ -48,6 +79,7 @@ export const SUJETS: readonly Sujet[] = Object.freeze([
   { id: 'demande_reseau', libelle: 'Une demande du réseau', aide: 'Une entreprise de Breizhcosystem attend votre réponse.', defaut: false },
   { id: 'erreur_synchro', libelle: 'Une erreur de synchronisation', aide: 'Un logiciel connecté ne répond plus, ou refuse l’accès.', defaut: true },
   { id: 'autre_alerte', libelle: 'Une autre alerte importante', aide: 'Ce que Living Business signale et qui n’entre dans aucune case ci-dessus.', defaut: false },
+  { id: 'entretien_client', libelle: 'Un entretien à proposer à un client', aide: 'Un travail terminé il y a longtemps : le client pourrait avoir besoin d’un contrôle. Vous seul décidez de lui écrire.', defaut: false },
   { id: 'resume_matin', libelle: 'Le résumé du matin', aide: 'Une fois par jour : ce qu’il y a à régler aujourd’hui, en une phrase.', defaut: false },
 ].map((s) => Object.freeze(s)));
 
@@ -106,6 +138,40 @@ interface PriveTelegram { jeton: string; conversation: string }
 interface PriveWhatsapp { jeton: string; numeroId: string; destinataire: string; modele: string; langue: string }
 interface PriveWebhook { url: string; secret: string | null }
 
+/** Ce qu'on peut faire d'une alerte depuis le message lui-même, dans les mots de l'écran Aujourd'hui. */
+export type Geste = 'fait' | 'plus_tard';
+
+/**
+ * Un geste proposé dans un message. Seule l'EMPREINTE du jeton est gardée (même règle que les liens de formulaire) :
+ * l'état enregistré ne contient jamais de lien utilisable. `faitLe` rempli : le geste a déjà été joué, et ne se
+ * rejoue pas.
+ */
+export interface GesteOffert {
+  empreinte: string;
+  cle: string;
+  geste: Geste;
+  /** La phrase de l'alerte, pour que la page dise de quoi il s'agit avant d'agir. */
+  quoi: string;
+  expire: string;
+  faitLe: string | null;
+}
+
+/**
+ * Rappel d'entretien : une échéance LOINTAINE rattachée à un travail terminé (« ce chantier a deux ans »).
+ * Rien de sectoriel ici : `type` et `champ` sont ceux de l'univers de l'entreprise, et la condition « terminé » est
+ * celle que l'univers déclare déjà pour ce type (voir `../core/univers.ts`, `DefRegleEcheance.termine`).
+ */
+export interface RappelEntretien {
+  id: string;
+  /** Type d'objet visé, tel que l'univers le déclare (projet, commande client…). */
+  type: string;
+  /** Champ de date de ce type : la date du travail fait (fin de chantier, livraison…). */
+  champ: string;
+  /** Combien de mois après cette date le rappel tombe. */
+  apresMois: number;
+  creeLe: string;
+}
+
 export interface EtatAlertes {
   canaux: CanalEnregistre[];
   sujets: string[];
@@ -121,6 +187,16 @@ export interface EtatAlertes {
   envoyes: number;
   /** Jour du dernier résumé du matin. */
   resumeLe: string | null;
+  /** « C'est fait » (clé → date) : plus un mot là-dessus tant que le fait dure, résumé du matin compris. */
+  traites: Record<string, string>;
+  /** « Plus tard » (clé → jour de retour, AAAA-MM-JJ), comme le report de l'écran Aujourd'hui. */
+  reportes: Record<string, string>;
+  /** Gestes proposés dans les messages partis (empreintes seulement). */
+  gestes: GesteOffert[];
+  /** Rappels d'entretien déclarés par l'entreprise. */
+  entretiens: RappelEntretien[];
+  /** Dernière urgence poussée hors des heures autorisées : deux urgences coup sur coup ne font pas deux messages. */
+  urgenceLe: string | null;
 }
 
 interface Fait {
@@ -145,10 +221,27 @@ export interface SourcesAlertes {
   connecteursEnErreur(): { nom: string; message: string | null }[];
   /** Demandes du réseau qui attendent une réponse ; null quand l'entreprise n'y est pas reliée. */
   reseau?: () => Promise<number | null>;
+  /**
+   * Installation en ligne (LB_EN_LIGNE=1 : un serveur joignable depuis l'extérieur, voir `en-ligne.ts`).
+   * Absent ou faux : les liens « C'est fait » / « Plus tard » ne sont pas mis dans les messages, parce qu'ils ne
+   * ramèneraient nulle part depuis un chantier.
+   */
+  enLigne?: () => boolean;
+  /** Derniers droits confirmés par le réseau, lus tels quels (voir `../core/offre.ts`) : jamais un appel d'ici. */
+  offre?: () => LectureOffre;
 }
 
 const ID = /^al-[a-f0-9]{12}$/;
+const ID_ENTRETIEN = /^ent-[a-f0-9]{12}$/;
 const JOUR_MS = 86_400_000;
+/** Deux urgences coup sur coup : la seconde attend, plutôt que de faire sonner le téléphone deux fois. */
+const PAUSE_URGENCE_MS = 10 * 60_000;
+/** Un geste proposé dans un message reste cliquable une semaine : au-delà, la situation a changé de toute façon. */
+const GESTE_DUREE_MS = 7 * JOUR_MS;
+const GESTES_MAX = 200;
+const ENTRETIENS_MAX = 10;
+const ENTRETIEN_MOIS_MAX = 120;
+const JETON_GESTE = /^[A-Za-z0-9_-]{32}$/;
 /** Nouvel essai après un échec, par nombre d'échecs d'affilée (minutes). */
 const ESSAIS_MIN = [1, 5, 15, 60, 180, 360] as const;
 const ECHECS_AVANT_PAUSE = 8;
@@ -161,6 +254,25 @@ const CANAUX_MAX = 5;
 
 const estObj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
 const sansMention = (nom: string) => nom.replace(/\s*\((démo|fictif|fictive)\)/gi, '');
+/** Comme les liens de formulaire : le jeton ne vit que dans le message, seule son empreinte est gardée. */
+const empreinteJeton = (jeton: string) => createHash('sha256').update(jeton).digest('base64url');
+/** Même date, N mois plus tard (un 31 qui n'existe pas retombe sur le mois suivant : c'est un rappel, pas un acte). */
+const plusMois = (t: number, mois: number): number => {
+  const d = new Date(t);
+  d.setUTCMonth(d.getUTCMonth() + mois);
+  return d.getTime();
+};
+/** Un DÉLAI réglé (« 2 ans après », « 18 mois après ») : en années quand elles tombent juste, sinon en mois. */
+const delaiEnMots = (mois: number): string => (mois >= 12 && mois % 12 === 0 ? pluriel(mois / 12, 'an', 'ans') : pluriel(mois, 'mois', 'mois'));
+/** Du temps ÉCOULÉ (« 2 ans déjà ») : en années entières dès la première, sinon en mois. Jamais arrondi vers le haut. */
+const depuisEnMots = (mois: number): string => (mois >= 12 ? pluriel(Math.floor(mois / 12), 'an', 'ans') : pluriel(Math.max(mois, 0), 'mois', 'mois'));
+/** Mois entiers écoulés entre deux dates (le mois en cours ne compte que si le jour est passé). */
+const moisEcoules = (debut: number, maintenant: number): number => {
+  const a = new Date(debut);
+  const b = new Date(maintenant);
+  const brut = (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + (b.getUTCMonth() - a.getUTCMonth());
+  return b.getUTCDate() < a.getUTCDate() ? brut - 1 : brut;
+};
 /** Une seule ligne, sans caractère de contrôle : ce qui part vers un service extérieur ne porte jamais de mise en forme. */
 const uneLigne = (t: string) => t.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/ {2,}/g, ' ').trim();
 
@@ -206,6 +318,13 @@ export class Alertes {
       jour: typeof e?.jour === 'string' ? e.jour : '',
       envoyes: typeof e?.envoyes === 'number' && e.envoyes >= 0 ? e.envoyes : 0,
       resumeLe: typeof e?.resumeLe === 'string' ? e.resumeLe : null,
+      traites: estObj(e?.traites) ? (e.traites as Record<string, string>) : {},
+      reportes: estObj(e?.reportes) ? (e.reportes as Record<string, string>) : {},
+      gestes: (Array.isArray(e?.gestes) ? e.gestes : []).filter((g): g is GesteOffert =>
+        estObj(g) && typeof g.empreinte === 'string' && typeof g.cle === 'string' && (g.geste === 'fait' || g.geste === 'plus_tard')).slice(-GESTES_MAX),
+      entretiens: (Array.isArray(e?.entretiens) ? e.entretiens : []).filter((r): r is RappelEntretien =>
+        estObj(r) && ID_ENTRETIEN.test(String(r.id)) && typeof r.type === 'string' && typeof r.champ === 'string' && Number.isInteger(r.apresMois)).slice(0, ENTRETIENS_MAX),
+      urgenceLe: typeof e?.urgenceLe === 'string' ? e.urgenceLe : null,
     };
   }
 
@@ -254,7 +373,81 @@ export class Alertes {
       enAttente: this.#etat.attente.length,
       envoyesAujourdhui: this.#jour() === this.#etat.jour ? this.#etat.envoyes : 0,
       versionWhatsapp: VERSION_WHATSAPP,
+      // la limite du geste, dite AVANT que la personne compte dessus
+      geste: this.#joignable(),
+      entretiens: this.#etat.entretiens.map((r) => this.#vueEntretien(r)),
+      entretiensMax: ENTRETIENS_MAX,
+      // ce que l'entreprise peut viser : les types de son univers qui portent une date, et rien d'écrit en dur
+      entretiensPossibles: this.#typesEntretien(),
+      ecrireAuClient: this.#ecrireAuClient(),
     };
+  }
+
+  /**
+   * Le geste dans le message ne vaut que si l'installation est joignable depuis le téléphone. Dit ici, sur l'écran de
+   * réglage, pendant que la personne branche son canal — pas après, quand elle aura cliqué dans le vide.
+   */
+  #joignable(): { possible: boolean; etat: 'en_ligne' | 'hors_ligne' | 'adresse_locale' | 'sans_adresse'; phrase: string } {
+    const base = this.#etat.adresseJeu;
+    if (!base) {
+      return { possible: false, etat: 'sans_adresse', phrase: 'Sans adresse, les messages partent sans lien : ni écran à ouvrir, ni « C’est fait » à cliquer. Le reste fonctionne.' };
+    }
+    const enLigne = this.#src.enLigne?.() === true;
+    if (!enLigne) {
+      return {
+        possible: false, etat: 'hors_ligne',
+        phrase: 'Living Business tourne sur cet ordinateur, pas sur un serveur joignable de l’extérieur : depuis un chantier, un lien « C’est fait » ne ramènerait nulle part. Il n’est donc pas écrit dans les messages — les alertes, elles, partent normalement. Pour l’avoir : « Mettre en ligne ».',
+      };
+    }
+    if (!base.startsWith('https://')) {
+      return { possible: false, etat: 'adresse_locale', phrase: 'Cette adresse ne vaut que sur cet ordinateur. Donnez l’adresse publique de votre Living Business pour que « C’est fait » et « Plus tard » fonctionnent depuis le téléphone.' };
+    }
+    return { possible: true, etat: 'en_ligne', phrase: 'Votre installation est en ligne : chaque alerte seule porte « C’est fait » et « Plus tard », cliquables depuis le téléphone. Chaque lien ne sert qu’une fois.' };
+  }
+
+  /** L'état de l'offre, lu tel quel. Jamais décidé ici, jamais appelé sur le réseau (voir `../core/offre.ts`). */
+  #offre(): EtatOffre {
+    return lireOffre(this.#src.offre?.() ?? { relie: false, plan: null, etatAbonnement: null });
+  }
+
+  /**
+   * Prévenir l'entreprise est compris, toujours. Écrire au client à sa place, c'est produire et envoyer : cela relève
+   * de l'offre, et cela se fait à l'écran Optimiser, pas ici. On le DIT, on ne le cache pas, et on ne le refait pas.
+   */
+  #ecrireAuClient(): { compris: boolean; offre: string; phrase: string } {
+    const compris = this.#offre() === 'offre_active';
+    return {
+      compris, offre: OFFRE,
+      phrase: compris
+        ? `Vous prévenir reste compris, et ${OFFRE} est ouverte : l’envoi au client se règle à l’écran Optimiser. Même alors, Living Business n’écrit à personne sans que vous l’ayez activé.`
+        : `Vous prévenir est compris dans Living Business, et le restera. Écrire au client à votre place, c’est produire et envoyer un message qui engage votre entreprise : ces envois partent par le service de l’éditeur, et sont compris dans ${OFFRE}. Rien ne vous empêche d’écrire vous-même, comme aujourd’hui.`,
+    };
+  }
+
+  #vueEntretien(r: RappelEntretien) {
+    const u = this.#src.univers();
+    const def = defType(u, r.type);
+    return {
+      id: r.id, type: r.type, champ: r.champ, apresMois: r.apresMois, creeLe: r.creeLe,
+      // les libellés viennent de l'univers : « Chantier », « Livraison prévue »… jamais du code
+      libelleType: libelleType(u, r.type),
+      libelleChamp: def?.champs.find((c) => c.id === r.champ)?.libelle ?? r.champ,
+      apres: delaiEnMots(r.apresMois),
+    };
+  }
+
+  /**
+   * Ce sur quoi un rappel d'entretien peut se poser : les types de l'univers qui portent une date et qui sont un
+   * TRAVAIL (famille `projet` : chantier, dossier, mission…) ou une AFFAIRE (famille `commande` : vente, commande,
+   * facture…). Les familles sont celles du noyau (`../core/model.ts`) ; les libellés, eux, viennent de l'univers.
+   */
+  #typesEntretien() {
+    const u = this.#src.univers();
+    return typesVisibles(u)
+      .filter((t) => t.famille === 'projet' || t.famille === 'commande')
+      .sort((a, b) => (a.famille === b.famille ? 0 : a.famille === 'projet' ? -1 : 1))
+      .map((t) => ({ type: t.id, libelle: t.libelle, champs: t.champs.filter((c) => c.type === 'date').map((c) => ({ id: c.id, libelle: c.libelle })) }))
+      .filter((t) => t.champs.length > 0);
   }
 
   /** Sujets cochés, moment des envois, adresse du jeu pour les liens. Chacun est facultatif. */
@@ -273,6 +466,47 @@ export class Alertes {
     if (d.adresseJeu !== undefined) this.#etat.adresseJeu = lireAdresseJeu(d.adresseJeu);
     this.#changement();
     return this.reglages(p);
+  }
+
+  // ---------------------------------------------------------------- rappels d'entretien chez le client
+
+  /**
+   * « Pour mes chantiers, préviens-moi deux ans après la fin. » Le type et le champ de date sont contrôlés contre
+   * l'univers de l'entreprise : rien n'est accepté qui n'y soit déclaré, et rien n'est écrit en dur ici.
+   */
+  ajouterEntretien(p: Profil, d: unknown) {
+    this.#admin(p);
+    if (!estObj(d)) throw new ErreurApi(400, 'requete_invalide');
+    if (this.#etat.entretiens.length >= ENTRETIENS_MAX) {
+      throw new ErreurApi(409, 'trop_de_rappels', `Vous avez déjà ${ENTRETIENS_MAX} rappels d’entretien : retirez-en un avant d’en ajouter.`);
+    }
+    const u = this.#src.univers();
+    const type = typeof d.type === 'string' ? d.type : '';
+    const def = defType(u, type);
+    if (!def) throw new ErreurApi(400, 'type_inconnu', 'Ce type n’existe pas dans votre univers.');
+    const champ = typeof d.champ === 'string' ? d.champ : '';
+    const dc = def.champs.find((c) => c.id === champ);
+    if (!dc || dc.type !== 'date') throw new ErreurApi(400, 'champ_invalide', `Choisissez une date de « ${def.libelle} » : c’est elle qui dit quand le travail a été fait.`);
+    const mois = Number(d.apresMois);
+    if (!Number.isInteger(mois) || mois < 1 || mois > ENTRETIEN_MOIS_MAX) {
+      throw new ErreurApi(400, 'delai_invalide', `Combien de mois après ? Entre 1 et ${ENTRETIEN_MOIS_MAX} (dix ans).`);
+    }
+    if (this.#etat.entretiens.some((r) => r.type === type && r.champ === champ && r.apresMois === mois)) {
+      throw new ErreurApi(409, 'rappel_en_double', 'Ce rappel existe déjà.');
+    }
+    const r: RappelEntretien = { id: `ent-${randomUUID().replace(/-/g, '').slice(0, 12)}`, type, champ, apresMois: mois, creeLe: this.#src.maintenant().toISOString() };
+    this.#etat.entretiens.push(r);
+    this.#changement();
+    return this.#vueEntretien(r);
+  }
+
+  supprimerEntretien(p: Profil, id: unknown) {
+    this.#admin(p);
+    const r = typeof id === 'string' && ID_ENTRETIEN.test(id) ? this.#etat.entretiens.find((x) => x.id === id) : undefined;
+    if (!r) throw new ErreurApi(404, 'introuvable');
+    this.#etat.entretiens = this.#etat.entretiens.filter((x) => x.id !== r.id);
+    this.#changement();
+    return { ok: true as const, id: r.id };
   }
 
   // ---------------------------------------------------------------- Telegram, en trois étapes
@@ -390,6 +624,93 @@ export class Alertes {
     return { ok: true as const, id: c.id };
   }
 
+  // ---------------------------------------------------------------- le geste fait depuis le message
+
+  /** Le geste retrouvé par son jeton, ou rien. Aucune écriture : un aperçu ne joue jamais le geste. */
+  #geste(jeton: unknown): GesteOffert | null {
+    if (typeof jeton !== 'string' || !JETON_GESTE.test(jeton)) return null;
+    const e = empreinteJeton(jeton);
+    const g = this.#etat.gestes.find((x) => x.empreinte === e);
+    if (!g) return null;
+    return Date.parse(g.expire) > this.#src.maintenant().getTime() ? g : null;
+  }
+
+  /**
+   * Ce que le lien propose, DIT AVANT D'AGIR : un aperçu n'a aucun effet, pour qu'un service qui déplie les liens
+   * (aperçu de message, antivirus, robot) ne puisse pas décider à la place de la personne.
+   */
+  apercuGeste(jeton: unknown): { trouve: boolean; geste: Geste | null; quoi: string; deja: boolean; titre: string; texte: string } {
+    const g = this.#geste(jeton);
+    if (!g) {
+      return { trouve: false, geste: null, quoi: '', deja: false, titre: 'Ce lien n’est plus valable',
+        texte: 'Il a déjà servi, ou il a plus d’une semaine. Ouvrez Living Business : ce qu’il reste à faire y est, à jour.' };
+    }
+    if (g.faitLe) return { trouve: true, geste: g.geste, quoi: g.quoi, deja: true, ...this.#ditGeste(g.geste, true) };
+    return {
+      trouve: true, geste: g.geste, quoi: g.quoi, deja: false,
+      titre: g.geste === 'fait' ? 'C’est fait ?' : 'Plus tard ?',
+      texte: g.geste === 'fait'
+        ? 'Living Business arrête de vous le rappeler. La fiche, elle, ne bouge pas : c’est votre logiciel ou votre banque qui dira que c’est réglé.'
+        : 'Living Business n’en reparle pas avant demain. Ce qu’il y a à faire reste à l’écran, comme d’habitude.',
+    };
+  }
+
+  /** Ce qu'on répond quand c'est joué (ou déjà joué) : les mêmes mots, pour qu'un deuxième clic ne surprenne pas. */
+  #ditGeste(geste: Geste, deja: boolean): { titre: string; texte: string } {
+    if (geste === 'fait') {
+      return { titre: deja ? 'C’était déjà noté' : 'C’est noté',
+        texte: `Living Business ne vous le rappelle plus${deja ? ' — ce lien avait déjà servi' : ''}. La fiche n’a pas été modifiée : rien n’est écrit dans votre entreprise depuis un message.` };
+    }
+    return { titre: deja ? 'C’était déjà remis à demain' : 'Remis à demain',
+      texte: `On vous en reparle demain${deja ? ' — ce lien avait déjà servi' : ''}. D’ici là, c’est à l’écran de Living Business comme d’habitude.` };
+  }
+
+  /**
+   * Le geste, joué UNE SEULE FOIS. Rejouer le lien (deuxième clic, message transféré, lien gardé) ne refait rien :
+   * on le dit, et on s'arrête. Aucun profil demandé : le jeton est la seule clé, et il ne vaut que pour ce geste-là.
+   */
+  faireGeste(jeton: unknown): { ok: boolean; deja: boolean; geste: Geste | null; quoi: string; titre: string; texte: string } {
+    const g = this.#geste(jeton);
+    if (!g) {
+      const a = this.apercuGeste(jeton);
+      return { ok: false, deja: false, geste: null, quoi: '', titre: a.titre, texte: a.texte };
+    }
+    if (g.faitLe) return { ok: true, deja: true, geste: g.geste, quoi: g.quoi, ...this.#ditGeste(g.geste, true) };
+    const maintenant = this.#src.maintenant();
+    g.faitLe = maintenant.toISOString();
+    if (g.geste === 'fait') this.#etat.traites[g.cle] = maintenant.toISOString();
+    else this.#etat.reportes[g.cle] = this.#lendemain(maintenant);
+    // ce qui attendait encore son tour ne part plus : la personne a tranché
+    this.#etat.attente = this.#etat.attente.filter((a) => a.cle !== g.cle);
+    // les deux liens d'une même alerte vont ensemble : l'autre ne sert plus
+    for (const autre of this.#etat.gestes) if (autre.cle === g.cle && autre !== g && !autre.faitLe) autre.faitLe = g.faitLe;
+    this.#changement();
+    return { ok: true, deja: false, geste: g.geste, quoi: g.quoi, ...this.#ditGeste(g.geste, false) };
+  }
+
+  #lendemain(d: Date): string {
+    return this.#jour(new Date(d.getTime() + JOUR_MS));
+  }
+
+  /**
+   * Les deux liens d'une alerte seule. Rien si l'installation n'est pas joignable : un lien mort dans un message vaut
+   * moins que pas de lien du tout.
+   */
+  #gestesPour(f: FaitRetenu, maintenant: Date): string {
+    const base = this.#etat.adresseJeu;
+    if (!base || !this.#joignable().possible) return '';
+    const expire = new Date(maintenant.getTime() + GESTE_DUREE_MS).toISOString();
+    const lignes: string[] = [];
+    for (const [geste, mot] of [['fait', 'C’est fait'], ['plus_tard', 'Plus tard']] as const) {
+      const jeton = randomBytes(24).toString('base64url');
+      this.#etat.gestes.push({ empreinte: empreinteJeton(jeton), cle: f.cle, geste, quoi: f.texte, expire, faitLe: null });
+      lignes.push(`${mot} : ${base}/g/${jeton}`);
+    }
+    // les gestes périmés tombent ; un geste JOUÉ est gardé jusqu'à sa date, pour pouvoir répondre « c'était déjà noté »
+    this.#etat.gestes = this.#etat.gestes.filter((g) => Date.parse(g.expire) > maintenant.getTime()).slice(-GESTES_MAX);
+    return `\n${lignes.join('\n')}`;
+  }
+
   /** Contrôle les réglages d'un canal et compose ce qu'on en montre. */
   #lireCanal(canal: Canal, d: Record<string, unknown>): { prive: PriveTelegram | PriveWhatsapp | PriveWebhook; resume: string; nom: string } {
     const nomDonne = typeof d.nom === 'string' && d.nom.trim() ? d.nom.trim().slice(0, 60) : null;
@@ -476,11 +797,17 @@ export class Alertes {
     const faits = await this.#faits(maintenant);
     const vivants = new Set(faits.map((f) => f.cle));
     for (const cle of Object.keys(this.#etat.vus)) if (!vivants.has(cle)) delete this.#etat.vus[cle];
+    // ce qui a disparu du monde oublie aussi ce qu'on en avait tranché : s'il revient, il pourra reparler
+    for (const cle of Object.keys(this.#etat.traites)) if (!vivants.has(cle)) delete this.#etat.traites[cle];
+    const jour = this.#jour(maintenant);
+    for (const [cle, revient] of Object.entries(this.#etat.reportes)) if (!vivants.has(cle) || revient <= jour) delete this.#etat.reportes[cle];
     const dejaEnAttente = new Set(this.#etat.attente.map((a) => a.cle));
     const le = maintenant.toISOString();
     let ajoutes = 0;
     for (const f of faits) {
       if (this.#etat.vus[f.cle] || dejaEnAttente.has(f.cle)) continue;
+      // tranché depuis un message : « C'est fait » tant que le fait dure, « Plus tard » jusqu'au jour dit
+      if (this.#tranche(f.cle, jour)) continue;
       this.#etat.vus[f.cle] = le;
       this.#etat.attente.push({ ...f, depuis: le });
       ajoutes++;
@@ -493,6 +820,12 @@ export class Alertes {
 
   #jour(d: Date = this.#src.maintenant()): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  /** Ce que la personne a déjà tranché depuis un message ne lui est pas resservi (résumé du matin compris). */
+  #tranche(cle: string, jour: string): boolean {
+    const revient = this.#etat.reportes[cle];
+    return Boolean(this.#etat.traites[cle]) || (typeof revient === 'string' && revient > jour);
   }
 
   /** A-t-on le droit d'envoyer maintenant ? (heures de silence, week-end) */
@@ -509,24 +842,27 @@ export class Alertes {
     return d.getHours() * 60 + d.getMinutes() >= enMinutes(this.#etat.quand.heure);
   }
 
+  /**
+   * UN LOT PAR PASSAGE, jamais deux messages pour la même minute (voir la règle du tri, en tête de module).
+   * - fenêtre ouverte : tout ce qui attend part ensemble, urgences comprises, en UN message ;
+   * - fenêtre fermée (silence, week-end, plafond) : seules les urgences passent, et au plus une tous les dix
+   *   minutes — deux urgences coup sur coup ne font pas sonner deux fois.
+   */
   async #envoyerCeQuiEstDu(maintenant: Date, jour: string): Promise<number> {
     const q = this.#etat.quand;
-    const urgents = this.#etat.attente.filter((a) => a.urgent);
-    const ordinaires = this.#etat.attente.filter((a) => !a.urgent);
+    const attente = [...this.#etat.attente];
+    const urgents = attente.filter((a) => a.urgent);
     let envoyes = 0;
-
-    // une urgence vraie passe malgré le silence, le week-end et le plafond — sauf si l'entreprise l'a refusé
-    if (urgents.length && q.urgencesPassent) {
-      if (await this.#envoyerLot(urgents, maintenant, true)) envoyes++;
-    }
-    const resteUrgents = q.urgencesPassent ? [] : urgents;
 
     const fenetre = this.#fenetre(maintenant);
     const plafond = this.#etat.envoyes >= q.maxParJour;
     const groupe = q.mode === 'une_fois_par_jour';
-    const aEnvoyer = [...resteUrgents, ...ordinaires];
-    if (aEnvoyer.length && fenetre && !plafond && (!groupe || this.#heureDue(maintenant))) {
-      if (await this.#envoyerLot(aEnvoyer, maintenant, false)) envoyes++;
+    const ouvert = fenetre && !plafond && (!groupe || this.#heureDue(maintenant));
+    if (attente.length && ouvert) {
+      if (await this.#envoyerLot(attente, maintenant, urgents.length > 0)) envoyes++;
+    } else if (urgents.length && q.urgencesPassent && this.#pauseUrgencePassee(maintenant)) {
+      // une urgence vraie passe malgré le silence, le week-end et le plafond — sauf si l'entreprise l'a refusé
+      if (await this.#envoyerLot(urgents, maintenant, true)) { this.#etat.urgenceLe = maintenant.toISOString(); envoyes++; }
     }
 
     // résumé du matin : une fois par jour, à l'heure choisie
@@ -538,9 +874,15 @@ export class Alertes {
     return envoyes;
   }
 
+  /** Une urgence vient-elle de partir ? (anti-flux : au plus une interruption hors des heures tous les dix minutes) */
+  #pauseUrgencePassee(maintenant: Date): boolean {
+    const le = this.#etat.urgenceLe;
+    return !le || Number.isNaN(Date.parse(le)) || maintenant.getTime() - Date.parse(le) >= PAUSE_URGENCE_MS;
+  }
+
   /** Compose un message à partir des faits et l'envoie ; les faits ne quittent la file que si un canal l'a pris. */
   async #envoyerLot(faits: FaitRetenu[], maintenant: Date, urgent: boolean): Promise<boolean> {
-    const texte = this.#composer(faits, urgent);
+    const texte = this.#composer(faits, urgent, maintenant);
     const partis = await this.#diffuser(texte, urgent, maintenant);
     if (!partis.length) return false;
     const envoyes = new Set(faits.map((f) => f.cle));
@@ -549,12 +891,16 @@ export class Alertes {
     return true;
   }
 
-  /** Un fait : une phrase. Plusieurs : une tête de message puis une ligne chacun, cinq au plus. */
-  #composer(faits: readonly FaitRetenu[], urgent: boolean): string {
+  /**
+   * Un fait : une phrase, et les deux gestes (« C'est fait », « Plus tard ») — une décision réelle, qu'on peut
+   * trancher depuis le message. Plusieurs : une tête de message puis une ligne chacun, cinq au plus, et pas de geste,
+   * parce qu'un geste ne vaut que pour UNE décision.
+   */
+  #composer(faits: readonly FaitRetenu[], urgent: boolean, maintenant: Date = this.#src.maintenant()): string {
     const vues = new Set(faits.map((f) => f.vue).filter((v): v is string => Boolean(v)));
     const lien = this.#lien(vues.size === 1 ? ([...vues][0] as string) : null);
     const premier = faits[0];
-    if (faits.length === 1 && premier) return `${urgent ? 'Urgent — ' : ''}${premier.texte}${lien}`.slice(0, TEXTE_MAX);
+    if (faits.length === 1 && premier) return `${urgent ? 'Urgent — ' : ''}${premier.texte}${lien}${this.#gestesPour(premier, maintenant)}`.slice(0, TEXTE_MAX);
     const lignes = faits.slice(0, LIGNES_MAX).map((f) => `• ${f.texte}`);
     const reste = faits.length - lignes.length;
     if (reste > 0) lignes.push(`• et ${pluriel(reste, 'autre chose à voir', 'autres choses à voir')}.`);
@@ -591,11 +937,16 @@ export class Alertes {
     const parId = new Map(objets.map((o) => [o.id, o]));
     const seuils = new Map(u.regles.map((r) => [r.id, r]));
     const echeances = new Map(u.echeances.map((r) => [r.id, r]));
+    const prisEnCharge = prisEnChargePar(objets);
+    const aProbleme = new Set(this.#src.situations().filter((s) => s.statut === 'ouverte').map((s) => s.objetId));
 
     for (const s of this.#src.situations()) {
       if (s.statut !== 'ouverte') continue;
       const o = parId.get(s.objetId);
       if (!o) continue;
+      // le classement de l'écran Aujourd'hui : une situation déjà prise en charge quitte « À faire maintenant »,
+      // donc elle ne sonne pas non plus — on a agi, il reste à attendre que la donnée le prouve
+      if (prisEnCharge.has(o.id)) continue;
       const sujet = sujetDe(s.regle, o.type, seuils.has(s.regle), echeances.has(s.regle));
       if (!choisis.has(sujet)) continue;
       const tiers = ['tiers', 'client', 'fournisseur'].map((k) => o.champs[k]).find((v) => typeof v === 'string');
@@ -613,7 +964,7 @@ export class Alertes {
     if (choisis.has('devis_sans_reponse')) {
       const limite = maintenant.getTime() - 7 * JOUR_MS;
       for (const o of objets) {
-        if (o.type !== 'devis' || o.champs.statut !== 'envoyé' || Date.parse(o.majLe) > limite) continue;
+        if (o.type !== 'devis' || o.champs.statut !== 'envoyé' || Date.parse(o.majLe) > limite || prisEnCharge.has(o.id)) continue;
         const jours = Math.max(1, Math.round((maintenant.getTime() - Date.parse(o.majLe)) / JOUR_MS));
         const montant = typeof o.champs.montant === 'number' ? ` de ${mesure(o.champs.montant, '€')}` : '';
         faits.push({ cle: `devis_sans_reponse:${o.id}`, sujet: 'devis_sans_reponse', urgent: false, vue: 'type:devis',
@@ -623,7 +974,7 @@ export class Alertes {
 
     if (choisis.has('commande')) {
       for (const o of objets) {
-        if (o.type !== 'commande_client' || o.champs.statut !== 'livrée') continue;
+        if (o.type !== 'commande_client' || o.champs.statut !== 'livrée' || prisEnCharge.has(o.id)) continue;
         const montant = typeof o.champs.montant === 'number' ? ` de ${mesure(o.champs.montant, '€')}` : '';
         faits.push({ cle: `commande:${o.id}`, sujet: 'commande', urgent: false, vue: 'type:commande_client',
           texte: uneLigne(`Commande ${sansMention(o.nom)}${montant} : livrée, pas encore facturée. À facturer.`) });
@@ -645,6 +996,49 @@ export class Alertes {
           texte: uneLigne(`Réseau : ${pluriel(n, 'demande attend', 'demandes attendent')} votre réponse. À répondre.`) });
       }
     }
+
+    if (choisis.has('entretien_client')) faits.push(...this.#entretiens(maintenant, u, objets, parId, prisEnCharge, aProbleme));
+    return faits;
+  }
+
+  /**
+   * Le rappel d'entretien : un travail terminé il y a longtemps, et l'entreprise qui décide. Jamais un mot au client.
+   * Tout le vocabulaire vient de l'univers : le type visé, son libellé, le champ de date, et la condition « terminé »
+   * que l'univers déclare déjà pour ce type (une commande « livrée » ou « facturée », par exemple).
+   * Un travail sur lequel quelque chose est encore ouvert n'est pas un travail fini : il ne donne pas de rappel.
+   */
+  #entretiens(
+    maintenant: Date,
+    u: Univers,
+    objets: readonly ObjetMetier[],
+    parId: Map<string, ObjetMetier>,
+    prisEnCharge: ReadonlySet<string>,
+    aProbleme: ReadonlySet<string>,
+  ): Fait[] {
+    const faits: Fait[] = [];
+    for (const r of this.#etat.entretiens) {
+      const def = defType(u, r.type);
+      if (!def || def.champs.find((c) => c.id === r.champ)?.type !== 'date') continue;
+      // « terminé » tel que l'univers l'entend pour ce type (../core/univers.ts) ; sans règle, la date suffit
+      const termine = u.echeances.find((e) => e.type === r.type && e.termine !== undefined)?.termine ?? null;
+      const quoi = libelleType(u, r.type);
+      for (const o of objets) {
+        if (o.type !== r.type || prisEnCharge.has(o.id) || aProbleme.has(o.id)) continue;
+        if (termine && !termine.valeurs.includes(String(o.champs[termine.champ] ?? ''))) continue;
+        const brut = o.champs[r.champ];
+        if (typeof brut !== 'string') continue;
+        const fait = Date.parse(`${brut.slice(0, 10)}T00:00:00Z`);
+        if (Number.isNaN(fait) || plusMois(fait, r.apresMois) > maintenant.getTime()) continue;
+        const client = ['client', 'tiers', 'maitre_ouvrage'].map((k) => o.champs[k]).find((v) => typeof v === 'string');
+        const nomClient = typeof client === 'string' ? parId.get(client)?.nom : undefined;
+        // le temps dit est celui qui s'est VRAIMENT écoulé, pas le délai réglé : un chantier de 2019 n'a pas « deux ans »
+        const depuis = depuisEnMots(moisEcoules(fait, maintenant.getTime()));
+        faits.push({
+          cle: `entretien:${r.id}:${o.id}`, sujet: 'entretien_client', urgent: false, vue: `type:${o.type}`,
+          texte: uneLigne(`${quoi} ${sansMention(o.nom)}${nomClient ? ` (${sansMention(nomClient)})` : ''} — ${depuis} déjà. Un entretien est peut-être à proposer. À vous de voir : Living Business n’écrit rien au client.`),
+        });
+      }
+    }
     return faits;
   }
 
@@ -663,8 +1057,11 @@ export class Alertes {
     const choisis = this.#etat.sujets;
     // le résumé compte TOUT ce que le jeu signale, pas seulement les sujets cochés : c'est son rôle
     this.#etat.sujets = SUJETS.map((s) => s.id);
-    let faits: Fait[];
-    try { faits = await this.#faits(maintenant); } finally { this.#etat.sujets = choisis; }
+    let tous: Fait[];
+    try { tous = await this.#faits(maintenant); } finally { this.#etat.sujets = choisis; }
+    // … mais pas ce que la personne a déjà tranché depuis un message : « C'est fait » vaut aussi pour le résumé
+    const jour = this.#jour(maintenant);
+    const faits = tous.filter((f) => !this.#tranche(f.cle, jour));
     if (!faits.length) return uneLigne(`Ce matin : rien à régler. Bonne journée.${this.#lien('matin')}`);
     const urgents = faits.filter((f) => f.urgent).length;
     const lignes = faits.slice(0, LIGNES_MAX).map((f) => `• ${f.texte}`);
@@ -811,6 +1208,21 @@ export class Alertes {
 }
 
 // ---------------------------------------------------------------- lectures contrôlées
+
+/**
+ * Les objets qu'une tâche ouverte prend déjà en charge — même règle que `suiviDe` dans `web/aujourdhui.js` : une
+ * tâche (famille `tache`) non terminée dont le champ `concerne` pointe sur l'objet. C'est ce qui fait passer une
+ * situation de « à faire » à « en cours » à l'écran : le canal d'alertes s'aligne, et se tait.
+ */
+function prisEnChargePar(objets: readonly ObjetMetier[]): ReadonlySet<string> {
+  const pris = new Set<string>();
+  for (const o of objets) {
+    if (o.famille !== 'tache' || o.champs.statut === 'terminée') continue;
+    const cible = o.champs.concerne;
+    if (typeof cible === 'string' && cible && cible !== o.id) pris.add(cible);
+  }
+  return pris;
+}
 
 function texteObligatoire(x: unknown, champ: string, message: string): string {
   const v = typeof x === 'string' ? x.trim() : '';

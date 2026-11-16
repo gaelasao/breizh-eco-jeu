@@ -350,7 +350,7 @@ Lu : <https://airtable.com/developers/web/api/create-base>, <https://airtable.co
 
 Écrit le 13 novembre 2026 d'après la documentation officielle lue ce jour-là (adresses à la fin de cette section).
 **Rien n'a été essayé avec un vrai compte Telegram ni un vrai compte Meta** : pas de robot déclaré chez BotFather, pas
-de portefeuille d'entreprise chez Meta. Les essais (`src/passerelle/alertes.test.ts`, 32 cas) tournent contre un
+de portefeuille d'entreprise chez Meta. Les essais (`src/passerelle/alertes.test.ts`, 49 cas) tournent contre un
 service simulé ; la chaîne complète (branchement, message d'essai, alertes composées à partir des données, signature,
 nouvel essai) a été vérifiée de bout en bout contre un service local, à l'écran, dans Chrome sans tête.
 
@@ -421,9 +421,50 @@ Pour qui veut brancher autre chose : une adresse https à soi, Make, Zapier, n8n
 `X-LB-Signature: t=<secondes>,v1=<HMAC-SHA256 de « t.corps »>`. L'adresse passe par l'anti-SSRF de `sortant.ts`
 (https obligatoire, adresse interne ou privée refusée, pas de redirection, taille et délai bornés).
 
+### Le tri : ce qui mérite d'interrompre, et ce qui attend
+
+Une notification de trop et le canal est mort. Le module ne pousse donc pas tout, et le classement n'est pas inventé
+pour l'occasion : c'est celui de l'écran Aujourd'hui (`web/aujourdhui.js`, `planAujourdhui` et `suiviDe`, nourris par
+`src/core/situation.ts`). En une phrase : **n'interrompt que ce que l'écran met en tête — une situation ouverte, que
+personne n'a encore prise en charge ni remise à plus tard — et seule une situation critique sort des heures
+autorisées ; un message par décision réelle, jamais un flux.**
+
+- `statut` autre qu'« ouverte » (donnée manquante, source périmée) : jamais poussé, c'est à vérifier, pas à faire.
+- Une tâche ouverte qui `concerne` l'objet (le « en cours » de l'écran) : plus rien ne sonne.
+- Un lot par passage : ce que le jeu voit dans la même minute part en un seul message, jamais en deux.
+- Deux urgences coup sur coup hors des heures : la seconde attend dix minutes ou la prochaine fenêtre.
+
+### Agir depuis le message, et la limite dite avant
+
+Une alerte seule porte deux liens à usage unique, « C'est fait » et « Plus tard » (`/g/<jeton>`, 192 bits, une
+semaine, seule l'empreinte est gardée, comme les liens de formulaire). La page ne joue rien à l'ouverture : le GET
+`"/api/public/alertes/geste/<jeton>"` n'est qu'un aperçu (un service qui déplie les liens d'un message ne doit rien
+décider), c'est le bouton qui envoie le POST, et un lien rejoué ne refait rien — il le dit.
+
+« C'est fait » arrête le rappel sans toucher à la moindre fiche ; « Plus tard » le ramène demain, comme le report de
+l'écran Aujourd'hui. Les deux valent aussi pour le résumé du matin.
+
+**Ces liens ne sont écrits dans les messages que si l'installation est en ligne** (`LB_EN_LIGNE=1`, un serveur
+joignable depuis le téléphone). Sur un ordinateur posé au bureau, ils ne ramèneraient nulle part : ils ne sont pas
+écrits du tout, et l'écran de réglage dit pourquoi avant que la personne compte dessus.
+
+### Le rappel d'entretien chez le client
+
+Une échéance lointaine rattachée à un travail terminé : un toit posé en 2024, et en 2026 l'entreprise reçoit « ce
+chantier a deux ans, un entretien est peut-être à proposer ». L'entreprise déclare le rappel sur l'un de ses types
+(un travail ou une affaire qui porte une date), avec le délai en mois ; le vocabulaire — libellé du type, libellé du
+champ, condition « terminé » — vient de son univers (`univers/*.json`), jamais du code. Un travail sur lequel quelque
+chose est encore ouvert n'est pas un travail fini : il ne donne pas de rappel.
+
+Le message va à **l'entreprise**, jamais au client : c'est elle qui décide d'écrire. Prévenir est compris dans Living
+Business ; écrire au client à sa place, c'est produire et envoyer, donc l'offre, et cela passe par ce qui existe déjà
+(`src/core/offre.ts`, écran Optimiser). Rien de tel n'est refait dans ce module.
+
 ### Ce qui n'a pas pu être vérifié
 
 - Aucun envoi réel vers Telegram ni vers WhatsApp : ni robot, ni compte Meta, ni numéro.
+- Le geste fait depuis un message n'a pas été essayé depuis un vrai téléphone sur une installation en ligne : la page
+  `/g/<jeton>` et sa route publique sont vérifiées à l'écran (Chrome sans tête) et par les essais, pas sur le terrain.
 - Les textes exacts des erreurs de Telegram (« chat not found », « bot was blocked by the user ») ne figurent pas dans
   les pages lues : ils viennent de l'usage courant de l'API. S'ils changent, la reconnaissance échoue sans danger — le
   canal réessaie au lieu de se mettre en pause, et finit en pause après huit échecs.
