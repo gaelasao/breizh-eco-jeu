@@ -62,8 +62,9 @@ test('« Tout automatiser » : ce qui reste est dit en une phrase, avec son gain
     assert.match(t, /r\.etat === 'prete' && !r\.verrouillee/, bloc);
     assert.match(t, /r\.etat === 'a_brancher' && !r\.verrouillee/, bloc);
   }
-  assert.match(ecran, /const reservees = Pr\.recettes\.filter\(\(r\) => r\.verrouillee\);/);
+  assert.match(ecran, /const reservees = Pr\.recettes\.filter\(\(r\) => r\.verrouillee\)\.map\(motifUneFois\(\)\);/);
   assert.match(ecran, /groupe\(`Comprises dans \$\{OFFRE_ACTIVE\}`, reservees,/);
+  assert.match(ecran, /\$\{r\.direMotif \? ` \$\{r\.motif\}` : ''\}`\.trim\(\)\)/, 'le dialogue aussi dit le motif une fois par raison');
   // après le geste, le même message dit ce qui a été allumé et ce qui reste
   assert.match(ecran, /const reste = phraseReservees\(Pr\);/);
   assert.match(ecran, /\$\{reste \? ` \$\{reste\}` : ''\}`, 'ok',/);

@@ -27,7 +27,7 @@
 export const OFFRE = 'Breizhcosystem ACTIVE';
 
 export type EtatOffre =
-  /** Aucun réseau Breizhcosystem relié : l'entreprise joue seule, et c'est un usage complet. */
+  /** Aucun réseau Breizhcosystem relié : l'entreprise travaille seule, et c'est un usage entier. */
   | 'non_reliee'
   /** Reliée, sans l'offre (ou paiement non confirmé) : les automatisations comprises tournent. */
   | 'sans_offre'
@@ -102,6 +102,6 @@ export function motifVerrou(id: string): string {
 export function phraseOffre(offre: EtatOffre): string | null {
   if (offre === 'offre_active') return null;
   return offre === 'non_reliee'
-    ? 'Votre entreprise n’est reliée à aucun réseau Breizhcosystem : ce qui suit est présenté, sans rien changer à ce que vous utilisez.'
+    ? 'Votre entreprise n’est reliée à aucun réseau Breizhcosystem : ces automatisations sont présentées, sans rien changer à ce que vous utilisez.'
     : `Votre entreprise est reliée à Breizhcosystem ; l’offre ${OFFRE} n’y est pas ouverte pour l’instant.`;
 }

@@ -9141,7 +9141,8 @@ function ouvrirToutAutomatiser(Pr, admin, apres) {
   const manquantes = Pr.recettes.filter((r) => r.etat === 'a_brancher' && !r.verrouillee);
   const actives = Pr.recettes.filter((r) => r.etat === 'active');
   // chaque automatisation dans un seul groupe : à mettre en marche, en attente de données, réservée, déjà en marche
-  const reservees = Pr.recettes.filter((r) => r.verrouillee);
+  // (le motif du verrou se lit une fois par raison, comme dans la liste : huit fois de suite, il harcèlerait)
+  const reservees = Pr.recettes.filter((r) => r.verrouillee).map(motifUneFois());
   const versOutil = pretes.some((r) => r.versOutil);
   const ligne = (r, sous) => h('li', { class: 'bz-pile bz-pile--serre' },
     h('p', { class: 'bz-t-label', texte: r.nom }),
@@ -9198,7 +9199,7 @@ function ouvrirToutAutomatiser(Pr, admin, apres) {
         groupe('Il manque des données', manquantes, (r) => `Living Business ne voit pas encore ${r.manque}.`),
         manquantes.length && admin ? h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { D.fermer(); ouvrirAssistant(); } }, icone('plug'), 'Connecter mes données')) : null,
         // « Tout automatiser » n'allume que ce qui est à portée : ce qui reste est montré ici, avec son gain et sa raison
-        groupe(`Comprises dans ${OFFRE_ACTIVE}`, reservees, (r) => `${r.heuresMois ? `Environ ${nf.format(r.heuresMois)} h par mois${r.euroMois ? ` · ${nfEuro.format(r.euroMois)}` : ''}, estimé sur vos données d’aujourd’hui. ` : ''}${r.motif ?? ''}`),
+        groupe(`Comprises dans ${OFFRE_ACTIVE}`, reservees, (r) => `${r.heuresMois ? `Environ ${nf.format(r.heuresMois)} h par mois${r.euroMois ? ` · ${nfEuro.format(r.euroMois)}` : ''}, estimé sur vos données d’aujourd’hui.` : ''}${r.direMotif ? ` ${r.motif}` : ''}`.trim()),
         reservees.length && Pr.phraseOffre ? h('p', { class: 'bz-t-petit bz-texte-2', texte: Pr.phraseOffre }) : null,
         groupe('Déjà en marche', actives, () => null),
       ],
