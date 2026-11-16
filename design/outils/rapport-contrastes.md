@@ -1,27 +1,27 @@
 | Groupe | Paire (avant-plan / fond) | Seuil | Clair | Sombre |
 |---|---|---|---|---|
-| Texte | texte / surface | 7:1 | 16,66 | 14,89 |
-| Texte | texte / fond | 7:1 | 15,50 | 16,27 |
-| Texte | texte-2 / surface | 4,5:1 | 9,19 | 10,02 |
-| Texte | texte-2 / composant-survol | 4,5:1 | 7,37 | 8,61 |
-| Texte | texte-2 / composant-presse | 4,5:1 | 6,88 | 7,79 |
-| Texte | texte-3 / surface | 4,5:1 | 6,25 | 6,08 |
+| Texte | texte / surface | 7:1 | 16,28 | 14,67 |
+| Texte | texte / fond | 7:1 | 15,50 | 16,26 |
+| Texte | texte-2 / surface | 4,5:1 | 8,98 | 9,87 |
+| Texte | texte-2 / composant-survol | 4,5:1 | 7,32 | 8,71 |
+| Texte | texte-2 / composant-presse | 4,5:1 | 6,78 | 7,61 |
+| Texte | texte-3 / surface | 4,5:1 | 6,11 | 5,99 |
 | Texte | texte-3 / fond | 4,5:1 | 5,81 | 6,64 |
-| Texte | texte-3 / composant-survol | 4,5:1 | 5,01 | 5,22 |
-| Texte | texte-3 / composant-presse | 4,5:1 | 4,68 | 4,72 |
-| Bordures et indicateurs | bordure-champ / surface | 3:1 | 3,94 | 3,76 |
+| Texte | texte-3 / composant-survol | 4,5:1 | 4,98 | 5,28 |
+| Texte | texte-3 / composant-presse | 4,5:1 | 4,61 | 4,62 |
+| Bordures et indicateurs | bordure-champ / surface | 3:1 | 3,85 | 3,71 |
 | Bordures et indicateurs | bordure-champ / fond | 3:1 | 3,67 | 4,11 |
-| Bordures et indicateurs | bordure-champ / composant | 3:1 | 3,35 | 3,53 |
-| Bordures et indicateurs | bordure-champ-survol / surface | 3:1 | 4,84 | 4,81 |
-| Bordures et indicateurs | etat-indicateur (marque) / fond-2 | 3:1 | 5,20 | 7,68 |
+| Bordures et indicateurs | bordure-champ / composant | 3:1 | 3,31 | 3,47 |
+| Bordures et indicateurs | bordure-champ-survol / surface | 3:1 | 4,73 | 4,74 |
+| Bordures et indicateurs | etat-indicateur (marque) / fond-2 | 3:1 | 5,16 | 7,67 |
 | Bordures et indicateurs | etat-indicateur (marque) / marque-doux | 3:1 | 4,92 | 6,46 |
-| Bordures et indicateurs | etat-indicateur (marque) / composant | 3:1 | 4,95 | 6,90 |
-| Bordures et indicateurs | focus / surface | 3:1 | 5,81 | 7,35 |
+| Bordures et indicateurs | etat-indicateur (marque) / composant | 3:1 | 4,89 | 6,78 |
+| Bordures et indicateurs | focus / surface | 3:1 | 5,68 | 7,24 |
 | Bordures et indicateurs | focus / fond | 3:1 | 5,41 | 8,03 |
-| Bordures et indicateurs | xp-remplissage (ajonc-9) / xp-piste | 3:1 | 5,59 | 9,13 |
-| Bordures et indicateurs | xp-piste-bord / surface | 3:1 | 9,19 | 3,76 |
-| Marque | marque-texte (lien) / surface | 4,5:1 | 8,25 | 9,68 |
-| Marque | marque-texte (lien) / fond-2 | 4,5:1 | 7,38 | 10,11 |
+| Bordures et indicateurs | xp-remplissage (ajonc-9) / xp-piste | 3:1 | 5,59 | 9,23 |
+| Bordures et indicateurs | xp-piste-bord / surface | 3:1 | 8,98 | 3,71 |
+| Marque | marque-texte (lien) / surface | 4,5:1 | 8,06 | 9,54 |
+| Marque | marque-texte (lien) / fond-2 | 4,5:1 | 7,32 | 10,11 |
 | Marque | marque-texte (lien) / selection (iroise-3) | 4,5:1 | 6,98 | 8,51 |
 | Marque | texte / selection (iroise-3) | 7:1 | 14,10 | 13,09 |
 | Marque | sur-marque / marque | 4,5:1 | 5,81 | 8,03 |
@@ -30,40 +30,40 @@
 | Statuts | attention-texte / attention-fond | 4,5:1 | 5,64 | 8,28 |
 | Statuts | critique-texte / critique-fond | 4,5:1 | 5,86 | 7,30 |
 | Statuts | info-texte / info-fond | 4,5:1 | 6,02 | 8,06 |
-| Statuts | ok-texte / surface | 4,5:1 | 6,60 | 9,83 |
-| Statuts | attention-texte / surface | 4,5:1 | 6,26 | 9,81 |
-| Statuts | critique-texte / surface | 4,5:1 | 6,59 | 8,29 |
-| Statuts | info-texte / surface | 4,5:1 | 6,72 | 9,32 |
+| Statuts | ok-texte / surface | 4,5:1 | 6,45 | 9,69 |
+| Statuts | attention-texte / surface | 4,5:1 | 6,12 | 9,66 |
+| Statuts | critique-texte / surface | 4,5:1 | 6,44 | 8,17 |
+| Statuts | info-texte / surface | 4,5:1 | 6,57 | 9,18 |
 | Statuts | sur-ok (badge à nombre) / ok-plein | 4,5:1 | 5,18 | 8,79 |
 | Statuts | sur-attention (badge à nombre) / attention-plein | 4,5:1 | 7,78 | 9,96 |
-| Statuts | sur-critique (badge à nombre) / critique-plein | 4,5:1 | 5,49 | 6,63 |
+| Statuts | sur-critique (badge à nombre) / critique-plein | 4,5:1 | 5,49 | 6,62 |
 | Statuts | sur-info (badge à nombre) / info-plein | 4,5:1 | 5,67 | 7,63 |
-| Statuts | ok-trait / surface | 3:1 | 5,18 | 8,05 |
-| Statuts | attention-trait / surface | 3:1 | 3,81 | 9,12 |
-| Statuts | critique-trait / surface | 3:1 | 5,49 | 6,07 |
-| Statuts | info-trait / surface | 3:1 | 5,67 | 6,99 |
-| Surfaces inverses | sur-inverse / surface-inverse | 7:1 | 15,50 | 16,27 |
+| Statuts | ok-trait / surface | 3:1 | 5,06 | 7,93 |
+| Statuts | attention-trait / surface | 3:1 | 3,73 | 8,98 |
+| Statuts | critique-trait / surface | 3:1 | 5,36 | 5,98 |
+| Statuts | info-trait / surface | 3:1 | 5,54 | 6,88 |
+| Surfaces inverses | sur-inverse / surface-inverse | 7:1 | 15,50 | 16,26 |
 | Surfaces inverses | inverse-lien / surface-inverse | 4,5:1 | 9,23 | 7,02 |
 | Surfaces inverses | inverse-focus / surface-inverse | 3:1 | 7,00 | 4,95 |
-| Accent | sur-accent / ajonc-9 | 4,5:1 | 10,12 | 11,61 |
-| Accent | accent-texte (ajonc-11) / surface | 4,5:1 | 6,08 | 12,57 |
-| Données | dv-1 / surface | 3:1 | 6,56 | 5,63 |
-| Données | dv-2 / surface | 3:1 | 3,88 | 9,04 |
-| Données | dv-3 / surface | 3:1 | 3,84 | 8,89 |
-| Données | dv-4 / surface | 3:1 | 5,81 | 5,41 |
-| Données | dv-5 / surface | 3:1 | 9,51 | 3,53 |
-| Données | dv-6 / surface | 3:1 | 5,96 | 4,48 |
-| Données | dv-autre / surface | 3:1 | 4,28 | 5,63 |
-| Données | dv-6 / composant-survol | 3:1 | 4,78 | 3,85 |
-| Données | dv-neutre (granit-8) / surface | 3:1 | 3,94 | 3,76 |
-| Scène 3D | texte sur verre teinté 86 % / pire cas (clair : nuit-ciel-zenith ; sombre : jour-ecume) | 4,5:1 | 12,35 | 9,96 |
-| Scène 3D | texte-2 sur verre teinté 86 % / pire cas (clair : nuit-ciel-zenith ; sombre : jour-ecume) | 4,5:1 | 6,81 | 6,71 |
-| Scène 3D | texte sur verre vitré 80 % / pire cas (clair : nuit-ciel-zenith ; sombre : jour-ecume) | 4,5:1 | 10,77 | 8,15 |
-| Scène 3D | texte-2 sur verre vitré 80 % / pire cas (clair : nuit-ciel-zenith ; sombre : jour-ecume) | 4,5:1 | 5,94 | 5,49 |
-| Scène 3D | texte sur verre téléphone 96 % / pire cas (clair : nuit-ciel-zenith ; sombre : jour-ecume) | 4,5:1 | 15,38 | 13,47 |
-| Scène 3D | texte-2 sur verre téléphone 96 % / pire cas (clair : nuit-ciel-zenith ; sombre : jour-ecume) | 4,5:1 | 8,49 | 9,07 |
-| Scène 3D | texte sur étiquette 3D / pire cas (clair : nuit-ciel-zenith ; sombre : jour-chaux) | 4,5:1 | 13,46 | 10,68 |
-| Scène 3D | texte-2 sur étiquette 3D / pire cas (clair : nuit-ciel-zenith ; sombre : jour-chaux) | 4,5:1 | 7,43 | 7,19 |
+| Accent | sur-accent / ajonc-9 | 4,5:1 | 10,12 | 11,60 |
+| Accent | accent-texte (ajonc-11) / surface | 4,5:1 | 5,95 | 12,39 |
+| Données | dv-1 / surface | 3:1 | 6,41 | 5,55 |
+| Données | dv-2 / surface | 3:1 | 3,79 | 8,91 |
+| Données | dv-3 / surface | 3:1 | 3,75 | 8,76 |
+| Données | dv-4 / surface | 3:1 | 5,68 | 5,33 |
+| Données | dv-5 / surface | 3:1 | 9,29 | 3,48 |
+| Données | dv-6 / surface | 3:1 | 5,83 | 4,42 |
+| Données | dv-autre / surface | 3:1 | 4,18 | 5,54 |
+| Données | dv-6 / composant-survol | 3:1 | 4,75 | 3,90 |
+| Données | dv-neutre (granit-8) / surface | 3:1 | 3,85 | 3,71 |
+| Scène 3D | texte sur verre teinté 86 % / pire cas (clair : nuit-ciel-zenith ; sombre : jour-chaux) | 4,5:1 | 12,05 | 9,84 |
+| Scène 3D | texte-2 sur verre teinté 86 % / pire cas (clair : nuit-ciel-zenith ; sombre : jour-chaux) | 4,5:1 | 6,65 | 6,62 |
+| Scène 3D | texte sur verre vitré 80 % / pire cas (clair : nuit-ciel-zenith ; sombre : jour-ecume) | 4,5:1 | 10,48 | 8,06 |
+| Scène 3D | texte-2 sur verre vitré 80 % / pire cas (clair : nuit-ciel-zenith ; sombre : jour-ecume) | 4,5:1 | 5,78 | 5,42 |
+| Scène 3D | texte sur verre téléphone 96 % / pire cas (clair : nuit-ciel-zenith ; sombre : jour-ecume) | 4,5:1 | 15,01 | 13,23 |
+| Scène 3D | texte-2 sur verre téléphone 96 % / pire cas (clair : nuit-ciel-zenith ; sombre : jour-ecume) | 4,5:1 | 8,28 | 8,90 |
+| Scène 3D | texte sur étiquette 3D / pire cas (clair : nuit-ciel-zenith ; sombre : jour-ecume) | 4,5:1 | 13,20 | 10,47 |
+| Scène 3D | texte-2 sur étiquette 3D / pire cas (clair : nuit-ciel-zenith ; sombre : jour-ecume) | 4,5:1 | 7,29 | 7,05 |
 
 **344 paires vérifiées** par le générateur (toutes les combinaisons texte × fond, bordure × fond, statut × fond, donnée × fond, sur les fonds `fond`, `fond-2`, `surface`, `surface-elevee`, `composant` et `composant-survol`), **0 échec**. Le tableau en publie une sélection.
 
@@ -88,7 +88,7 @@
 
 Verre et étiquettes : pire cas calculé sans flou, sur les 48 couleurs de la scène qui peuvent se trouver derrière (jour et nuit, quel que soit le thème de l'interface). `--bz-texte-3` et le texte désactivé sont interdits sur le verre : ils y descendent sous 4,5:1.
 
-Rampe séquentielle `--bz-dv-seq-1…5` sur `--bz-surface` : clair 1,18 · 1,43 · 2,12 · 3,06 · 7,40 ; sombre 1,14 · 1,46 · 2,42 · 3,74 · 9,08. Les trois premiers paliers sont sous 3:1 : une case colorée affiche toujours sa valeur (ou la vue Tableau), la couleur n'est jamais seule porteuse de l'information (1.4.1, 1.4.11).
+Rampe séquentielle `--bz-dv-seq-1…5` sur `--bz-surface` : clair 1,15 · 1,40 · 2,08 · 2,99 · 7,23 ; sombre 1,12 · 1,44 · 2,39 · 3,68 · 8,95. Les trois premiers paliers sont sous 3:1 : une case colorée affiche toujours sa valeur (ou la vue Tableau), la couleur n'est jamais seule porteuse de l'information (1.4.1, 1.4.11).
 
 Distance minimale entre les 6 couleurs de données (ΔE OKLab, ×100) — vision normale : clair 12,6, sombre 14,1 ; protanopie : 5,7 / 8,6 ; deutéranopie : 5,7 / 9,4 ; tritanopie : 10,3 / 7,4 (simulation Machado 2009, sévérité 100 %).
 
@@ -98,18 +98,18 @@ Monotonie de la luminosité : granit, iroise et ajonc vont dans un seul sens dan
 
 P3 : tous les aplats renforcés gardent leurs seuils.
 
-Poids de `tokens.css` : 32,7 Ko brut ; version servie `dist/tokens.min.css` : 17,8 Ko brut, 4,5 Ko en gzip, 4,0 Ko en brotli.
+Poids de `tokens.css` : 33,5 Ko brut ; version servie `dist/tokens.min.css` : 17,9 Ko brut, 4,6 Ko en gzip, 4,0 Ko en brotli.
 
 | Primitive | Clair (OKLCH → sRGB) | Sombre (OKLCH → sRGB) |
 |---|---|---|
-| `--bz-granit-0` | `oklch(100% 0 85)` #ffffff | `oklch(21.5% 0.018 235)` #111b21 |
-| `--bz-granit-1` | `oklch(97.5% 0.007 85)` #f9f6f2 | `oklch(17% 0.016 235)` #091115 |
-| `--bz-granit-2` | `oklch(96.2% 0.008 85)` #f5f2ec | `oklch(19.5% 0.017 235)` #0d161c |
-| `--bz-granit-3` | `oklch(94.5% 0.009 85)` #efece6 | `oklch(24% 0.019 235)` #162127 |
-| `--bz-granit-4` | `oklch(92.5% 0.01 85)` #e9e6df | `oklch(27% 0.02 235)` #1d282f |
-| `--bz-granit-5` | `oklch(90.3% 0.011 85)` #e2dfd7 | `oklch(30% 0.021 235)` #243037 |
-| `--bz-granit-6` | `oklch(87.5% 0.012 85)` #d9d5cd | `oklch(33.5% 0.022 235)` #2c3941 |
-| `--bz-granit-7` | `oklch(83% 0.012 85)` #cbc7bf | `oklch(38.5% 0.024 235)` #37464f |
+| `--bz-granit-0` | `oklch(99.2% 0.005 85)` #fefcf9 | `oklch(22.1% 0.024 235)` #0f1d24 |
+| `--bz-granit-1` | `oklch(97.5% 0.007 85)` #f9f6f2 | `oklch(17% 0.021 235)` #061117 |
+| `--bz-granit-2` | `oklch(95.9% 0.011 85)` #f5f1e9 | `oklch(19.5% 0.022 235)` #0b171d |
+| `--bz-granit-3` | `oklch(94.1% 0.013 85)` #efebe2 | `oklch(24.6% 0.025 235)` #15232b |
+| `--bz-granit-4` | `oklch(92.3% 0.015 85)` #eae5db | `oklch(26.6% 0.026 235)` #192830 |
+| `--bz-granit-5` | `oklch(89.8% 0.016 85)` #e2ddd2 | `oklch(30.6% 0.027 235)` #22323b |
+| `--bz-granit-6` | `oklch(86.8% 0.018 85)` #d9d3c7 | `oklch(34.1% 0.028 235)` #2a3b45 |
+| `--bz-granit-7` | `oklch(82.2% 0.02 85)` #cbc4b6 | `oklch(39.1% 0.03 235)` #364853 |
 | `--bz-granit-8` | `oklch(60% 0.016 250)` #79818a | `oklch(56% 0.018 250)` #6d767f |
 | `--bz-granit-9` | `oklch(55% 0.017 250)` #6a737b | `oklch(62% 0.017 250)` #7f8790 |
 | `--bz-granit-10` | `oklch(49% 0.018 250)` #59616b | `oklch(68% 0.015 250)` #9299a1 |

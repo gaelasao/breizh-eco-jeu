@@ -24,14 +24,14 @@
    paliers 8-12 en ardoise. La luminosité de chaque échelle est monotone (vérifié par le générateur).
    ========================================================================== */
 :root {
-  --bz-granit-0: oklch(100% 0 85);
+  --bz-granit-0: oklch(99.2% 0.005 85);
   --bz-granit-1: oklch(97.5% 0.007 85);
-  --bz-granit-2: oklch(96.2% 0.008 85);
-  --bz-granit-3: oklch(94.5% 0.009 85);
-  --bz-granit-4: oklch(92.5% 0.01 85);
-  --bz-granit-5: oklch(90.3% 0.011 85);
-  --bz-granit-6: oklch(87.5% 0.012 85);
-  --bz-granit-7: oklch(83% 0.012 85);
+  --bz-granit-2: oklch(95.9% 0.011 85);
+  --bz-granit-3: oklch(94.1% 0.013 85);
+  --bz-granit-4: oklch(92.3% 0.015 85);
+  --bz-granit-5: oklch(89.8% 0.016 85);
+  --bz-granit-6: oklch(86.8% 0.018 85);
+  --bz-granit-7: oklch(82.2% 0.02 85);
   --bz-granit-8: oklch(60% 0.016 250);
   --bz-granit-9: oklch(55% 0.017 250);
   --bz-granit-10: oklch(49% 0.018 250);
@@ -86,14 +86,14 @@
   --bz-dv-autre: oklch(58% 0.016 250);
 }
 :root[data-theme="sombre"] {
-  --bz-granit-0: oklch(21.5% 0.018 235);
-  --bz-granit-1: oklch(17% 0.016 235);
-  --bz-granit-2: oklch(19.5% 0.017 235);
-  --bz-granit-3: oklch(24% 0.019 235);
-  --bz-granit-4: oklch(27% 0.02 235);
-  --bz-granit-5: oklch(30% 0.021 235);
-  --bz-granit-6: oklch(33.5% 0.022 235);
-  --bz-granit-7: oklch(38.5% 0.024 235);
+  --bz-granit-0: oklch(22.1% 0.024 235);
+  --bz-granit-1: oklch(17% 0.021 235);
+  --bz-granit-2: oklch(19.5% 0.022 235);
+  --bz-granit-3: oklch(24.6% 0.025 235);
+  --bz-granit-4: oklch(26.6% 0.026 235);
+  --bz-granit-5: oklch(30.6% 0.027 235);
+  --bz-granit-6: oklch(34.1% 0.028 235);
+  --bz-granit-7: oklch(39.1% 0.03 235);
   --bz-granit-8: oklch(56% 0.018 250);
   --bz-granit-9: oklch(62% 0.017 250);
   --bz-granit-10: oklch(68% 0.015 250);
@@ -296,12 +296,14 @@
   --bz-focus-ecart: 2px;
   --bz-focus-halo: var(--bz-surface);
 
-  /* Ombres (clair) — trois couches max., teinte ardoise, jamais noir pur */
+  /* Ombres (clair) — trois couches max., jamais noir pur. Teinte ardoise tiède (56 43 29) : une ombre froide
+     sur un fond de chaux grisaille l'écran. Une carte se pose par son ombre, pas par un filet gris : la couche 1 est
+     assez présente pour qu'on la voie, assez douce pour ne pas salir le fond. */
   --bz-ombre-0: none;
-  --bz-ombre-1: 0 1px 2px rgb(16 24 32 / 0.06), 0 1px 1px rgb(16 24 32 / 0.04);
-  --bz-ombre-2: 0 6px 16px -4px rgb(16 24 32 / 0.12), 0 2px 4px -2px rgb(16 24 32 / 0.06);
-  --bz-ombre-3: 0 16px 40px -10px rgb(16 24 32 / 0.20), 0 4px 10px -4px rgb(16 24 32 / 0.08);
-  --bz-ombre-4: 0 28px 64px -16px rgb(16 24 32 / 0.30), 0 10px 20px -10px rgb(16 24 32 / 0.12);
+  --bz-ombre-1: 0 1px 1px rgb(56 43 29 / 0.05), 0 3px 8px -2px rgb(56 43 29 / 0.11);
+  --bz-ombre-2: 0 6px 16px -4px rgb(56 43 29 / 0.15), 0 2px 5px -2px rgb(56 43 29 / 0.08);
+  --bz-ombre-3: 0 16px 40px -10px rgb(56 43 29 / 0.22), 0 4px 10px -4px rgb(56 43 29 / 0.10);
+  --bz-ombre-4: 0 28px 64px -16px rgb(56 43 29 / 0.32), 0 10px 20px -10px rgb(56 43 29 / 0.14);
 }
 :root[data-theme="sombre"] {
   color-scheme: dark;
@@ -315,14 +317,16 @@
   --bz-xp-piste: var(--bz-granit-4);
   --bz-xp-piste-bord: var(--bz-granit-8);
   --bz-voile: rgb(0 0 0 / 0.62);
-  --bz-verre-fond: rgb(17 27 33 / 0.82);
+  --bz-verre-fond: rgb(15 29 36 / 0.82);
   --bz-verre-bord: rgb(234 237 241 / 0.12);
   --bz-verre-reflet: inset 0 1px 0 rgb(255 255 255 / 0.07);
-  --bz-etiquette-fond: rgb(17 27 33 / 0.88);
-  --bz-ombre-1: 0 1px 2px rgb(0 0 0 / 0.40), inset 0 1px 0 rgb(255 255 255 / 0.04);
-  --bz-ombre-2: 0 8px 20px -6px rgb(0 0 0 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.05);
-  --bz-ombre-3: 0 18px 44px -10px rgb(0 0 0 / 0.65), inset 0 1px 0 rgb(255 255 255 / 0.06);
-  --bz-ombre-4: 0 30px 70px -16px rgb(0 0 0 / 0.75), inset 0 1px 0 rgb(255 255 255 / 0.07);
+  --bz-etiquette-fond: rgb(15 29 36 / 0.88);
+  /* Ombres (sombre) : un noir de nuit d'Iroise (0 9 17) plutôt qu'un noir pur, et un filet de lumière en haut
+     — c'est lui qui décolle une carte du fond quand l'ombre, elle, ne se voit presque pas. */
+  --bz-ombre-1: 0 1px 2px rgb(0 9 17 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --bz-ombre-2: 0 8px 20px -6px rgb(0 9 17 / 0.58), inset 0 1px 0 rgb(255 255 255 / 0.06);
+  --bz-ombre-3: 0 18px 44px -10px rgb(0 9 17 / 0.68), inset 0 1px 0 rgb(255 255 255 / 0.07);
+  --bz-ombre-4: 0 30px 70px -16px rgb(0 9 17 / 0.78), inset 0 1px 0 rgb(255 255 255 / 0.08);
 }
 @supports (color: color-mix(in oklch, red 50%, blue)) {
   :root {
@@ -376,7 +380,8 @@
 
   /* Approche */
   --bz-l-affiche: -0.022em;
-  --bz-l-titre: -0.014em;
+  --bz-l-voix: -0.008em;     /* titres en Fraunces : ses chasses sont déjà serrées, −0,014 les collait */
+  --bz-l-titre: -0.014em;    /* titres en Inter */
   --bz-l-texte: -0.006em;
   --bz-l-micro: 0.01em;
   --bz-l-capitales: 0.06em;  /* micro-étiquettes en capitales via text-transform uniquement */
@@ -414,10 +419,12 @@
   --bz-e-entre-cibles: var(--bz-e-1); /* écart minimal entre deux cibles voisines (8 px au toucher) */
   --bz-goutiere: clamp(1rem, 0.6rem + 1.8vw, 2rem); /* 16 px sur téléphone → 32 px */
 
-  /* Rayons : 3 niveaux + pilule. Règle de concentricité : rayon intérieur = rayon extérieur − marge. */
+  /* Rayons : 3 niveaux + pilule. Règle de concentricité : rayon intérieur = rayon extérieur − marge.
+     L'écart entre les trois niveaux est franc (6 → 12 → 18) : un bouton rond de 12 px dans une carte de 18 px se lit
+     comme « dedans », là où 10 dans 16 donnait trois formes presque pareilles. */
   --bz-r-1: 6px;      /* puces, cases, petits boutons, infobulles, catégorie « fournisseur » */
-  --bz-r-2: 10px;     /* boutons, champs, menus, tuiles */
-  --bz-r-3: 16px;     /* cartes, panneaux du HUD, dialogues, feuilles */
+  --bz-r-2: 12px;     /* boutons, champs, menus, tuiles */
+  --bz-r-3: 18px;     /* cartes, panneaux du HUD, dialogues, feuilles */
   --bz-r-pilule: 999px;
   --bz-r-rond: 50%;
 

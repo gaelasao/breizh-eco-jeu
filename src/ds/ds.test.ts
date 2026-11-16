@@ -63,8 +63,8 @@ test('contrastes WCAG 2.2 AA recalculés sur tokens.css, clair et sombre', () =>
   }
   assert.deepEqual(echecs, []);
   // valeurs publiées au §3.4 (à ±0,02 près) : le calcul indépendant retrouve le générateur
-  assert.ok(Math.abs(contrasteJetons(j, 'clair', '--bz-texte', '--bz-surface') - 16.66) < 0.02);
-  assert.ok(Math.abs(contrasteJetons(j, 'sombre', '--bz-texte-3', '--bz-surface') - 6.08) < 0.02);
+  assert.ok(Math.abs(contrasteJetons(j, 'clair', '--bz-texte', '--bz-surface') - 16.28) < 0.02);
+  assert.ok(Math.abs(contrasteJetons(j, 'sombre', '--bz-texte-3', '--bz-surface') - 5.99) < 0.02);
 });
 
 /** Valeurs codées en dur interdites hors de tokens.css (§3.1) : #hex, rgb(), hsl(), oklch(), et px hors 0, 1px, 2px. */

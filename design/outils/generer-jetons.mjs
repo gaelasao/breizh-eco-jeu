@@ -64,6 +64,10 @@ const sceneBloc = (m) => Object.entries(scene[m]).map(([k, v]) => `  --bz-scene-
 const VC = primitives(clair), VS = primitives(sombre);
 const verreSombre = rgba(sombre.granit[0], 0.82), etiquetteSombre = rgba(sombre.granit[0], 0.88);
 const bordClair = rgba(clair.granit[12], 0.1), bordSombre = rgba(sombre.granit[12], 0.12);
+// Couleur des ombres en clair : l'ardoise du texte réchauffée vers la chaux, jamais du noir (cf. bloc 5)
+const canaux = (c) => hex(c).slice(1).match(/../g).map((p) => parseInt(p, 16)).join(' ');
+const ombreClaire = canaux([0.3, 0.03, 70]);
+const ombreSombre = canaux([0.13, 0.035, 235]); // nuit d'Iroise au plus sombre : un noir bleuté, encore lisible comme tel
 
 const css = `/*!
  * Breizhcosystem — jetons de design (tokens.css) v${VERSION}
@@ -213,12 +217,14 @@ ${p3Bloc(p3(sombre), 2)}
   --bz-focus-ecart: 2px;
   --bz-focus-halo: var(--bz-surface);
 
-  /* Ombres (clair) — trois couches max., teinte ardoise, jamais noir pur */
+  /* Ombres (clair) — trois couches max., jamais noir pur. Teinte ardoise tiède (${ombreClaire}) : une ombre froide
+     sur un fond de chaux grisaille l'écran. Une carte se pose par son ombre, pas par un filet gris : la couche 1 est
+     assez présente pour qu'on la voie, assez douce pour ne pas salir le fond. */
   --bz-ombre-0: none;
-  --bz-ombre-1: 0 1px 2px rgb(16 24 32 / 0.06), 0 1px 1px rgb(16 24 32 / 0.04);
-  --bz-ombre-2: 0 6px 16px -4px rgb(16 24 32 / 0.12), 0 2px 4px -2px rgb(16 24 32 / 0.06);
-  --bz-ombre-3: 0 16px 40px -10px rgb(16 24 32 / 0.20), 0 4px 10px -4px rgb(16 24 32 / 0.08);
-  --bz-ombre-4: 0 28px 64px -16px rgb(16 24 32 / 0.30), 0 10px 20px -10px rgb(16 24 32 / 0.12);
+  --bz-ombre-1: 0 1px 1px rgb(${ombreClaire} / 0.05), 0 3px 8px -2px rgb(${ombreClaire} / 0.11);
+  --bz-ombre-2: 0 6px 16px -4px rgb(${ombreClaire} / 0.15), 0 2px 5px -2px rgb(${ombreClaire} / 0.08);
+  --bz-ombre-3: 0 16px 40px -10px rgb(${ombreClaire} / 0.22), 0 4px 10px -4px rgb(${ombreClaire} / 0.10);
+  --bz-ombre-4: 0 28px 64px -16px rgb(${ombreClaire} / 0.32), 0 10px 20px -10px rgb(${ombreClaire} / 0.14);
 }
 :root[data-theme="sombre"] {
   color-scheme: dark;
@@ -236,10 +242,12 @@ ${p3Bloc(p3(sombre), 2)}
   --bz-verre-bord: ${bordSombre};
   --bz-verre-reflet: inset 0 1px 0 rgb(255 255 255 / 0.07);
   --bz-etiquette-fond: ${etiquetteSombre};
-  --bz-ombre-1: 0 1px 2px rgb(0 0 0 / 0.40), inset 0 1px 0 rgb(255 255 255 / 0.04);
-  --bz-ombre-2: 0 8px 20px -6px rgb(0 0 0 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.05);
-  --bz-ombre-3: 0 18px 44px -10px rgb(0 0 0 / 0.65), inset 0 1px 0 rgb(255 255 255 / 0.06);
-  --bz-ombre-4: 0 30px 70px -16px rgb(0 0 0 / 0.75), inset 0 1px 0 rgb(255 255 255 / 0.07);
+  /* Ombres (sombre) : un noir de nuit d'Iroise (${ombreSombre}) plutôt qu'un noir pur, et un filet de lumière en haut
+     — c'est lui qui décolle une carte du fond quand l'ombre, elle, ne se voit presque pas. */
+  --bz-ombre-1: 0 1px 2px rgb(${ombreSombre} / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --bz-ombre-2: 0 8px 20px -6px rgb(${ombreSombre} / 0.58), inset 0 1px 0 rgb(255 255 255 / 0.06);
+  --bz-ombre-3: 0 18px 44px -10px rgb(${ombreSombre} / 0.68), inset 0 1px 0 rgb(255 255 255 / 0.07);
+  --bz-ombre-4: 0 30px 70px -16px rgb(${ombreSombre} / 0.78), inset 0 1px 0 rgb(255 255 255 / 0.08);
 }
 @supports (color: color-mix(in oklch, red 50%, blue)) {
   :root {
@@ -293,7 +301,8 @@ ${p3Bloc(p3(sombre), 2)}
 
   /* Approche */
   --bz-l-affiche: -0.022em;
-  --bz-l-titre: -0.014em;
+  --bz-l-voix: -0.008em;     /* titres en Fraunces : ses chasses sont déjà serrées, −0,014 les collait */
+  --bz-l-titre: -0.014em;    /* titres en Inter */
   --bz-l-texte: -0.006em;
   --bz-l-micro: 0.01em;
   --bz-l-capitales: 0.06em;  /* micro-étiquettes en capitales via text-transform uniquement */
@@ -331,10 +340,12 @@ ${p3Bloc(p3(sombre), 2)}
   --bz-e-entre-cibles: var(--bz-e-1); /* écart minimal entre deux cibles voisines (8 px au toucher) */
   --bz-goutiere: clamp(1rem, 0.6rem + 1.8vw, 2rem); /* 16 px sur téléphone → 32 px */
 
-  /* Rayons : 3 niveaux + pilule. Règle de concentricité : rayon intérieur = rayon extérieur − marge. */
+  /* Rayons : 3 niveaux + pilule. Règle de concentricité : rayon intérieur = rayon extérieur − marge.
+     L'écart entre les trois niveaux est franc (6 → 12 → 18) : un bouton rond de 12 px dans une carte de 18 px se lit
+     comme « dedans », là où 10 dans 16 donnait trois formes presque pareilles. */
   --bz-r-1: 6px;      /* puces, cases, petits boutons, infobulles, catégorie « fournisseur » */
-  --bz-r-2: 10px;     /* boutons, champs, menus, tuiles */
-  --bz-r-3: 16px;     /* cartes, panneaux du HUD, dialogues, feuilles */
+  --bz-r-2: 12px;     /* boutons, champs, menus, tuiles */
+  --bz-r-3: 18px;     /* cartes, panneaux du HUD, dialogues, feuilles */
   --bz-r-pilule: 999px;
   --bz-r-rond: 50%;
 
