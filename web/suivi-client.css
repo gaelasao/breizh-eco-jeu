@@ -1,0 +1,41 @@
+/* Page de suivi d'un client — jetons Breizhcosystem (/bz/bz.css), clair et sombre, du téléphone à l'ordinateur.
+   Elle se pose sur /formulaire.css (même carte, même pied) et n'ajoute que ce qui lui est propre. */
+
+.reference { font: var(--bz-g-fort) var(--bz-t-base)/var(--bz-i-label) var(--bz-police); color: var(--bz-texte); margin: 0 0 var(--bz-e-3); }
+.phrase { border-radius: var(--bz-r-2); padding: var(--bz-e-2) var(--bz-e-3); margin: 0 0 var(--bz-e-3); font-weight: var(--bz-g-fort); }
+.phrase.ton-info { background: var(--bz-marque-doux); color: var(--bz-texte); }
+.phrase.ton-ok { background: var(--bz-ok-fond); color: var(--bz-ok-texte); }
+.phrase.ton-attention { background: var(--bz-attention-fond); color: var(--bz-attention-texte); }
+.phrase.ton-critique { background: var(--bz-critique-fond); color: var(--bz-critique-texte); }
+.avancement { color: var(--bz-texte-2); font-size: var(--bz-t-petit); margin: 0 0 var(--bz-e-1); }
+
+.jauge { block-size: var(--bz-e-2); border-radius: var(--bz-r-rond); background: var(--bz-composant); overflow: hidden; margin: 0 0 var(--bz-e-5); }
+.jauge span { display: block; block-size: 100%; background: var(--bz-marque); border-radius: var(--bz-r-rond); transition: inline-size var(--bz-d-2) var(--bz-c-effet); }
+
+.etapes { list-style: none; margin: 0 0 var(--bz-e-5); padding: 0; display: grid; gap: var(--bz-e-1); }
+.etape { display: grid; grid-template-columns: var(--bz-cible) 1fr auto; align-items: center; gap: var(--bz-e-2); min-block-size: var(--bz-cible); padding-inline-end: var(--bz-e-2); border-radius: var(--bz-r-2); }
+.etape .puce { display: grid; place-items: center; color: var(--bz-texte-3); }
+.etape .nom { font-weight: var(--bz-g-fort); }
+.etape .quand { color: var(--bz-texte-2); font-size: var(--bz-t-petit); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.etape.ton-ok .puce { color: var(--bz-ok-plein); }
+.etape.ton-ok .nom { font-weight: var(--bz-g-normal, 400); color: var(--bz-texte-2); }
+.etape.ton-attention { background: var(--bz-attention-fond); }
+.etape.ton-attention .puce { color: var(--bz-attention-texte); }
+.etape.ton-critique { background: var(--bz-critique-fond); }
+.etape.ton-critique .puce, .etape.ton-critique .quand { color: var(--bz-critique-texte); }
+
+.photos h2, .avis h2 { font: var(--bz-g-fort) var(--bz-t-titre-3, var(--bz-t-base))/var(--bz-i-titre) var(--bz-police-titre); margin: 0 0 var(--bz-e-2); }
+.photos .grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr)); gap: var(--bz-e-2); margin-bottom: var(--bz-e-5); }
+.photos img { inline-size: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--bz-r-2); background: var(--bz-composant); }
+
+.avis { border-top: var(--bz-bord-1) solid var(--bz-carte-bord); padding-top: var(--bz-e-4); }
+.avis .bouton { display: grid; place-items: center; min-block-size: var(--bz-h-controle-lg); border-radius: var(--bz-r-2); background: var(--bz-marque); color: var(--bz-sur-marque); font: var(--bz-g-fort) var(--bz-t-base)/var(--bz-i-label) var(--bz-police); text-decoration: none; }
+.avis .bouton:hover { background: var(--bz-marque-survol); }
+
+.ferme { text-align: center; padding: var(--bz-e-4) 0; }
+.ferme .rond { inline-size: 4rem; block-size: 4rem; border-radius: var(--bz-r-rond); background: var(--bz-composant); color: var(--bz-texte-2); display: grid; place-items: center; font-size: var(--bz-t-titre-2); margin: 0 auto var(--bz-e-3); }
+
+@media (max-width: 26.25em) {
+  .etape { grid-template-columns: var(--bz-cible) 1fr; }
+  .etape .quand { grid-column: 2; }
+}
