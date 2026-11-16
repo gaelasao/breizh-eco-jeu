@@ -115,7 +115,11 @@ export function bornes(distance, { plateau, emprise, aspect = 1.6, retour = fals
   if (distance <= DISTANCES.ville || !emprise) return plateau;
   const h = etendueVue(distance) / 2;
   const serre = (a, b, marge) => (b - a > 2 * marge ? [a + marge, b - marge] : [(a + b) / 2, (a + b) / 2]);
-  const [x0, x1] = serre(emprise.x0, emprise.x1, h * Math.max(1, aspect / 1.6));
+  /* La marge suit ce qu'on voit vraiment, et un écran étroit en voit moins : sur un téléphone tenu debout, la carte
+     n'a qu'un bandeau et la France n'y tient pas en largeur. Une marge qui ne descendrait jamais sous la profondeur
+     y refermerait la boîte sur le centre du pays alors qu'on n'en voit qu'un tiers — et la caméra, tirée au milieu
+     d'un pays qu'elle ne peut pas montrer, laisserait ses repères hors de l'écran. */
+  const [x0, x1] = serre(emprise.x0, emprise.x1, (h * aspect) / 1.6);
   const [z0, z1] = serre(emprise.z0, emprise.z1, h);
   /* Passé ce point la carte est partout, et elle se recentre alors sur le pays : une carte de France montre la France,
      pas le coin où l'on habite. Le glissement est continu — la boîte ne pousse la caméra qu'à mesure qu'elle se

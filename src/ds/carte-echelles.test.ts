@@ -139,6 +139,13 @@ test('échelles : on se redresse au-dessus de la carte, et la caméra se recentr
   // sans être rogné en route (les bornes rabotent la visée pendant le vol, pas seulement à l'arrivée)
   const enVol = E.bornes(D.max, { plateau, emprise, retour: true });
   assert.ok(enVol.x0 <= plateau.x0 && enVol.x1 >= plateau.x1, 'un vol de retour n’est jamais arraché de sa destination');
+  // un téléphone tenu debout ne montre qu'un bandeau de carte : la France n'y tient pas en largeur, et la boîte ne
+  // doit donc pas s'y refermer comme sur un grand écran — sinon la caméra se pose au milieu d'un pays qu'elle ne peut
+  // pas montrer, et les repères de l'entreprise sortent de l'écran
+  const debout = E.bornes(D.max, { plateau, emprise, aspect: 0.37 });
+  const couche = E.bornes(D.max, { plateau, emprise, aspect: 1.99 });
+  assert.ok(debout.x1 - debout.x0 > couche.x1 - couche.x0, 'écran étroit : on garde de la marge en largeur');
+  assert.ok(debout.x0 <= 0 && debout.x1 >= 0, 'et sa ville reste visable en largeur quand la France n’y tient pas');
   assert.ok(enVol.z0 <= plateau.z0 && enVol.z1 >= plateau.z1);
   // un clic descend d'un cran, jamais de deux
   assert.ok(E.volVers('regions') > E.volVers('departements'));
