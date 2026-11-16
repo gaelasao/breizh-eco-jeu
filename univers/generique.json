@@ -738,6 +738,7 @@
       "famille": "commande",
       "libelle": "Commande client",
       "pluriel": "Commandes clients",
+      "genre": "f",
       "icone": "commande",
       "champs": [
         {

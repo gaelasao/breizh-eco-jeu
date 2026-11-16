@@ -325,7 +325,9 @@ test('§6.4 : plus d’ancien CSS (une seule feuille de coque, sans classe héri
   assert.doesNotMatch(style, /border-(left|top): [3-6]px/, 'plus de liseré coloré');
   assert.ok(style.length < 9000, 'feuille de coque réduite à la structure');
   const classes = new Set();
-  for (const f of fichiersWeb().filter((x) => x.endsWith('.js') && !/formulaire|telephone/.test(x))) {
+  // `suivi-client` rejoint `formulaire` et `telephone` : ce sont les pages PUBLIQUES, hors de la coque du jeu, qui
+  // portent leur propre feuille (web/suivi-client.css) et n'ont donc pas les composants bz-* de la coque.
+  for (const f of fichiersWeb().filter((x) => x.endsWith('.js') && !/formulaire|telephone|suivi-client/.test(x))) {
     for (const m of lire(f).matchAll(/class: '([^']+)'/g)) for (const c of (m[1] as string).split(/\s+/)) if (!c.startsWith('bz-')) classes.add(c);
   }
   const coque = ['zone', 'scene', 'page', 'infobulle', 'hud', 'carte-instantanee', 'hud-reseau', 'bascule-vue', 'hud-afficher', 'camera-feuille', 'hud-haut', 'commandes-carte', 'hud-droite', 'hud-minicarte-ouvrir', 'hud-bas', 'hud-aujourdhui'];

@@ -29,6 +29,12 @@ export interface DefType {
   pluriel: string;
   icone?: string;
   masque?: boolean;
+  /**
+   * Genre du libellé : « m » (un chantier) ou « f » (une commande). Facultatif, masculin par défaut — la forme la
+   * plus courante. Il sert aux phrases qui accordent un article, comme le titre de la page de suivi d'un client
+   * (« Suivre mon chantier », « Suivre ma commande ») : la langue de l'entreprise appartient à son univers.
+   */
+  genre?: 'm' | 'f';
   champs: readonly DefChamp[];
 }
 
@@ -140,6 +146,7 @@ export function validerUnivers(x: unknown): Univers {
     if (!estFamille(t.famille)) p.push(`type ${t.id} : famille inconnue`);
     if (!texte(t.libelle) || !texte(t.pluriel)) p.push(`type ${t.id} : libellés invalides`);
     if (t.icone !== undefined && !texte(t.icone, 40)) p.push(`type ${t.id} : icône invalide`);
+    if (t.genre !== undefined && t.genre !== 'm' && t.genre !== 'f') p.push(`type ${t.id} : genre invalide (« m » ou « f »)`);
     const champs = new Map<string, DefChamp>();
     const liste = Array.isArray(t.champs) ? t.champs : (p.push(`type ${t.id} : champs attendus`), []);
     if (liste.length > LIMITES.champs) p.push(`type ${t.id} : trop de champs`);

@@ -24,6 +24,7 @@ import { recuperateurProtege, type Recuperateur } from './sortant.ts';
 import { chiffrerAvecPhrase, CONSERVATION_JOURS, creerChiffreur, dechiffrerAvecPhrase, Stockage, type Chiffreur, type SauvegardeAuto } from './stockage.ts';
 import { RelaisOAuth } from './oauth-relais.ts';
 import { ETAT_VIDE as MAJ_VIDE, lireDerniereVersion, lireEtat as lireEtatMaj, resume as resumeMaj, type EtatMisesAJour } from './mises-a-jour.ts';
+import { Suivis, type EtatSuivis } from './suivis.ts';
 import { CHAMPS_CHIFFRES, Synchro, VALEUR_CHIFFREE, type EtatSynchro } from './synchro.ts';
 import { CanalTempsReel } from './temps-reel.ts';
 
@@ -50,6 +51,8 @@ export interface EtatApplication {
   misesAJour?: EtatMisesAJour;
   /** Alertes sur un canal de l'entreprise (Telegram, WhatsApp, webhook) ; absentes tant que rien n'est branché. */
   alertes?: EtatAlertes;
+  /** Moteur de suivi (`suivis.ts`) : portes choisies, fiches écrites pour les échéances, liens partagés aux clients. */
+  suivis?: EtatSuivis;
 }
 
 /** Avis montré aux AUTRES administrateurs jusqu'à ce qu'ils l'aient vu (90 jours au plus, 20 avis au plus). */
@@ -141,6 +144,8 @@ export class Application {
   readonly nexus: LienNexus;
   /** Alertes en temps réel sur un canal de l'entreprise (Telegram, WhatsApp, webhook). */
   readonly alertes: Alertes;
+  /** Moteur de suivi : les échéances de l'entreprise, et les quatre portes par lesquelles elles sortent. */
+  readonly suivis: Suivis;
   /** Canal des avis des outils (temps réel), ouvert vers Breizhcosystem quand le jeu y est relié et a des abonnements. */
   readonly tempsReel: CanalTempsReel;
   readonly stockage: Stockage | null;
@@ -215,6 +220,15 @@ export class Application {
         return r.echanges.filter((e) => e.attend === 'vous').length;
       },
     }, this.#chiffreur, { etat: etat?.alertes ?? null, changement, ...(f ? { fetch: f } : {}) });
+    // moteur de suivi : il lit le monde et les droits déjà confirmés, écrit des rendez-vous et des tâches dans le
+    // monde privé (que les connecteurs branchés emmènent ensuite), et ne dit JAMAIS à `alertes.ts` quoi faire —
+    // il lui demande seulement quels sujets l'entreprise a cochés, pour l'écran.
+    this.suivis = new Suivis(monde, {
+      droits: () => { const e = this.nexus.etat(); return { relie: e.relie, plan: e.droits?.plan ?? null, etatAbonnement: e.droits?.etatAbonnement ?? null }; },
+      sujetsAlerte: () => this.alertes.instantane().sujets,
+      adresse: () => this.alertes.instantane().adresseJeu,
+      inviterAvis: (p, client) => { try { return this.enquetes.inviter(p, client, this.alertes.instantane().adresseJeu ?? '').lien; } catch { return null; } },
+    }, { etat: etat?.suivis ?? null, changement });
     monde.abonner((ev) => {
       this.synchro.surChangement(ev.action);
       this.miroir.surChangement(ev.action);
@@ -267,6 +281,7 @@ export class Application {
       securite: { avis: this.#avis.map((a) => ({ ...a, vusPar: [...a.vusPar] })) },
       misesAJour: { ...this.#majs },
       alertes: this.alertes.instantane(),
+      suivis: this.suivis.instantane(),
     };
   }
 
@@ -429,6 +444,8 @@ export class Application {
     const outils = this.synchro.oublierObjet(r.id);
     this.enquetes.oublierObjet(r.id);
     this.automatisations.oublierObjet(r.id);
+    // moteur de suivi : les rendez-vous et tâches écrits pour cette fiche sont oubliés, et son lien partagé retiré
+    this.suivis.oublierObjet(r.id);
     this.stockage?.noterEffacement(r.id, r.mode);
     return { ...r, outils, sauvegardesJours: this.stockage ? CONSERVATION_JOURS : 0 };
   }
@@ -447,7 +464,7 @@ export class Application {
     const c = this.#reglages.conservation;
     const avant = (jours: number | null) => (jours ? new Date(this.monde.maintenant().getTime() - jours * 86_400_000).toISOString().slice(0, 10) : null);
     const r = this.monde.purgerAnciennes({ planningAvant: avant(c.planning), avisAvant: avant(c.avis), courrierAvant: avant(c.courrier) });
-    for (const id of r.ids) { this.miroir.surEffacement(id); this.synchro.oublierObjet(id); this.enquetes.oublierObjet(id); this.automatisations.oublierObjet(id); }
+    for (const id of r.ids) { this.miroir.surEffacement(id); this.synchro.oublierObjet(id); this.enquetes.oublierObjet(id); this.automatisations.oublierObjet(id); this.suivis.oublierObjet(id); }
     this.#purgeeLe = Date.now();
     return { cases: r.cases, fiches: r.ids.length };
   }
@@ -472,6 +489,7 @@ export class Application {
       this.synchro.oublierObjet(e.id);
       this.enquetes.oublierObjet(e.id);
       this.automatisations.oublierObjet(e.id);
+      this.suivis.oublierObjet(e.id);
     }
   }
 
@@ -700,7 +718,12 @@ export class Application {
     const droitsDus = () => { if (this.nexus.relie) void this.nexus.etatPavillon().catch(() => undefined); };
     const t18 = setInterval(droitsDus, 15 * 60_000);
     const t19 = setTimeout(droitsDus, 2000);
-    const tous = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17, t18, t19];
+    // moteur de suivi : une passe par minute, qui crée ce qui est dû, met à jour ce qui a changé et retire le reste.
+    // Repasser sans changement ne fait rien : c'est ce qui garantit qu'aucun rendez-vous n'apparaît deux fois.
+    const suiviDu = () => { try { this.suivis.passer(); } catch (e) { console.error('[suivi]', e instanceof Error ? e.message : e); } };
+    const t20 = setInterval(suiviDu, 60_000);
+    const t21 = setTimeout(suiviDu, 5000);
+    const tous = [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17, t18, t19, t20, t21];
     for (const t of tous) t.unref?.();
     this.#minuteries.push(...tous);
     this.tempsReel.demarrer();

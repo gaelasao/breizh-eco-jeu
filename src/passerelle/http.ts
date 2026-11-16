@@ -1002,6 +1002,20 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
     }
     ma = /^\/alertes\/canaux\/(al-[a-f0-9]{12})\/essai$/.exec(chemin);
     if (methode === 'POST' && ma) return envoyer(res, 200, await app.alertes.essai(profil, ma[1]));
+    // ---------------------------------------------------------------- moteur de suivi (suivis.ts)
+    if (chemin === '/suivis' && methode === 'GET') return envoyer(res, 200, { ...app.suivis.reglages(profil), lignes: app.suivis.suivis() });
+    let ms = /^\/suivis\/sujets\/([a-z_]{1,40})$/.exec(chemin);
+    if (ms && methode === 'PUT') {
+      const r = app.suivis.regler(profil, ms[1], await lireCorps(req));
+      app.suivis.passer(); // le choix s'applique tout de suite : ce qui n'est plus dû est retiré sans attendre
+      return envoyer(res, 200, r);
+    }
+    ms = /^\/suivis\/liens\/(sv-[a-f0-9]{12})$/.exec(chemin);
+    if (ms && methode === 'DELETE') return envoyer(res, 200, app.suivis.revoquerLien(profil, ms[1]));
+    ms = /^\/suivis\/(obj-[A-Za-z0-9-]{1,60})$/.exec(chemin);
+    if (ms && methode === 'GET') return envoyer(res, 200, app.suivis.fiche(profil, ms[1]));
+    ms = /^\/suivis\/(obj-[A-Za-z0-9-]{1,60})\/lien$/.exec(chemin);
+    if (ms && methode === 'POST') return envoyer(res, 200, app.suivis.creerLien(profil, ms[1], await lireCorps(req)));
     if (methode === 'POST' && chemin === '/monde/exemple') return envoyer(res, 200, monde.changerExemple(profil, sid, ((await lireCorps(req)) as { jeu?: unknown }).jeu));
     if (methode === 'POST' && chemin === '/monde/vider-demo') return envoyer(res, 200, monde.viderDemo(profil, sid, await lireCorps(req), app.comptes.profilsAvecCompte()));
     throw new ErreurApi(404, 'introuvable');
@@ -1089,6 +1103,15 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       if (chemin === '/mcp') return await pointMcp(req, res);
       const pub = /^\/api\/public\/formulaire\/([A-Za-z0-9_-]{1,64})$/.exec(chemin);
       if (pub) return await formulairePublic(req, res, pub[1] as string);
+      // page de suivi d'un client : seul le jeton donne accès, à CE suivi, et seulement tant que le lien n'est pas
+      // retiré. Aucune session, aucune écriture, et rien des autres fiches de l'entreprise (voir core/suivi-client.ts).
+      const sv = /^\/api\/public\/suivi\/([A-Za-z0-9_-]{1,64})$/.exec(chemin);
+      if (sv) {
+        if (req.method !== 'GET') return envoyer(res, 405, { erreur: 'methode' });
+        limiterIp(req);
+        const page = app.suivis.page(sv[1] as string);
+        return envoyer(res, page.etat === 'ouverte' ? 200 : 404, page);
+      }
       // page du téléphone (« Mettre en ligne ») : seul le jeton, valable 10 minutes ; aucune donnée renvoyée
       const tel = /^\/api\/public\/telephone\/([A-Za-z0-9_-]{1,64})$/.exec(chemin);
       if (tel) {
@@ -1101,6 +1124,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') return envoyer(res, 405, { erreur: 'methode' });
       const f = /^\/f\/[A-Za-z0-9_-]{1,64}$/.test(chemin) ? statiques.get('/formulaire.html')
+        : /^\/s\/[A-Za-z0-9_-]{1,64}$/.test(chemin) ? statiques.get('/suivi-client.html')
         : chemin === '/telephone' ? statiques.get('/telephone.html')
         : /^\/(invitation|secours)\/[A-Za-z0-9_-]{43}$/.test(chemin) || chemin === '/installation' ? statiques.get('/') : statiques.get(chemin);
       if (!f) return envoyer(res, 404, { erreur: 'introuvable' });
