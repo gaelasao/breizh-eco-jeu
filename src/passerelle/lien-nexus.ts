@@ -850,4 +850,87 @@ export class LienNexus {
     if (!estUuid(besoinId)) throw new ErreurApi(400, 'identifiant_invalide');
     return this.#appel('POST', `/besoins/${besoinId}/repondre`, d);
   }
+
+  /**
+   * Relevé « ce que vos agents ont fait » (réseau : src/serveur/releve.ts), pour l'écran du jeu. Lecture seule, et
+   * relu entièrement avant d'être montré : un chiffre que le jeu ne sait pas relire ne s'affiche pas. Le jeu ne
+   * recalcule rien et n'arrondit rien — ce serait un second compte, qui finirait par ne plus dire la même chose.
+   */
+  async releve(mois: unknown = null): Promise<Releve | null> {
+    const m = typeof mois === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(mois) ? mois : null;
+    const d = await this.#appel('GET', `/releve${m ? `?mois=${m}` : ''}`);
+    return lireReleve(d);
+  }
+}
+
+// ---------------------------------------------------------------- relevé du réseau, relu avant d'être montré
+
+/** Une estimation du réseau : un chiffre ET l'hypothèse qui le porte. Sans hypothèse, le chiffre ne passe pas. */
+export interface EstimationReleve { valeur: number; hypothese: string; sur: number }
+
+/** Un demi-relevé : ce que l'entreprise a fait, ou ce que ses agents ont fait. */
+export interface MesuresReleve {
+  occasions: number;
+  gestes: number;
+  abouties: number;
+  rapprochements: number;
+  temps: EstimationReleve | null;
+  euros: EstimationReleve | null;
+}
+
+export interface Releve {
+  mois: string;
+  moisCourant: string;
+  /** Toujours là : le travail de l'entreprise elle-même ne se vend pas. */
+  aLaMain: MesuresReleve;
+  /** null : aucun agent n'agit pour cette entreprise — elle voit son propre relevé, pas celui d'un agent. */
+  parLesAgents: MesuresReleve | null;
+  /** Ce qui n'a pas pu être chiffré, dit en clair par le réseau (jamais comblé par un « environ » ici). */
+  nonChiffre: string[];
+}
+
+const MOIS_RELEVE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** Un entier compté : négatif, fractionnaire ou absent → 0 (on ne devine pas un compte). */
+function compteReleve(x: unknown): number {
+  const n = num(x);
+  return n !== null && n >= 0 ? Math.floor(n) : 0;
+}
+
+/**
+ * Une estimation du réseau. Pas d'hypothèse écrite, pas de chiffre : c'est la règle du relevé, tenue des deux côtés.
+ * Le jeu n'invente pas l'hypothèse manquante et ne garde pas le chiffre tout seul.
+ */
+function lireEstimation(x: unknown): EstimationReleve | null {
+  if (!estObj(x)) return null;
+  const valeur = num(x.valeur);
+  const hypothese = ligne(x.hypothese, 400);
+  if (valeur === null || valeur <= 0 || !hypothese) return null;
+  return { valeur, hypothese, sur: compteReleve(x.sur) };
+}
+
+function lireMesures(x: unknown): MesuresReleve {
+  const o = estObj(x) ? x : {};
+  return {
+    occasions: compteReleve(o.occasions),
+    gestes: compteReleve(o.gestes),
+    abouties: compteReleve(o.abouties),
+    rapprochements: compteReleve(o.rapprochements),
+    temps: lireEstimation(o.temps),
+    euros: lireEstimation(o.euros),
+  };
+}
+
+/** Le relevé entier. Mois illisible : rien (l'écran dira que le relevé n'est pas lisible, pas un chiffre inventé). */
+export function lireReleve(d: unknown): Releve | null {
+  if (!estObj(d) || typeof d.mois !== 'string' || !MOIS_RELEVE.test(d.mois)) return null;
+  const courant = typeof d.moisCourant === 'string' && MOIS_RELEVE.test(d.moisCourant) ? d.moisCourant : d.mois;
+  return {
+    mois: d.mois,
+    moisCourant: courant,
+    aLaMain: lireMesures(d.aLaMain),
+    // absent ou nul : aucun agent n'agit — l'écran montre alors le travail de l'entreprise, et dit ce que ferait un agent
+    parLesAgents: d.parLesAgents === null || d.parLesAgents === undefined ? null : lireMesures(d.parLesAgents),
+    nonChiffre: (Array.isArray(d.nonChiffre) ? d.nonChiffre : []).slice(0, 10).map((x) => ligne(x, 400)).filter((x): x is string => x !== null),
+  };
 }
