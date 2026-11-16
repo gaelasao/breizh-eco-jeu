@@ -12,6 +12,7 @@
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { isIP } from 'node:net';
+import { brotliCompressSync, constants as ZLIB, gzipSync } from 'node:zlib';
 import type { Profil } from '../demo/donnees.ts';
 import { Application, DUREES_PROPOSEES } from './application.ts';
 import type { Compte } from './comptes.ts';
@@ -94,6 +95,35 @@ const LIMITE_JUSTIFICATIF = 4_000;
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 /** Accepte l'application complète, ou un monde seul (enveloppé, sans disque). */
+
+/**
+ * Compression des fichiers servis. La feuille de style part aujourd'hui en clair : 190 ko à chaque premier
+ * affichage, alors qu'elle en fait 30 une fois compressée. C'est, et de loin, le plus gros gain de chargement
+ * disponible — cent fois ce que pèsent les ajouts récents.
+ *
+ * Compressé À LA PREMIÈRE DEMANDE puis gardé : le démarrage ne paie rien, et un fichier jamais demandé n'est
+ * jamais compressé. L'empreinte reçoit un suffixe par encodage, sinon un cache intermédiaire pourrait rendre la
+ * variante compressée à qui ne sait pas la lire.
+ */
+const COMPRESSIBLES = /^(?:text\/|application\/(?:javascript|json|wasm)|image\/svg)/;
+const COMPRESSE_AU_DELA = 1024; // en dessous, l'en-tête coûte plus que ce qu'on gagne
+const compresses = new Map<string, Buffer>();
+function variante(f: { contenu: Buffer; type: string; etag: string }, accepte: string): { corps: Buffer; encodage: string | null } {
+  if (!COMPRESSIBLES.test(f.type) || f.contenu.length < COMPRESSE_AU_DELA) return { corps: f.contenu, encodage: null };
+  const brotli = /\bbr\b/.test(accepte);
+  if (!brotli && !/\bgzip\b/.test(accepte)) return { corps: f.contenu, encodage: null };
+  const encodage = brotli ? 'br' : 'gzip';
+  const cle = `${f.etag}:${encodage}`;
+  let corps = compresses.get(cle);
+  if (!corps) {
+    // qualité 5 : presque tout le gain de la qualité maximale, pour une fraction du temps de calcul
+    corps = brotli ? brotliCompressSync(f.contenu, { params: { [ZLIB.BROTLI_PARAM_QUALITY]: 5 } }) : gzipSync(f.contenu, { level: 6 });
+    if (compresses.size > 400) compresses.clear();
+    compresses.set(cle, corps);
+  }
+  return { corps, encodage };
+}
+
 export function creerServeur(source: Monde | Application, o: Partial<OptionsServeur> = {}): Server {
   if (source instanceof Monde) throw new Error('creerServeur : passez une Application (Application.creer)');
   let app = source;
@@ -1258,10 +1288,12 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       // demandé avec sa version exacte (« ?v=… », ex. le sprite d'icônes) : immuable ; sinon revalidé par l'ETag (304)
       const versionDemandee = new URL(req.url ?? '/', 'http://local').searchParams.get('v');
       const cache = versionDemandee && versionDemandee === f.version ? CACHE_IMMUABLE : f.cache;
-      const etag = { etag: f.etag, 'cache-control': cache };
-      if (req.headers['if-none-match']?.split(/\s*,\s*/).includes(f.etag)) { res.writeHead(304, { ...ENTETES_SECURITE, ...etag }); res.end(); return; }
-      res.writeHead(200, { ...ENTETES_SECURITE, 'content-type': f.type, 'content-length': String(f.contenu.length), ...etag });
-      res.end(req.method === 'HEAD' ? undefined : f.contenu);
+      const { corps, encodage } = variante(f, String(req.headers['accept-encoding'] ?? ''));
+      const marque = encodage ? `${f.etag.slice(0, -1)}-${encodage}"` : f.etag;
+      const etag = { etag: marque, 'cache-control': cache, vary: 'accept-encoding' };
+      if (req.headers['if-none-match']?.split(/\s*,\s*/).includes(marque)) { res.writeHead(304, { ...ENTETES_SECURITE, ...etag }); res.end(); return; }
+      res.writeHead(200, { ...ENTETES_SECURITE, 'content-type': f.type, 'content-length': String(corps.length), ...(encodage ? { 'content-encoding': encodage } : {}), ...etag });
+      res.end(req.method === 'HEAD' ? undefined : corps);
     } catch (e) {
       if (e instanceof ErreurApi) return envoyer(res, e.statut, { erreur: e.code, message: e.message });
       console.error('[passerelle] erreur interne', e instanceof Error ? e.message : e);
