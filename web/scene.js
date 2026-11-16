@@ -1007,10 +1007,11 @@ function arbre(x, z, rnd, echelle = 1) {
 function hortensia(x, z, rnd) {
   const g = new THREE.Group();
   const c = P.hortensia[Math.floor(rnd() * P.hortensia.length)];
-  g.add(piece(SP(0.4, 8), mat(0x4f6b43, { flatShading: true }), 0, 0.2, 0));
+  // 6 segments : facettées et à plat, ces boules n'ont besoin de rien de plus, et elles comptent au budget du §5.10
+  g.add(piece(SP(0.4, 6), mat(0x4f6b43, { flatShading: true }), 0, 0.2, 0));
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + rnd();
-    g.add(piece(SP(0.2 + rnd() * 0.07, 8), mat(c, { flatShading: true }), Math.cos(a) * 0.27, 0.46 + rnd() * 0.16, Math.sin(a) * 0.27));
+    g.add(piece(SP(0.2 + rnd() * 0.07, 6), mat(c, { flatShading: true }), Math.cos(a) * 0.27, 0.46 + rnd() * 0.16, Math.sin(a) * 0.27));
   }
   g.position.set(x, 0, z);
   g.rotation.y = rnd() * Math.PI;
@@ -2129,6 +2130,9 @@ void main() {
      du décor (arbres, bancs, corbeilles) ne tombait plus au même endroit selon la qualité — un changement de palier
      redessinait la ville. */
   const rndFleurs = alea(77);
+  /* Hortensias et ajoncs : jamais sur téléphone. Ils font une quinzaine de milliers de triangles, et le budget du
+     §5.10 n'en laisse que 120 000 à un téléphone — où, à 390 px de large, une boule d'hortensia fait deux pixels. */
+  const fleursDuPays = PROFIL.accessoires && !estTelephone;
   const ou = (x, z) => (auCentre(x, z) ? centreVille : statique);
   const mobilierUrbain = (nom, echelle, x, z, rot, petit = false) => {
     if ((petit || nom.endsWith('light') || nom.startsWith('trafficlight')) && !PROFIL.accessoires) return; // Économie : ni lampadaires ni feux
@@ -2142,7 +2146,7 @@ void main() {
     ou(x + 3, 6.6).add(arbre(x + 3, 6.6, rnd, 0.9));
     statique.add(arbre(x + 9, -45.5, rnd, 0.9));
     // le pays au pied des arbres : à l'emplacement d'un arbre, on sait que rien d'autre ne tombera là
-    if (PROFIL.accessoires) {
+    if (fleursDuPays) {
       ou(x + 4.4, 6.9).add(hortensia(x + 4.4, 6.9, rndFleurs));
       statique.add(ajonc(x + 10.4, -45.2, rndFleurs));
     }
@@ -2153,7 +2157,7 @@ void main() {
     if (Math.abs(z) < 6 || Math.abs(z + 40) < 6) continue;
     statique.add(arbre(-51, z, rnd, 0.85));
     statique.add(arbre(51, z, rnd, 0.85));
-    if (PROFIL.accessoires) {
+    if (fleursDuPays) {
       statique.add(hortensia(-51.4, z + 1.3, rndFleurs));
       statique.add(ajonc(51.4, z + 1.3, rndFleurs));
     }
