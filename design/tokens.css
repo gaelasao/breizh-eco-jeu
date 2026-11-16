@@ -321,12 +321,12 @@
   --bz-verre-bord: rgb(234 237 241 / 0.12);
   --bz-verre-reflet: inset 0 1px 0 rgb(255 255 255 / 0.07);
   --bz-etiquette-fond: rgb(15 29 36 / 0.88);
-  /* Ombres (sombre) : un noir de nuit d'Iroise (0 2 5) plutôt qu'un noir pur, et un filet de lumière en haut
+  /* Ombres (sombre) : un noir de nuit d'Iroise (0 9 17) plutôt qu'un noir pur, et un filet de lumière en haut
      — c'est lui qui décolle une carte du fond quand l'ombre, elle, ne se voit presque pas. */
-  --bz-ombre-1: 0 1px 2px rgb(0 2 5 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.05);
-  --bz-ombre-2: 0 8px 20px -6px rgb(0 2 5 / 0.58), inset 0 1px 0 rgb(255 255 255 / 0.06);
-  --bz-ombre-3: 0 18px 44px -10px rgb(0 2 5 / 0.68), inset 0 1px 0 rgb(255 255 255 / 0.07);
-  --bz-ombre-4: 0 30px 70px -16px rgb(0 2 5 / 0.78), inset 0 1px 0 rgb(255 255 255 / 0.08);
+  --bz-ombre-1: 0 1px 2px rgb(0 9 17 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --bz-ombre-2: 0 8px 20px -6px rgb(0 9 17 / 0.58), inset 0 1px 0 rgb(255 255 255 / 0.06);
+  --bz-ombre-3: 0 18px 44px -10px rgb(0 9 17 / 0.68), inset 0 1px 0 rgb(255 255 255 / 0.07);
+  --bz-ombre-4: 0 30px 70px -16px rgb(0 9 17 / 0.78), inset 0 1px 0 rgb(255 255 255 / 0.08);
 }
 @supports (color: color-mix(in oklch, red 50%, blue)) {
   :root {

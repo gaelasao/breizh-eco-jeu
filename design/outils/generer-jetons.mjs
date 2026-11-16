@@ -67,7 +67,7 @@ const bordClair = rgba(clair.granit[12], 0.1), bordSombre = rgba(sombre.granit[1
 // Couleur des ombres en clair : l'ardoise du texte réchauffée vers la chaux, jamais du noir (cf. bloc 5)
 const canaux = (c) => hex(c).slice(1).match(/../g).map((p) => parseInt(p, 16)).join(' ');
 const ombreClaire = canaux([0.3, 0.03, 70]);
-const ombreSombre = canaux([0.08, 0.022, 235]); // nuit d'Iroise poussée au plus sombre
+const ombreSombre = canaux([0.13, 0.035, 235]); // nuit d'Iroise au plus sombre : un noir bleuté, encore lisible comme tel
 
 const css = `/*!
  * Breizhcosystem — jetons de design (tokens.css) v${VERSION}
