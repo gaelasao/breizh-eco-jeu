@@ -939,8 +939,17 @@
 
   /* ---------------------------------------------------------------- assistant à étapes (§4.21, §4.14, §6.1 P4) */
   /* Dialogue lg sur ordinateur (liste d'étapes à gauche), feuille plein écran sur téléphone (barre de 4 px + texte). */
-  .bz-assistant { block-size: min(46rem, 100dvh - 2 * var(--bz-e-4)); }
-  .bz-assistant .bz-dialogue__cadre { block-size: 100%; }
+  /* Hauteur bornée plutôt que fixe : à 46 rem imposées, la première étape (deux choix) laissait un tiers de vide sous
+     le texte — un dialogue qui a l'air inachevé. Le plancher évite qu'une étape très courte rétrécisse le dialogue à
+     rien, le plafond l'empêche de dépasser l'écran, et entre les deux il prend la taille de son contenu.
+     fit-content, pas auto : un dialogue modal est positionné par ses quatre côtés, et auto le ferait remplir l'écran.
+     Le passage d'une étape à l'autre s'accompagne au lieu de sauter, là où le navigateur sait interpoler fit-content. */
+  .bz-assistant { block-size: fit-content; min-block-size: min(30rem, 100dvh - 2 * var(--bz-e-4)); max-block-size: min(46rem, 100dvh - 2 * var(--bz-e-4));
+    interpolate-size: allow-keywords; transition: block-size var(--bz-d-3) var(--bz-c-standard), opacity var(--bz-d-3) var(--bz-c-effet),
+      translate var(--bz-d-4) var(--bz-ressort-doux), overlay var(--bz-d-3) allow-discrete, display var(--bz-d-3) allow-discrete; }
+  /* Le cadre suit la hauteur du contenu (un block-size: 100% la rendrait de nouveau fixe : un pourcentage se résout
+     ici sur le plafond du dialogue). Il s'étire dans ce qui reste quand le contenu dépasse. */
+  .bz-assistant .bz-dialogue__cadre { flex: 1 1 auto; min-block-size: 0; }
   .bz-assistant__entete { display: flex; flex-direction: column; gap: var(--bz-e-0-5); min-inline-size: 0; }
   .bz-assistant__grille { flex: 1; min-block-size: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
   .bz-assistant__grille > .bz-dialogue__corps { min-block-size: 0; }
