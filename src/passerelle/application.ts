@@ -12,11 +12,13 @@ import { adresseNexus } from './bureau.ts';
 import { Cles, type EtatCles } from './cles.ts';
 import { ErreurFec, lireFec, valeursFiche, type SyntheseFec } from '../core/fec.ts';
 import { evaluerSante, type ResultatSante } from '../core/sante.ts';
+import { tacheDejaFaite, tacheDeRendezVous } from '../core/saisie-terrain.ts';
 import { derniersJours, JOURS_TENDANCE, lireHistorique, noter, serieExemple, type PointSante, type SerieSante } from '../core/historique-sante.ts';
 import { voitMotifsAbsence, type Profil } from '../demo/donnees.ts';
 import { clientsSurveilles, proceduresCollectives, type AlerteBodacc } from './bodacc.ts';
 import { Comptes, normaliserIdentifiant, problemeMotDePasse, type EtatComptes } from './comptes.ts';
 import { Enquetes, type EtatEnquetes } from './enquetes.ts';
+import { Justificatifs, type EtatJustificatifs } from './justificatifs.ts';
 import { LienNexus, type EtatLienNexus } from './lien-nexus.ts';
 import { Miroir, type EtatMiroir } from './miroir.ts';
 import { ErreurApi, Monde, SYSTEME, type EtatMonde, type Exemple, type OptionsMonde } from './monde.ts';
@@ -50,6 +52,12 @@ export interface EtatApplication {
   misesAJour?: EtatMisesAJour;
   /** Alertes sur un canal de l'entreprise (Telegram, WhatsApp, webhook) ; absentes tant que rien n'est branché. */
   alertes?: EtatAlertes;
+  /**
+   * Justificatifs photographiés sur place : seulement les fiches (montant, date, fournisseur, rattachement). Les
+   * photos elles-mêmes sont des fichiers de `<données>/justificatifs/`, jamais ce JSON — il est réécrit à chaque
+   * changement, et une facture photographiée pèse des mégaoctets.
+   */
+  justificatifs?: EtatJustificatifs;
 }
 
 /** Avis montré aux AUTRES administrateurs jusqu'à ce qu'ils l'aient vu (90 jours au plus, 20 avis au plus). */
@@ -135,6 +143,8 @@ export class Application {
   /** Miroir vers le fichier de suivi de l'entreprise (Google Sheets, Notion ou Airtable). */
   readonly miroir: Miroir;
   readonly enquetes: Enquetes;
+  /** Justificatifs photographiés sur le chantier (photo rangée ici, trois champs courts). */
+  readonly justificatifs: Justificatifs;
   readonly automatisations: Automatisations;
   readonly cles: Cles;
   readonly comptes: Comptes;
@@ -174,6 +184,8 @@ export class Application {
     this.synchro = new Synchro(monde, this.#chiffreur, { etat: etat?.synchro ?? null, changement, relais, ...(f ? { fetch: f } : {}) });
     this.miroir = new Miroir(monde, this.synchro, { etat: etat?.miroir ?? null, changement });
     this.enquetes = new Enquetes(monde, { etat: etat?.enquetes ?? null, changement });
+    // les photos vont à côté de `monde.json` (dossier des données), ou en mémoire s'il n'y en a pas (démonstration)
+    this.justificatifs = new Justificatifs(monde, { etat: etat?.justificatifs ?? null, dossier: stockage?.dossier ?? null, changement });
     this.cles = new Cles(monde, { etat: etat?.cles ?? null, changement });
     this.comptes = new Comptes({ etat: etat?.comptes ?? null, changement, maintenant: () => monde.maintenant(), chiffreur: this.#chiffreur, ...(o.horloge ? { horloge: o.horloge } : {}) });
     const verifierMaj = etat?.reglages?.verifierMisesAJour;
@@ -257,6 +269,7 @@ export class Application {
       synchro: this.synchro.instantane(),
       miroir: this.miroir.instantane(),
       enquetes: this.enquetes.instantane(),
+      justificatifs: this.justificatifs.instantane(),
       automatisations: this.automatisations.instantane(),
       cles: this.cles.instantane(),
       comptes: this.comptes.instantane(),
@@ -380,6 +393,42 @@ export class Application {
     return { debut: s.debut, fin: s.fin, mois: s.mois, ecritures: s.lignes, valeurs: v, score: p.voitScore ? this.sante(p, sid).score : null };
   }
 
+  // ---------------------------------------------------------------- une tâche depuis un rendez-vous de l'agenda
+
+  /**
+   * « En faire une tâche », depuis un rendez-vous venu de l'agenda branché (`sources-agenda.ts`). JAMAIS
+   * automatiquement pour tous les événements : un artisan a quarante rendez-vous par semaine, et quarante tâches de
+   * plus rendraient l'écran inutilisable en trois jours. C'est donc un clic, rendez-vous par rendez-vous.
+   *
+   * Recliquer ne crée pas de deuxième tâche : la tâche déjà rattachée à ce rendez-vous est renvoyée telle quelle
+   * (`deja: true`). La tâche passe par le même circuit que les autres (`tache.creer`, journal, approbation) : un
+   * profil qui ne peut pas approuver la laisse en attente, comme ailleurs.
+   */
+  async tacheDepuisRendezVous(p: Profil, sid: string, d: unknown): Promise<{ deja: boolean; tache: { id: string; nom: string; echeance: string | null }; action: unknown }> {
+    const id = estObj(d) && typeof d.evenement === 'string' ? d.evenement : null;
+    if (!id) throw new ErreurApi(400, 'requete_invalide', 'Indiquez le rendez-vous.');
+    const f = this.monde.fiche(p, sid, id);
+    if (f.objet.famille !== 'evenement') throw new ErreurApi(400, 'pas_un_rendez_vous', 'Cette fiche n’est pas un rendez-vous.');
+    const visibles = this.monde.nomsVisibles(p, sid);
+    const deja = tacheDejaFaite(this.monde.objetsReels().filter((o) => visibles.has(o.id)), f.objet.id);
+    if (deja) {
+      return { deja: true, tache: { id: deja.id, nom: deja.nom, echeance: typeof deja.champs.echeance === 'string' ? deja.champs.echeance : null }, action: null };
+    }
+    const quoi = tacheDeRendezVous({ nom: f.objet.nom, champs: Object.fromEntries(f.objet.champs.map((c) => [c.id, c.valeur])) });
+    // clé d'idempotence tirée du rendez-vous : deux clics partis en même temps (réseau lent, double appui) ne font
+    // jamais deux tâches, même avant que la première soit enregistrée
+    const action = await this.monde.preparerAction(p, sid, {
+      cle: `rdv-${f.objet.id}`.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 128).padEnd(8, '-'),
+      cible: f.objet.id, capacite: 'tache.creer', parametres: { titre: quoi.titre, echeance: quoi.echeance }, executer: true,
+    });
+    const creee = tacheDejaFaite(this.monde.objetsReels(), f.objet.id);
+    return {
+      deja: false,
+      tache: creee ? { id: creee.id, nom: creee.nom, echeance: typeof creee.champs.echeance === 'string' ? creee.champs.echeance : null } : { id: '', nom: quoi.titre, echeance: quoi.echeance },
+      action,
+    };
+  }
+
   // ---------------------------------------------------------------- clients en difficulté (Bodacc)
 
   get bodacc() {
@@ -429,6 +478,8 @@ export class Application {
     const outils = this.synchro.oublierObjet(r.id);
     this.enquetes.oublierObjet(r.id);
     this.automatisations.oublierObjet(r.id);
+    // la photo du justificatif reste (une pièce comptable ne se jette pas) : elle perd seulement son rattachement
+    this.justificatifs.oublierObjet(r.id);
     this.stockage?.noterEffacement(r.id, r.mode);
     return { ...r, outils, sauvegardesJours: this.stockage ? CONSERVATION_JOURS : 0 };
   }
@@ -447,7 +498,7 @@ export class Application {
     const c = this.#reglages.conservation;
     const avant = (jours: number | null) => (jours ? new Date(this.monde.maintenant().getTime() - jours * 86_400_000).toISOString().slice(0, 10) : null);
     const r = this.monde.purgerAnciennes({ planningAvant: avant(c.planning), avisAvant: avant(c.avis), courrierAvant: avant(c.courrier) });
-    for (const id of r.ids) { this.miroir.surEffacement(id); this.synchro.oublierObjet(id); this.enquetes.oublierObjet(id); this.automatisations.oublierObjet(id); }
+    for (const id of r.ids) { this.miroir.surEffacement(id); this.synchro.oublierObjet(id); this.enquetes.oublierObjet(id); this.automatisations.oublierObjet(id); this.justificatifs.oublierObjet(id); }
     this.#purgeeLe = Date.now();
     return { cases: r.cases, fiches: r.ids.length };
   }
@@ -472,6 +523,7 @@ export class Application {
       this.synchro.oublierObjet(e.id);
       this.enquetes.oublierObjet(e.id);
       this.automatisations.oublierObjet(e.id);
+      this.justificatifs.oublierObjet(e.id);
     }
   }
 
