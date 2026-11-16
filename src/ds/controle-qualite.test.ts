@@ -122,7 +122,11 @@ test('fichiers servis : ETag et 304, sprite d’icônes demandé avec sa version
     assert.equal(r.status, 200);
     assert.equal(r.headers.get('cache-control'), 'no-cache');
     const etag = r.headers.get('etag');
-    assert.equal(etag, sprite.etag);
+    // Le fichier part compressé (fetch annonce gzip et br) : l'empreinte porte alors son encodage, sinon un cache
+    // intermédiaire pourrait rendre la variante compressée à un client qui ne sait pas la lire. Le 304 suit.
+    assert.equal(r.headers.get('vary'), 'accept-encoding');
+    const encodage = r.headers.get('content-encoding');
+    assert.equal(etag, encodage ? `${sprite.etag.slice(0, -1)}-${encodage}"` : sprite.etag);
     const r304 = await fetch(`${base}/bz/icones.svg`, { headers: { 'if-none-match': etag as string } });
     assert.equal(r304.status, 304, 'inchangé : rien n’est retéléchargé');
     assert.equal((await r304.arrayBuffer()).byteLength, 0);
