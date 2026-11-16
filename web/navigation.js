@@ -90,7 +90,9 @@ export function groupesNavigation(m, { aFaire = 0, vueAujourdhui = 'carte', main
       { id: 'lieux', vue: 'famille:lieu', libelle: 'Lieux', icone: 'map-pin' },
     ] },
     p.peutAdministrer || p.voitScore ? { id: 'reseau', libelle: 'Réseau', entrees: [
-      { id: 'nexus', vue: 'nexus', libelle: 'Breizhcosystem', icone: 'bz-nexus', raccourci: 'g n' },
+      // « releve » (ce que vos agents ont fait, relevé du réseau) est une vue de cette destination, pas une entrée de
+      // plus : on y entre depuis l'écran Breizhcosystem, et le rail reste allumé sur Breizhcosystem.
+      { id: 'nexus', vue: 'nexus', vues: ['releve'], libelle: 'Breizhcosystem', icone: 'bz-nexus', raccourci: 'g n' },
     ] } : null,
   ];
   return groupes.filter(Boolean).map((g) => ({ ...g, entrees: g.entrees.filter(Boolean) })).filter((g) => g.entrees.length);
@@ -175,6 +177,8 @@ export function titreDeVue(groupes, vue, { nomProfil = '', maintenant = new Date
   if (vue === 'pipeline') return 'Pipeline';
   if (vue === 'reglages' || vue === 'acces' || String(vue).startsWith('reglages:')) return 'Réglages';
   if (vue === 'compte') return 'Mon compte';
+  // relevé du réseau : une vue de la destination Breizhcosystem, mais son propre titre (jamais « Breizhcosystem »)
+  if (vue === 'releve') return 'Ce que vos agents ont fait';
   if (vue === 'progression') return 'Progression';
   if (vue === 'accueil') return 'Compléter mon entreprise';
   if (String(vue).startsWith('dep:') && departement) return sansDemo(departement);

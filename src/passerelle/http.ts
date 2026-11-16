@@ -732,6 +732,13 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       if (methode === 'POST' && chemin === '/nexus/agent/publier') { admin(); return envoyer(res, 200, await n.publierDemande(await lireCorps(req))); }
       if (methode === 'POST' && chemin === '/nexus/contacter') { admin(); return envoyer(res, 200, await n.contacter(await lireCorps(req))); }
       if (methode === 'GET' && chemin === '/nexus/commandes') { admin(); return envoyer(res, 200, await n.commandes()); }
+      // Relevé « ce que vos agents ont fait » (réseau) : lecture seule, relue par lien-nexus.ts avant d'être montrée.
+      // Le jeu ne recalcule rien et n'arrondit rien : un second compte finirait par ne plus dire la même chose.
+      if (methode === 'GET' && chemin === '/nexus/releve') {
+        admin();
+        const mois = new URL(req.url ?? '/', 'http://local').searchParams.get('mois');
+        return envoyer(res, 200, { releve: await n.releve(mois) });
+      }
       // échanges entre agents de deux entreprises : demander un prix (n'engage à rien) et suivre ; valider une proposition se
       // fait sur Breizhcosystem, connecté : la réponse donne l'adresse de la page, le jeu n'a aucune route pour valider
       if (chemin === '/nexus/echanges') {

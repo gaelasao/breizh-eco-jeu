@@ -27,6 +27,8 @@ import { texteCsv } from '/csv.js';
 import * as REG from '/reglages.js';
 import * as SUIVI from '/suivi.js';
 import * as RESEAU from '/reseau.js';
+// relevé du réseau (« ce que vos agents ont fait »), mis en forme ici, calculé là-bas
+import * as RELEVE from '/releve-reseau.js';
 import * as SIMPLE from '/simplicite.js';
 
 // Logiciel libre (GNU AGPL version 3) : où trouver le code source de cette version (article 13 de la licence), offert à
@@ -1091,7 +1093,7 @@ const estOrdinateur = () => matchMedia('(min-width: 60em)').matches;
    largeur et pousse le reste. Tant que personne n'a choisi, il s'ouvre replié ; un clic le déplie et ce choix reste. */
 const ecranEtroit = () => matchMedia('(min-width: 60em) and (max-width: 74.99em)').matches;
 const railEffectif = () => !estOrdinateur() || (E.railReplie ?? ecranEtroit());
-const VUES_AVEC_TITRE = new Set(['carte', 'matin', 'tableau', 'pipeline', 'sante', 'planning', 'courrier', 'satisfaction', 'optimiser', 'departements', 'nexus', 'reglages', 'compte', 'progression']); // le titre (h1) est dans l'en-tête
+const VUES_AVEC_TITRE = new Set(['carte', 'matin', 'tableau', 'pipeline', 'sante', 'planning', 'courrier', 'satisfaction', 'optimiser', 'departements', 'nexus', 'releve', 'reglages', 'compte', 'progression']); // le titre (h1) est dans l'en-tête
 const vueAvecTitre = (v) => VUES_AVEC_TITRE.has(v) || estVueListe(v) || String(v).startsWith('dep:');
 const LIBELLE_TON = { critique: 'Critique', attention: 'À traiter', info: 'Information', ok: 'En ordre' };
 
@@ -1661,6 +1663,7 @@ async function rendreVue() {
     if (E.vue === 'optimiser') return rendreOptimiser();
     if (E.vue === 'sante') return rendreSante();
     if (E.vue === 'nexus') return rendreNexus();
+    if (E.vue === 'releve') return rendreReleve();
     if (E.vue === 'progression') return rendreProgression();
     if (E.vue === 'vehicules') return rendreVehicules();
     if (E.vue.startsWith('vehicule:')) return rendreVehicule(E.vue.slice(9));
@@ -8177,6 +8180,8 @@ async function rendreNexus() {
     h('div', { class: 'bz-groupe-boutons' },
       N.relie && admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => { const z = $('#demande-agent'); z?.scrollIntoView({ behavior: mouvementReduit() ? 'auto' : 'smooth', block: 'start' }); $('#agent-je-cherche')?.focus({ preventScroll: true }); } }, icone('bot'), 'Demander à l’agent') : null,
       h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => proposerNexus(null) }, icone('user-plus'), 'Inviter une entreprise'),
+      // relevé du réseau : ce que les agents ont fait, et ce que l'entreprise a fait elle-même (une vue à part)
+      N.relie && admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => changerVue('releve') }, icone('receipt'), 'Ce que vos agents ont fait') : null,
       N.url ? lienExterne(N.url, 'Ouvrir Breizhcosystem') : null));
   if (!N.relie) {
     Object.assign(EA, { reponse: null, erreur: null });
@@ -8220,6 +8225,68 @@ async function rendreNexus() {
     admin ? h('section', { id: 'agents-nexus', class: 'bz-pile' }) : null));
   rendreBarre();
   if (admin) rendreAgents(N);
+}
+
+// ---------------------------------------------------------------- « Ce que vos agents ont fait » : le relevé du réseau
+// Le jeu ne recompte rien : le relevé est calculé par le réseau depuis ses propres tables, relu par la passerelle, et
+// affiché tel quel. Une valeur que le réseau n'a pas calculée ne s'affiche pas — ni tiret, ni « environ ».
+
+/** Une ligne chiffrée : le nombre, le mot accordé, et l'hypothèse dessous quand il y en a une. */
+function tuileReleve(l) {
+  return h('li', { class: 'bz-pile bz-pile--serre' },
+    h('p', { class: 'bz-ligne-icone' }, h('strong', { class: 'bz-t-chiffre', texte: l.valeur }), h('span', { class: 'bz-t-petit bz-texte-2', texte: l.mot })),
+    l.hypothese ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `Hypothèse : ${l.hypothese}` }) : null);
+}
+
+/** Un demi-relevé : ce que l'entreprise a fait, ou ce que ses agents ont fait. */
+function blocReleve(titre, mesures, agents) {
+  const l = RELEVE.lignes(mesures, { agents });
+  return h('section', { class: 'bz-carte bz-pile' },
+    h('h2', { class: 'bz-t-titre-4', texte: titre }),
+    l.length ? h('ul', { class: 'bz-liste-simple', role: 'list' }, l.map(tuileReleve)) : h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Rien à compter ce mois-ci.' }));
+}
+
+/** Écran « Ce que vos agents ont fait » (relevé du réseau, pour une entreprise reliée). */
+async function rendreReleve(mois = null) {
+  const P = $('#page');
+  let N;
+  try { N = await api('GET', '/nexus'); } catch (e) { if (E.vue === 'releve') remplir(P, erreurEcran('Breizhcosystem n’a pas pu être joint.', e, () => rendreReleve(mois))); return; }
+  if (E.vue !== 'releve') return;
+  const cadre = (...enfants) => remplir(P, h('div', { class: 'bz-ecran bz-nexus bz-pile' }, ...enfants));
+  if (RELEVE.etat({ relie: N.relie, releve: null }) === 'non_relie') {
+    const t = RELEVE.TEXTES.non_relie;
+    cadre(blocVide({ titre: t.titre, texte: t.texte,
+      actions: E.monde.profil.peutAdministrer ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => changerVue('reglages:nexus') }, icone('link'), 'Relier mon entreprise à Breizhcosystem') : null }));
+    return;
+  }
+  cadre(h('span', { class: 'bz-squelette bz-squelette--logiciels' }));
+  let r = null;
+  try { r = (await api(`GET`, `/nexus/releve${mois ? `?mois=${encodeURIComponent(mois)}` : ''}`)).releve; } catch (e) {
+    if (E.vue === 'releve') remplir(P, erreurEcran('Le relevé n’a pas pu être lu.', e, () => rendreReleve(mois)));
+    return;
+  }
+  if (E.vue !== 'releve') return;
+  const etat = RELEVE.etat({ relie: N.relie, releve: r });
+  const t = RELEVE.TEXTES[etat];
+  if (etat === 'illisible') { cadre(blocVide({ titre: t.titre, texte: t.texte, role: 'alert', actions: h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => rendreReleve(mois) }, icone('refresh-cw'), 'Réessayer') })); return; }
+  const v = RELEVE.voisins(r.mois, r.moisCourant);
+  const bouton = (libelle, m, ic) => h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => rendreReleve(m) }, icone(ic, { taille: 'sm' }), libelle);
+  cadre(
+    h('div', { class: 'bz-liste__tete' },
+      h('p', { class: 'bz-liste__compte bz-t-petit bz-texte-2' }, icone('bz-nexus', { taille: 'sm' }), RELEVE.titreMois(r.mois) ?? r.mois),
+      h('div', { class: 'bz-groupe-boutons' },
+        v.avant ? bouton('Mois précédent', v.avant, 'chevron-left') : null,
+        v.apres ? bouton('Mois suivant', v.apres, 'chevron-right') : null,
+        N.url ? lienExterne(N.url, 'Ouvrir Breizhcosystem') : null)),
+    h('section', { class: 'bz-carte bz-pile' }, h('h2', { class: 'bz-t-titre-3', texte: t.titre }), h('p', { class: 'bz-t-chapeau', texte: RELEVE.phrase(r) }), h('p', { class: 'bz-t-petit bz-texte-2', texte: t.texte })),
+    blocReleve('Ce que vous avez fait', r.aLaMain, false),
+    r.parLesAgents ? blocReleve('Ce que vos agents ont fait', r.parLesAgents, true) : null,
+    // ce qui n'est pas chiffré est dit en clair : c'est la contrepartie de « jamais un chiffre inventé »
+    r.nonChiffre.length
+      ? h('section', { class: 'bz-carte bz-pile' }, h('h2', { class: 'bz-t-titre-4', texte: 'Ce qui n’est pas chiffré, et pourquoi' }),
+        h('ul', { class: 'bz-liste-simple', role: 'list' }, r.nonChiffre.map((x) => h('li', { class: 'bz-t-petit bz-texte-2', texte: x }))))
+      : null);
+  rendreBarre();
 }
 
 // ---------------------------------------------------------------- agents d'achat : l'agent prépare, vous validez toujours
