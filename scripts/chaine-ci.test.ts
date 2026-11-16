@@ -110,7 +110,11 @@ test('npm : aucun script d’installation, ni en CI ni à la main (.npmrc), et a
   assert.match(npmrc, /^ignore-scripts=true$/m);
   const verrou = JSON.parse(readFileSync(join(RACINE, 'package-lock.json'), 'utf8')) as { packages: Record<string, { hasInstallScript?: boolean }> };
   const avecScript = Object.entries(verrou.packages).filter(([, p]) => p.hasInstallScript).map(([n]) => n);
-  assert.deepEqual(avecScript, [], 'une dépendance avec script d’installation ne marcherait pas avec ignore-scripts : à examiner avant de l’adopter');
+  // Une dépendance avec script d'installation est EXAMINÉE avant d'être adoptée, et inscrite ici avec sa raison.
+  // tesseract.js (lecture d'un justificatif photographié) déclare « postinstall: opencollective-postinstall || true » :
+  // ce programme n'écrit qu'un remerciement dans le terminal — aucun accès au réseau, aucun fichier touché — et le
+  // paquet fonctionne sans lui. Avec `ignore-scripts=true`, il ne tourne jamais, ni ici ni chez qui installe.
+  assert.deepEqual(avecScript, ['node_modules/tesseract.js'], 'une dépendance avec script d’installation : à examiner, puis à inscrire ici avec sa raison');
   // les scripts du jeu lancés par npm run / npm test ne dépendent d'aucun script « pre » ou « post » (ignorés)
   const scripts = (JSON.parse(readFileSync(join(RACINE, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts;
   assert.deepEqual(Object.keys(scripts).filter((s) => /^(pre|post)/.test(s)), []);

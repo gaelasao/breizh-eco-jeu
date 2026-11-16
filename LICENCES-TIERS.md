@@ -23,6 +23,8 @@ nouveau composant.
 | Lucide (icônes) | ISC ; MIT pour les icônes venues de Feather | Même raison. Texte : `web/licences/lucide-ISC-MIT.txt`. |
 | Modèles 3D KayKit | CC0 1.0 (domaine public) | Aucune condition. |
 | Polices Inter, Fraunces, Atkinson Hyperlegible Next | SIL OFL 1.1 | Les polices restent sous OFL (elle interdit de les placer sous une autre licence) : ce sont des œuvres séparées, jointes au logiciel et chargées par lui. L'OFL permet de les distribuer avec tout logiciel, et l'AGPL ne s'étend pas aux œuvres indépendantes réunies avec le programme (article 5, dernier alinéa). Aucune des trois ne déclare de nom de police réservé ; les sous-ensembles gardent les champs de licence dans le fichier. |
+| tesseract.js et son cœur WebAssembly tesseract.js-core (lecture d'un justificatif photographié) | Apache 2.0 | Licence permissive, compatible avec la version 3 des licences GNU (c'est la version 3 qui permet cette combinaison ; la version 2 ne l'aurait pas permise). Ses conditions sont tenues : mentions de droit d'auteur gardées, texte complet dans `web/licences/tesseract-Apache-2.0.txt`, fichier `LICENSE` de chaque paquet dans `app/node_modules/`. Vérifié aussi : ni télémétrie, ni appel vers un tiers — les trois chemins (fil de travail, cœur, modèle) sont imposés par `web/lecture-moteur.js` et servis par Living Business. |
+| Modèle de lecture français `fra.traineddata` | Apache 2.0 | Même raison. Fichier de données, joint au dépôt et non modifié ; source et empreinte plus bas. |
 | Node.js (paquets téléchargeables seulement) | MIT ; composants intégrés sous MIT, BSD, ISC, Apache 2.0 (OpenSSL, simdjson…), licence Unicode (ICU), zlib, Blue Oak 1.0.0 (minimatch), domaine public | Programme séparé : binaire officiel, non modifié, joint au paquet pour lancer le jeu (même article 5). Toutes ces licences sont permissives ; Apache 2.0 est compatible avec la version 3 des licences GNU. Texte complet joint : `app/LICENCE-NODE.txt`. |
 
 Rien n'est sous une licence qui interdirait la redistribution, l'usage commercial ou la modification. Les outils de
@@ -68,6 +70,22 @@ Servies par la passerelle depuis `node_modules`, sous un chemin qui porte leur v
 - **uPlot** 1.6.32 — Copyright (c) 2022 Leon Sorokin. Licence MIT (`web/licences/uplot-MIT.txt`).
 - **uFuzzy** 1.0.19 — Copyright (c) 2022 Leon Sorokin. Licence MIT (`web/licences/ufuzzy-MIT.txt`).
 - **@github/combobox-nav** 3.0.2 — Copyright (c) 2018 GitHub. Licence MIT (`web/licences/combobox-nav-MIT.txt`).
+- **tesseract.js** 7.0.0 et **tesseract.js-core** 7.0.0 — Copyright Tesseract.js contributors ; moteur Tesseract OCR
+  Copyright Google Inc. et contributeurs. Licence Apache 2.0 (`web/licences/tesseract-Apache-2.0.txt`). Servis sous
+  `/lecture/7.0.0/`, et seulement à la première photo d'un justificatif : `dist/tesseract.esm.min.js`,
+  `dist/worker.min.js`, et UN cœur WebAssembly sur les deux (`tesseract-core-simd-lstm` ou `tesseract-core-lstm`,
+  selon le processeur). Forme lisible publiée par les auteurs à la même version :
+  https://github.com/naptha/tesseract.js et https://github.com/naptha/tesseract.js-core.
+
+## Modèle de lecture
+
+- **`fra.traineddata`** (français, modèle « fast ») — Copyright Google Inc. et contributeurs du projet Tesseract OCR.
+  Licence Apache 2.0 (`web/licences/tesseract-Apache-2.0.txt`). Copié tel quel depuis
+  https://github.com/tesseract-ocr/tessdata_fast au tag `4.1.0`, fichier `fra.traineddata` (SHA-256
+  `ced037562e8c80c13122dece28dd477d399af80911a28791a66a63ac1e3445ca`), puis compressé par Breizhcosystem avec `gzip -9`
+  pour n'être téléchargé qu'une fois. Fichier : `web/lecture/fra.traineddata.gz`, SHA-256
+  `ecbd3e2600928fbbf730797fe9a33bdd554e9deb79978050d6c6ef4c670b93d9`. Le contenu décompressé est l'original, octet
+  pour octet.
 
 ## Environnement d'exécution (paquets téléchargeables)
 

@@ -86,18 +86,22 @@ export function champsProposes(justificatifs, { concerne = null, aujourdhui } = 
 }
 
 /**
- * Les champs à montrer pour un justificatif : ceux qu'une personne a enregistrés, ou, tant qu'ils sont vides, ceux
- * qu'un agent de l'entreprise a PROPOSÉS après avoir lu la photo. Une proposition ne remplace jamais une valeur
- * enregistrée, et l'écran dit toujours d'où elle vient.
+ * Les champs à montrer pour un justificatif, et D'OÙ VIENT chaque valeur. Dans l'ordre :
+ * - « moi » : ce qu'une personne a enregistré. Rien ne le remplace jamais.
+ * - « agent » : ce qu'un agent de l'entreprise a proposé par le serveur MCP, à sa demande explicite.
+ * - « photo » : ce que la lecture faite SUR L'APPAREIL a trouvé sur la photo (`lu`, web/lecture-photo.js).
+ * - « rien » : le champ reste à remplir.
+ * L'écran marque toujours la provenance : aucune valeur lue ne doit passer pour une valeur vérifiée.
  */
-export function champsAvecProposition(j, { aujourdhui } = {}) {
+export function champsAvecProposition(j, { aujourdhui, lu = null } = {}) {
   const p = j?.propose ?? null;
   const vide = (x) => x === null || x === undefined || x === '';
-  /** Valeur à mettre dans le champ, et d'où elle vient : « moi » (enregistrée), « agent » (proposée), « rien ». */
-  const pris = (valeur, propose) => (!vide(valeur) ? { valeur, de: 'moi' } : !vide(propose) ? { valeur: propose, de: 'agent' } : { valeur: '', de: 'rien' });
-  const montant = pris(j?.montant, p?.montant);
-  const date = pris(j?.date, p?.date);
-  const fournisseur = pris(j?.fournisseur, p?.fournisseur);
+  const pris = (valeur, propose, photo) => (!vide(valeur) ? { valeur, de: 'moi' }
+    : !vide(propose) ? { valeur: propose, de: 'agent' }
+      : !vide(photo) ? { valeur: photo, de: 'photo' } : { valeur: '', de: 'rien' });
+  const montant = pris(j?.montant, p?.montant, lu?.montant);
+  const date = pris(j?.date, p?.date, lu?.date);
+  const fournisseur = pris(j?.fournisseur, p?.fournisseur, lu?.fournisseur);
   // un montant s'écrit avec ses centimes : « 128,40 », jamais « 128,4 »
   const euros = (x) => (Number.isFinite(Number(x)) ? Number(x).toFixed(2) : String(x)).replace('.', ',');
   return {
@@ -109,7 +113,13 @@ export function champsAvecProposition(j, { aujourdhui } = {}) {
     fournisseur: fournisseur.valeur,
     fournisseurDe: fournisseur.de,
     propose: p,
+    lu: lu ?? null,
   };
+}
+
+/** Ce qu'on écrit à côté d'un champ pour dire d'où vient sa valeur. Vide pour ce qu'une personne a enregistré. */
+export function origineChamp(de) {
+  return { photo: 'lu sur la photo', agent: 'proposé par votre agent', moi: '', rien: '' }[de] ?? '';
 }
 
 /** Ce qui manque à un justificatif, nommé : « montant et fournisseur ». Vide quand il est complet. */

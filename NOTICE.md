@@ -59,8 +59,9 @@ or of the "Moucheture" symbol, which remain trade names, trademarks or service m
 
 ## 5. Composants tiers
 
-Living Business embarque des composants libres (Node.js, three.js, polices, icônes, modèles 3D…) qui gardent leur
-propre licence, indiquée dans le fichier LICENCES-TIERS.md et sur la page « Licences et crédits ».
+Living Business embarque des composants libres (Node.js, three.js, polices, icônes, modèles 3D, et le moteur de
+lecture des justificatifs photographiés tesseract.js avec son modèle français, sous licence Apache 2.0) qui
+gardent leur propre licence, indiquée dans le fichier LICENCES-TIERS.md et sur la page « Licences et crédits ».
 
 ## 6. Vos données
 
@@ -68,8 +69,9 @@ Living Business enregistre vos données chez vous, sur l’ordinateur ou le serv
 a pas accès : le logiciel qu’il publie ne lui envoie ni vos données, ni mesure de votre utilisation. Il ne contacte
 le serveur de l’éditeur que pour lire la liste publique des versions (Réglages, À propos, Mises à jour) et pour les
 fonctions que vous utilisez (« Se connecter avec… », réseau Breizhcosystem), comme l’indique la page Réglages,
-Confidentialité. Vous restez maître de vos données, et responsable des traitements de données personnelles que
-vous faites avec le logiciel.
+Confidentialité. La photo d’un justificatif est LUE sur votre appareil, dans votre navigateur : elle ne part ni
+chez l’éditeur, ni chez un service de lecture. Vous restez maître de vos données, et responsable des traitements
+de données personnelles que vous faites avec le logiciel.
 
 ## 7. Services liés
 
