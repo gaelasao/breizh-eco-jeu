@@ -19,12 +19,14 @@ const VENTES = new Set(['devis', 'commande_client', 'facture']);
 
 /** Ce que l'entreprise a déjà, compté en un passage sur ce que le profil voit (réponse de /api/v1/monde). */
 export function faits(m) {
-  const f = { personnes: 0, lieux: 0, departements: 0, clients: 0, fournisseurs: 0, prospects: 0, commandes: 0, ventes: 0, ressources: 0, vehicules: 0, documents: 0, courriers: 0, taches: 0, activite: 0 };
+  const f = { personnes: 0, lieux: 0, departements: 0, clients: 0, fournisseurs: 0, prospects: 0, commandes: 0, ventes: 0, ressources: 0, vehicules: 0, documents: 0, courriers: 0, taches: 0, projets: 0, activite: 0 };
   for (const o of m?.objets ?? []) {
     if (o.famille === 'personne') f.personnes++;
     else if (o.famille === 'lieu') f.lieux++;
     else if (o.famille === 'departement') f.departements++;
     else if (o.famille === 'commande') f.commandes++;
+    // chantiers, dossiers, missions : ce à quoi on rattache une photo de justificatif ou une note prise sur place
+    else if (o.famille === 'projet') f.projets++;
     // un véhicule est une ressource que la passerelle a dotée de son suivi (compteur, échéances, historique)
     else if (o.famille === 'ressource') { f.ressources++; if (o.vehicule) f.vehicules++; }
     else if (o.famille === 'tache') f.taches++;
@@ -169,6 +171,13 @@ export const RUBRIQUES = Object.freeze(Object.fromEntries(Object.entries({
     sert: 'Vos documents à échéance : assurances, contrôles, contrats.',
     premier: 'vérifiez les dates de fin : vous êtes prévenu avant l’échéance.',
     manque: 'Aucun document pour le moment.',
+  },
+  saisir: {
+    regle: 'Apparaît dès le premier chantier, la première commande ou la première tâche.',
+    debloque: (f) => f.projets + f.commandes + f.taches > 0,
+    sert: 'La photo d’un justificatif et la note dictée, prises sur place, à une main.',
+    premier: 'photographiez une facture de dépôt : montant, date, fournisseur, et elle est rangée.',
+    manque: 'Rien à saisir pour le moment.',
   },
   lieux: {
     regle: 'Apparaît dès le premier lieu : siège, atelier, boutique ou entrepôt.',

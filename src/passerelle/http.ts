@@ -26,6 +26,7 @@ import { qrDataUrl } from './qr.ts';
 import { signatairesEditeur } from './signataires.ts';
 import { adressesTailscale, JETON_VERIFICATION, VerificationsTelephone } from './verification-telephone.ts';
 import { CACHE_IMMUABLE, fichiersStatiques } from './statiques.ts';
+import { refusTaille, TAILLE_MAX } from './justificatifs.ts';
 
 /** Version de Living Business (package.json), montrée dans Réglages › À propos. */
 const VERSION = VERSION_JEU;
@@ -53,7 +54,11 @@ const ENTETES_SECURITE: Record<string, string> = {
   'referrer-policy': 'no-referrer',
   'cross-origin-opener-policy': 'same-origin',
   'cross-origin-resource-policy': 'same-origin',
-  'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+  // `camera=()` reste fermé : la photo d'un justificatif passe par l'appareil photo du TÉLÉPHONE (un champ de fichier
+  // avec `capture`), jamais par la caméra de la page. `microphone=(self)` : la dictée d'une note se fait avec la
+  // reconnaissance vocale du navigateur, qui exige cette permission sur la page elle-même (et seulement sur elle —
+  // aucun cadre tiers n'est servi, `frame-ancestors 'none'`). Le navigateur demande en plus son accord à la personne.
+  'permissions-policy': 'camera=(), microphone=(self), geolocation=(), payment=(), usb=()',
   'x-frame-options': 'DENY',
 };
 
@@ -78,6 +83,8 @@ const ECRITURES_CLE_FENETRE_MS = 10 * 60_000;
 const LIMITE_TACHE = 8_000;
 /** Réglages d'alertes (sujets cochés, heures, jeton d'un canal) : quelques centaines d'octets aussi. */
 const LIMITE_ALERTES = 8_000;
+/** Les trois champs d'un justificatif (montant, date, fournisseur) : un corps minuscule. */
+const LIMITE_JUSTIFICATIF = 4_000;
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
@@ -202,13 +209,36 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       req.on('error', () => ko(new ErreurApi(400, 'lecture_impossible')));
     });
 
+  /**
+   * Corps binaire (photo d'un justificatif) : lu en mémoire, borné, et seulement si le navigateur annonce une image.
+   * Le type réel est ensuite reconnu dans les octets (`justificatifs.ts`) : l'en-tête annoncé ne décide de rien.
+   */
+  const lireOctets = (req: IncomingMessage, limite: number): Promise<Buffer> =>
+    new Promise((ok, ko) => {
+      if (!(req.headers['content-type'] ?? '').startsWith('image/')) return ko(new ErreurApi(415, 'image_attendue', 'Envoyez une photo (JPEG, PNG, WebP ou HEIC).'));
+      const morceaux: Buffer[] = [];
+      let taille = 0;
+      let trop = false;
+      req.on('data', (c: Buffer) => {
+        taille += c.length;
+        // au-delà de la limite, on ne garde plus rien mais on LAISSE le téléphone finir d'envoyer : couper la
+        // connexion tout de suite lui donnerait une erreur de réseau au lieu du refus en clair (« trop lourde »)
+        if (taille > limite) trop = true;
+        if (!trop) morceaux.push(c);
+        // très au-delà, l'envoi n'est plus une photo d'appareil : la connexion est coupée sans message
+        if (taille > limite * 5) { ko(new ErreurApi(413, 'photo_trop_lourde', refusTaille(taille))); req.destroy(); }
+      });
+      req.on('end', () => (trop ? ko(new ErreurApi(413, 'photo_trop_lourde', refusTaille(taille))) : ok(Buffer.concat(morceaux))));
+      req.on('error', () => ko(new ErreurApi(400, 'lecture_impossible')));
+    });
+
   /** Profil d'une clé d'API (en-tête Authorization: Bearer lb_…). */
-  const parCle = (req: IncomingMessage): { sid: string; profil: Profil; canal: string } | null => {
+  const parCle = (req: IncomingMessage): { sid: string; profil: Profil; canal: string; nom: string } | null => {
     const a = req.headers.authorization;
     if (!a?.startsWith('Bearer lb_')) return null;
     const v = app.cles.verifier(a.slice(7).trim());
     if (!v) throw new ErreurApi(401, 'cle_invalide');
-    return { sid: `cle:${v.id}`, profil: v.profil, canal: `cle:${v.id} « ${v.nom} »` };
+    return { sid: `cle:${v.id}`, profil: v.profil, canal: `cle:${v.id} « ${v.nom} »`, nom: v.nom };
   };
 
   /**
@@ -225,6 +255,9 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
     // alertes : les canaux portent des jetons (robot Telegram, Meta) et sortent du jeu — ils se règlent à l'écran
     if (chemin === '/alertes' || chemin.startsWith('/alertes/')) return true;
     if (methode === 'GET') return false;
+    // justificatifs : l'agent de l'entreprise peut lire une photo et PROPOSER les trois champs (POST) ; les
+    // enregistrer ou retirer la photo, c'est une personne à l'écran — une clé d'API ne tranche jamais
+    if ((methode === 'PUT' || methode === 'DELETE') && chemin.startsWith('/justificatifs/')) return true;
     if (chemin.startsWith('/securite/') || chemin === '/mises-a-jour') return true;
     if (chemin === '/nexus' || chemin === '/nexus/adresse' || chemin === '/nexus/liaison' || chemin === '/nexus/partage') return true;
     if (chemin === '/nexus/mandats' || chemin.startsWith('/nexus/mandats/') || chemin.startsWith('/nexus/commandes/') || chemin.startsWith('/nexus/besoins/')) return true;
@@ -820,6 +853,39 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
     }
     if (methode === 'GET' && chemin === '/sante') return envoyer(res, 200, app.santeAvecTendance(profil, sid));
     if (methode === 'POST' && chemin === '/comptabilite/fec') return envoyer(res, 200, app.importerFec(profil, sid, await lireCorps(req, 80_000_000)));
+    // ---- justificatifs photographiés sur place : la photo part d'abord (gros), les trois champs ensuite (petits).
+    // Sur un chantier, le réseau tombe au milieu : la photo est déjà rangée, le justificatif reste « à compléter »,
+    // et rien n'est perdu. La photo n'est jamais renvoyée dans une liste, seulement demandée une par une.
+    if (chemin === '/justificatifs' || chemin.startsWith('/justificatifs/')) {
+      if (methode === 'GET' && chemin === '/justificatifs') {
+        const q = new URL(req.url ?? '/', 'http://local').searchParams;
+        return envoyer(res, 200, { liste: app.justificatifs.lister(profil, sid, q.get('concerne')), place: app.justificatifs.place() });
+      }
+      if (methode === 'POST' && chemin === '/justificatifs') {
+        const q = new URL(req.url ?? '/', 'http://local').searchParams;
+        return envoyer(res, 200, app.justificatifs.ajouter(profil, sid, await lireOctets(req, TAILLE_MAX), q.get('concerne')));
+      }
+      const mj = /^\/justificatifs\/(jt-[0-9a-f]{18})(\/photo)?$/.exec(chemin);
+      if (!mj) throw new ErreurApi(404, 'introuvable');
+      const idJ = mj[1] as string;
+      if (mj[2]) {
+        if (methode !== 'GET') throw new ErreurApi(405, 'methode');
+        const ph = app.justificatifs.photo(profil, sid, idJ);
+        // `private` : jamais dans un cache partagé ; une heure, pour qu'un aller-retour sur la fiche ne retélécharge
+        // pas plusieurs mégaoctets sur des données mobiles. Le contenu d'un identifiant ne change jamais.
+        res.writeHead(200, { ...ENTETES_SECURITE, 'content-type': ph.mime, 'content-length': String(ph.octets.length), 'cache-control': 'private, max-age=3600', 'content-disposition': `inline; filename="${ph.nom}"` });
+        res.end(ph.octets);
+        return;
+      }
+      if (methode === 'GET') return envoyer(res, 200, app.justificatifs.fiche(profil, sid, idJ));
+      if (methode === 'PUT') return envoyer(res, 200, app.justificatifs.completer(profil, sid, idJ, await lireCorps(req, LIMITE_JUSTIFICATIF)));
+      // proposition d'un agent de l'entreprise (serveur MCP) : jamais enregistrée dans les champs, seulement montrée
+      if (methode === 'POST') return envoyer(res, 200, app.justificatifs.proposer(profil, sid, idJ, await lireCorps(req, LIMITE_JUSTIFICATIF), cle?.nom ?? profil.nom));
+      if (methode === 'DELETE') return envoyer(res, 200, app.justificatifs.supprimer(profil, sid, idJ));
+      throw new ErreurApi(405, 'methode');
+    }
+    // « En faire une tâche » depuis un rendez-vous de l'agenda : un clic, et jamais deux tâches si on reclique
+    if (methode === 'POST' && chemin === '/taches/depuis-rendez-vous') return envoyer(res, 200, await app.tacheDepuisRendezVous(profil, sid, await lireCorps(req, LIMITE_TACHE)));
     if (methode === 'PUT' && chemin === '/organisation') return envoyer(res, 200, monde.modifierOrganisation(profil, sid, await lireCorps(req)));
     if (methode === 'POST' && chemin === '/objets/lot') return envoyer(res, 200, monde.creerObjets(profil, sid, await lireCorps(req)));
     // connecteurs (synchro dans les deux sens). Réglages (secrets, adresses, connexions) : depuis l'écran seulement,

@@ -30,6 +30,8 @@ import * as RESEAU from '/reseau.js';
 // relevé du réseau (« ce que vos agents ont fait »), mis en forme ici, calculé là-bas
 import * as RELEVE from '/releve-reseau.js';
 import * as SIMPLE from '/simplicite.js';
+// saisie sur le terrain : ce qui se dit et ce qui se refuse (photo d'un justificatif, note dictée), décidé là-bas
+import * as SAISIE from '/saisie.js';
 
 // Logiciel libre (GNU AGPL version 3) : où trouver le code source de cette version (article 13 de la licence), offert à
 // toute personne qui utilise le jeu : écrans d'entrée, Aide, Réglages › À propos, palette, « Licences et crédits ».
@@ -105,11 +107,14 @@ function remplir(el, ...enfants) {
 
 async function api(methode, chemin, corps, entetes = {}) {
   const ecriture = methode !== 'GET';
+  // une photo de justificatif part telle quelle (Blob), jamais dans du JSON : plusieurs mégaoctets n'ont rien à gagner
+  // à être recopiés en base64, et c'est le serveur qui reconnaît le type dans les octets
+  const octets = corps instanceof Blob;
   const r = await fetch(`/api/v1${chemin}`, {
     method: methode,
     credentials: 'same-origin',
-    headers: { ...(ecriture ? { 'content-type': 'application/json', 'x-lb-requete': '1' } : {}), ...entetes },
-    body: corps === undefined ? undefined : JSON.stringify(corps),
+    headers: { ...(ecriture ? { 'content-type': octets ? corps.type || 'image/jpeg' : 'application/json', 'x-lb-requete': '1' } : {}), ...entetes },
+    body: corps === undefined ? undefined : octets ? corps : JSON.stringify(corps),
   });
   const d = await r.json().catch(() => ({}));
   if (r.status === 401 && d.erreur === 'non_authentifie') { await demarrer(); throw Object.assign(new Error('Session expirée : reconnectez-vous.'), { session: true }); }
@@ -158,7 +163,7 @@ const ecrireLocal = (k, v) => { try { localStorage.setItem(k, v); } catch { /* s
 const ouvrirSurListe = () => lireLocal('lb-ouvrir-sur') === 'liste';
 const vueAujourdhui = () => (E.sceneEchec || ouvrirSurListe() ? 'matin' : 'carte');
 /** Vue demandée par l'adresse (#/planning, #/role:client…) ; rien si elle n'a pas la forme d'une vue. */
-const VUE_VALIDE = /^(carte|tableau|pipeline|matin|sante|departements|planning|courrier|reglages|compte|accueil|satisfaction|optimiser|nexus|progression|vehicules)$|^(dep|role|famille|type|reglages|vehicule):[\w-]+$/;
+const VUE_VALIDE = /^(carte|tableau|pipeline|matin|sante|departements|planning|courrier|reglages|compte|accueil|satisfaction|optimiser|nexus|progression|vehicules|saisie)$|^(dep|role|famille|type|reglages|vehicule):[\w-]+$/;
 /** Dans la barre d'adresse, l'écran du réseau s'appelle « reseau » (#/reseau, #/reglages:reseau) ; la clé interne de la
     vue reste « nexus », et les anciennes adresses (#/nexus) sont toujours comprises. */
 const adresseDepuisVue = (v) => (v === 'nexus' ? 'reseau' : v === 'reglages:nexus' ? 'reglages:reseau' : v);
@@ -243,6 +248,9 @@ const E = {
   simpliciteDe: null,       // profil dont les choix sont chargés
   deblocages: {},           // rubriques débloquées par ce que l'entreprise a déjà
   deblocagesReels: null,    // les mêmes, hors exemple et hors simulation : pour annoncer ce qui vient d'apparaître
+  // écran « Saisir » : justificatifs photographiés (fiches seulement, jamais les photos), note en cours, dictée
+  // chaque erreur se lit près de ce qu'elle concerne (§4.16) : la photo sous le bouton, la note sous le sien
+  saisie: { liste: [], place: null, note: '', ecoute: null, envoi: false, erreurPhoto: null, erreurNote: null, erreurListe: null, concerne: null, echec: null },
 };
 {
   const v = vueDepuisAdresse();
@@ -1101,7 +1109,7 @@ function planCourant() {
   return planAujourdhui(E.monde, { reports: E.reports, filtre: dansFiltre, vus: vusMiseEnRoute() });
 }
 function navigation() {
-  return groupesNavigation(E.monde, { aFaire: planCourant().aFaire, vueAujourdhui: vueAujourdhui() });
+  return groupesNavigation(E.monde, { aFaire: planCourant().aFaire, vueAujourdhui: vueAujourdhui(), aCompleter: justificatifsACompleter() });
 }
 /** Toutes les vues accessibles, à plat (palette, raccourcis) : les destinations groupées et le pied du rail. */
 function onglets() {
@@ -1665,6 +1673,7 @@ async function rendreVue() {
     if (E.vue === 'nexus') return rendreNexus();
     if (E.vue === 'releve') return rendreReleve();
     if (E.vue === 'progression') return rendreProgression();
+    if (E.vue === 'saisie') return rendreSaisie();
     if (E.vue === 'vehicules') return rendreVehicules();
     if (E.vue.startsWith('vehicule:')) return rendreVehicule(E.vue.slice(9));
     if (E.vue.startsWith('dep:')) return rendreDepartement(E.vue.slice(4));
@@ -3693,10 +3702,12 @@ function rendreActions(f, entete = []) {
   if (!F) {
     const enTete = new Set(entete.filter((a) => a.genre === 'action').map((a) => `${a.capacite}|${a.action?.champ ?? ''}`));
     const autres = f.actionsPossibles.filter((a) => a.capacite !== 'objet.modifier' && !enTete.has(`${a.capacite}|${a.champ ?? ''}`));
-    if (!autres.length) return null;
+    // gestes du terrain : photographier un justificatif (chantier, commande), faire une tâche d'un rendez-vous
+    const terrain = boutonsTerrain(f.objet);
+    if (!autres.length && !terrain.length) return null;
     return h('section', { class: 'bz-fiche__section', 'aria-labelledby': 'fiche-agir' }, h('h3', { class: 'bz-t-titre-4', id: 'fiche-agir', texte: 'Autres actions' }),
       h('div', { class: 'bz-groupe-boutons' }, autres.map((a) => h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { E.formulaire = nouveauFormulaire(a); rendreFiche(); setTimeout(() => $('#fiche form input, #fiche form select')?.focus(), 0); } },
-        icone(a.capacite === 'mouvement' ? 'arrow-up-down' : 'list-checks'), a.capacite === 'mouvement' ? a.libelle.replace(/^Enregistrer un mouvement — /, 'Mouvement : ') : LIBELLE_ACTION[a.capacite] ?? a.libelle))));
+        icone(a.capacite === 'mouvement' ? 'arrow-up-down' : 'list-checks'), a.capacite === 'mouvement' ? a.libelle.replace(/^Enregistrer un mouvement — /, 'Mouvement : ') : LIBELLE_ACTION[a.capacite] ?? a.libelle)), terrain));
   }
   const v = F.valeurs;
   const sim = E.monde.mode === 'simulation';
@@ -10338,6 +10349,300 @@ function rendreVisite() {
       i < VISITE.length - 1 ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--sm', onclick: () => aller(i + 1) }, 'Suivant', icone('arrow-right', { taille: 'sm' }))
         : h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--sm', onclick: finirVisite }, 'Terminer la visite')),
   );
+}
+
+// ---------------------------------------------------------------- Saisir : la photo d'un justificatif, et la note
+/* Écrit pour quelqu'un sur un chantier : les mains sales, trois minutes, un téléphone dans la poche, du soleil sur
+   l'écran et du réseau par intermittence. Deux gestes, deux grands boutons, et rien à comprendre.
+
+   La photo part D'ABORD (c'est le gros), les trois champs ENSUITE (c'est minuscule) : si le réseau tombe au milieu,
+   la photo est déjà rangée et le justificatif attend « à compléter ». Aucune photo n'est jamais affichée dans une
+   liste — plusieurs mégaoctets par ligne sur des données mobiles —, seulement demandée une par une.
+
+   Rien ne lit l'image : ni ici, ni au serveur. Les champs sont pré-remplis de ce qu'on sait SANS RIEN LIRE (la date
+   du jour, le dernier fournisseur de ce chantier). Une entreprise qui a branché son propre agent sur le serveur MCP
+   de Living Business peut lui demander de lire la photo : il PROPOSE, elle vérifie, elle enregistre. */
+const CLE_RATTACHEMENT = 'lb-saisie-rattachement';
+
+/** Fiches auxquelles rattacher une photo ou une note : les chantiers et les commandes, les plus récentes d'abord. */
+function ciblesSaisie() {
+  return (E.monde?.objets ?? []).filter((o) => o.famille === 'projet' || o.famille === 'commande')
+    .slice().sort((a, b) => String(b.majLe).localeCompare(String(a.majLe)));
+}
+/** La fiche de l'entreprise : ce à quoi se rattache une note qui ne concerne aucun chantier en particulier. */
+const ficheEntreprise = () => (E.monde?.objets ?? []).find((o) => o.famille === 'organisation') ?? null;
+/** Rattachement en cours : celui choisi sur cet appareil s'il existe toujours, sinon la fiche la plus récente. */
+function rattachementSaisie() {
+  const cibles = ciblesSaisie();
+  if (E.saisie.concerne !== null) return E.saisie.concerne;
+  const garde = lireLocal(CLE_RATTACHEMENT);
+  if (garde && cibles.some((o) => o.id === garde)) return garde;
+  return cibles[0]?.id ?? ficheEntreprise()?.id ?? '';
+}
+const nomCible = (id) => (E.monde?.objets ?? []).find((o) => o.id === id)?.nom ?? '';
+
+async function chargerSaisie() {
+  try {
+    const d = await api('GET', '/justificatifs');
+    E.saisie.liste = d.liste ?? [];
+    E.saisie.place = d.place ?? null;
+    E.saisie.echec = null;
+  } catch (e) {
+    if (!e.session) E.saisie.echec = e;
+  }
+}
+
+/** Nombre de justificatifs à compléter (compteur du menu : une chose due, jamais un total). */
+const justificatifsACompleter = () => (E.saisie?.liste ?? []).filter((j) => !j.complet).length;
+
+async function rendreSaisie() {
+  if (!E.saisie.liste.length && !E.saisie.place) await chargerSaisie();
+  if (E.vue !== 'saisie') return;
+  if (E.saisie.echec) { remplir($('#page'), erreurEcran('Les justificatifs n’ont pas pu être lus.', E.saisie.echec, () => { E.saisie.echec = null; rendreSaisie(); })); return; }
+  const S = E.saisie;
+  const peut = E.monde.profil.peutPreparer;
+  const cibles = ciblesSaisie();
+  const org = ficheEntreprise();
+  const concerne = rattachementSaisie();
+  const place = SAISIE.etatPlace(S.place);
+  const choisirCible = (id) => { S.concerne = id; ecrireLocal(CLE_RATTACHEMENT, id); rendreSaisie(); };
+  const options = [...(org ? [[org.id, `${sansDemo(org.nom)} (aucun chantier en particulier)`]] : [['', 'Aucun chantier']]), ...cibles.map((o) => [o.id, sansDemo(o.nom)])];
+  const dicteeLa = SAISIE.dicteeDisponible(window);
+
+  const ligne = (j) => h('li', { class: 'bz-priorite' },
+    h('span', { class: 'bz-priorite__icone' }, j.complet ? icone('receipt') : iconeEtat('attention', { decoratif: true })),
+    h('div', { class: 'bz-priorite__texte' },
+      h('p', { class: 'bz-priorite__titre', texte: j.complet ? `${euros(j.montant)} · ${j.fournisseur}` : `À compléter : ${SAISIE.manque(j)}` }),
+      h('p', { class: 'bz-t-micro bz-texte-2', texte: [j.complet ? date(j.date) : null, j.concerneNom ? sansDemo(j.concerneNom) : null, SAISIE.poids(j.octets), j.propose && !j.complet ? `proposé par ${j.propose.par}` : null].filter(Boolean).join(' · ') })),
+    h('div', { class: 'bz-priorite__action bz-groupe-boutons' },
+      h('button', { type: 'button', class: `bz-bouton bz-bouton--${j.complet ? 'secondaire' : 'principal'} bz-bouton--sm`, onclick: () => ouvrirJustificatif(j) },
+        icone(j.complet ? 'eye' : 'pencil', { taille: 'sm' }), j.complet ? 'Voir' : 'Compléter')));
+
+  remplir($('#page'), h('div', { class: 'bz-ecran bz-pile' },
+    place && place.conseil ? messageEnLigne(place.ton, place.conseil) : null,
+    !peut ? blocVide({ titre: 'Votre rôle ne permet pas de saisir ici.', texte: 'La personne qui administre Living Business peut vous y autoriser.' }) : null,
+    peut ? h('div', { class: 'bz-champ' },
+      h('label', { class: 'bz-champ__libelle', for: 'saisie-cible', texte: 'Pour quel chantier ou quelle commande ?' }),
+      h('div', { class: 'bz-select' },
+        h('select', { id: 'saisie-cible', class: 'bz-champ__saisie', onchange: (e) => choisirCible(e.target.value) },
+          options.map(([v, l]) => h('option', { value: v, selected: v === concerne, texte: l }))),
+        icone('chevron-down'))) : null,
+    // 1. la photo : un bouton, l'appareil photo du téléphone, et c'est rangé
+    peut ? h('label', { class: 'bz-depot', 'aria-busy': S.envoi ? 'true' : null },
+      h('input', { type: 'file', accept: 'image/*', capture: 'environment', disabled: S.envoi,
+        onchange: (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) envoyerPhoto(f); } }),
+      icone(S.envoi ? 'loader-circle' : 'camera'),
+      h('span', { class: 'bz-depot__titre', texte: S.envoi ? `Enregistrement de la photo (${SAISIE.poids(S.envoi)})…` : 'Photographier un justificatif' }),
+      h('span', { class: 'bz-t-petit', texte: 'La photo est rangée sur cet ordinateur, rattachée à ce chantier, et reprise dans ce qui part au comptable. Elle ne part nulle part ailleurs.' })) : null,
+    // le refus se lit SOUS le bouton qu'on vient d'appuyer, jamais en haut d'un écran qu'il faut remonter (§4.16)
+    messageEnLigne(S.erreurPhoto ? 'critique' : null, S.erreurPhoto),
+    // 2. la note : tapée, ou dictée quand le navigateur sait le faire
+    peut ? h('section', { class: 'bz-pile bz-pile--serre', 'aria-labelledby': 'saisie-note-titre' },
+      h('h2', { class: 'bz-t-titre-4', id: 'saisie-note-titre', texte: 'Une note' }),
+      h('div', { class: 'bz-champ' },
+        h('label', { class: 'bz-champ__libelle', for: 'saisie-note', texte: 'Ce qu’il y a à faire' }),
+        h('span', { class: 'bz-champ__aide', id: 'saisie-note-aide', texte: concerne ? `Elle devient une tâche, rattachée à ${sansDemo(nomCible(concerne))}.` : 'Elle devient une tâche.' }),
+        h('textarea', { id: 'saisie-note', class: 'bz-champ__saisie', rows: '2', maxlength: '200', cle: 'saisie-note',
+          'aria-describedby': 'saisie-note-aide', placeholder: 'Reprendre les joints de la salle de bain…', value: S.note,
+          oninput: (e) => { S.note = e.target.value; } })),
+      S.ecoute ? h('p', { class: 'bz-t-petit bz-ligne-icone', role: 'status' }, icone('mic', { taille: 'sm' }), h('span', { texte: 'J’écoute… parlez, puis appuyez sur « J’ai fini ».' })) : null,
+      h('div', { class: 'bz-groupe-boutons' },
+        h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'saisie-tache', onclick: () => ajouterNote() }, icone('plus'), 'Ajouter la tâche'),
+        // sans reconnaissance vocale (Firefox, vieux navigateur), ce bouton n'existe pas : le champ suffit
+        dicteeLa ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', cle: 'saisie-dictee', 'aria-pressed': S.ecoute ? 'true' : 'false', onclick: () => (S.ecoute ? arreterDictee() : lancerDictee()) }, icone('mic'), S.ecoute ? 'J’ai fini' : 'Dicter') : null),
+      messageEnLigne(S.erreurNote ? 'critique' : null, S.erreurNote)) : null,
+    // 3. ce qui est déjà rangé
+    h('section', { class: 'bz-pile', 'aria-labelledby': 'saisie-liste-titre' },
+      h('div', { class: 'bz-liste__tete' },
+        h('h2', { class: 'bz-t-titre-4', id: 'saisie-liste-titre', texte: 'Justificatifs photographiés' }),
+        S.liste.length ? h('div', { class: 'bz-groupe-boutons' },
+          h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => exporterJustificatifs() }, icone('download', { taille: 'sm' }), 'Pour le comptable')) : null),
+      place ? h('p', { class: 'bz-t-petit bz-texte-2', texte: place.texte }) : null,
+      messageEnLigne(S.erreurListe ? 'attention' : null, S.erreurListe),
+      S.liste.length ? h('ol', { class: 'bz-priorites' }, S.liste.map(ligne))
+        : videRubrique('saisir', { action: null, titre: 'Aucun justificatif photographié.', texte: 'Ici : les factures de dépôt, les bons de livraison et les tickets que vous photographiez sur place.' }))));
+}
+
+/** Envoie la photo, puis ouvre tout de suite les trois champs (date du jour et dernier fournisseur déjà mis). */
+async function envoyerPhoto(fichier) {
+  const S = E.saisie;
+  S.erreurPhoto = SAISIE.problemePhoto(fichier);
+  if (S.erreurPhoto) { rendreSaisie(); annoncer(S.erreurPhoto); return; }
+  const concerne = rattachementSaisie();
+  S.envoi = fichier.size;
+  rendreSaisie();
+  annoncer('Enregistrement de la photo');
+  try {
+    const j = await api('POST', `/justificatifs${concerne ? `?concerne=${encodeURIComponent(concerne)}` : ''}`, fichier);
+    S.liste = [j, ...S.liste];
+    await chargerSaisie();
+    S.envoi = false;
+    rendreSaisie();
+    ouvrirJustificatif(j, { neuf: true });
+  } catch (e) {
+    S.envoi = false;
+    if (!e.session) { S.erreurPhoto = e.message; rendreSaisie(); annoncer(e.message); }
+  }
+}
+
+/** Les trois champs, dans une fenêtre qui tient dans un pouce : montant, date, fournisseur. Et la photo, à la demande. */
+function ouvrirJustificatif(j, { neuf = false } = {}) {
+  const champs = SAISIE.champsAvecProposition(j, { aujourdhui: jourLocal() });
+  const v = { montant: champs.montant, date: champs.date, fournisseur: champs.fournisseur || SAISIE.champsProposes(E.saisie.liste, { concerne: j.concerne, aujourdhui: jourLocal() }).fournisseur };
+  const etat = { erreur: null, envoi: false, photo: false };
+  const dlg = dialogueVivant({
+    titre: neuf ? 'Photo enregistrée' : 'Le justificatif',
+    surtitre: j.concerneNom ? sansDemo(j.concerneNom) : null,
+    onsubmit: () => enregistrer(),
+    contenu: () => ({
+      corps: [
+        messageEnLigne(etat.erreur ? 'critique' : null, etat.erreur),
+        champs.propose ? messageEnLigne('info', `Montant, date et fournisseur proposés par ${champs.propose.par} après lecture de la photo.`, 'Vérifiez-les : rien n’est enregistré tant que vous n’avez pas appuyé sur « Enregistrer ».') : null,
+        h('div', { class: 'bz-champ' },
+          h('label', { class: 'bz-champ__libelle', for: 'jt-montant', texte: 'Montant TTC' }),
+          h('input', { id: 'jt-montant', class: 'bz-champ__saisie', type: 'text', inputmode: 'decimal', autocomplete: 'off', maxlength: '12', value: v.montant, placeholder: 'Par exemple 128,40', oninput: (e) => { v.montant = e.target.value; } })),
+        h('div', { class: 'bz-champ' },
+          h('label', { class: 'bz-champ__libelle', for: 'jt-date', texte: 'Date du justificatif' }),
+          h('input', { id: 'jt-date', class: 'bz-champ__saisie', type: 'date', value: v.date, oninput: (e) => { v.date = e.target.value; } })),
+        h('div', { class: 'bz-champ' },
+          h('label', { class: 'bz-champ__libelle', for: 'jt-fournisseur', texte: 'Fournisseur' }),
+          h('input', { id: 'jt-fournisseur', class: 'bz-champ__saisie', type: 'text', autocomplete: 'off', maxlength: '120', value: v.fournisseur, placeholder: 'Point P, Leroy Merlin, station…', oninput: (e) => { v.fournisseur = e.target.value; } })),
+        // la photo pèse des mégaoctets : elle n'est téléchargée que si on la demande
+        etat.photo
+          ? h('img', { class: 'bz-justificatif__photo', src: `/api/v1/justificatifs/${j.id}/photo`, alt: `Photo du justificatif de ${j.fournisseur || 'ce fournisseur'}`, loading: 'lazy', decoding: 'async' })
+          : h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => { etat.photo = true; dlg.rendre(); } }, icone('eye'), `Revoir la photo (${SAISIE.poids(j.octets)})`),
+        // le second chemin, facultatif : l'agent de l'entreprise lit la photo et propose. Dit tel quel, sans jargon :
+        // c'est son agent, son abonnement, et c'est elle qui enregistre.
+        !champs.propose ? h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Vous avez un agent branché sur Living Business (Réglages › Clés d’API) ? Vous pouvez lui demander de lire cette photo et de proposer les trois champs. C’est votre agent et votre abonnement : rien ne part chez l’éditeur, et c’est vous qui enregistrez.' }) : null,
+        // « Retirer » reste discret et loin du pouce : il efface une pièce comptable, et le pied est à portée de doigt
+        E.monde.profil.peutApprouver
+          ? h('p', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm bz-bouton--critique', onclick: () => retirerJustificatif(j, dlg) }, icone('trash-2', { taille: 'sm' }), 'Retirer ce justificatif'))
+          : null,
+      ],
+      pied: [
+        h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => dlg.fermer() }, neuf ? 'Plus tard' : 'Fermer'),
+        h('button', { type: 'submit', class: 'bz-bouton bz-bouton--principal', cle: 'jt-enregistrer', 'aria-busy': etat.envoi ? 'true' : null }, icone(etat.envoi ? 'loader-circle' : 'check'), etat.envoi ? 'Enregistrement…' : 'Enregistrer'),
+      ],
+    }),
+  });
+  async function enregistrer() {
+    etat.erreur = null;
+    etat.envoi = true;
+    dlg.rendre();
+    try {
+      await api('PUT', `/justificatifs/${j.id}`, { montant: v.montant, date: v.date, fournisseur: v.fournisseur, concerne: j.concerne ?? '' });
+      await chargerSaisie();
+      dlg.fermer();
+      toast({ texte: 'Justificatif enregistré.', ton: 'ok' });
+      rendreSaisie();
+    } catch (e) {
+      etat.envoi = false;
+      if (!e.session) { etat.erreur = e.message; dlg.rendre(); }
+    }
+  }
+}
+
+async function retirerJustificatif(j, dlg) {
+  const ok = await confirmerDialogue({
+    titre: 'Retirer ce justificatif ?',
+    texte: 'La photo sera effacée de cet ordinateur, et la ligne ne partira plus au comptable. C’est définitif.',
+    confirmer: 'Retirer', annuler: 'Garder', danger: true,
+  });
+  if (!ok) return;
+  try {
+    await api('DELETE', `/justificatifs/${j.id}`);
+    await chargerSaisie();
+    dlg.fermer();
+    toast({ texte: 'Justificatif retiré.', ton: 'ok' });
+    rendreSaisie();
+  } catch (e) {
+    if (!e.session) toast({ texte: e.message, ton: 'critique' });
+  }
+}
+
+/** La note devient une tâche, rattachée au chantier ouvert — par le même circuit que les autres tâches. */
+async function ajouterNote() {
+  const S = E.saisie;
+  const titre = SAISIE.titreDeNote(S.note);
+  S.erreurNote = null;
+  if (!titre) { S.erreurNote = 'Écrivez ou dictez ce qu’il y a à faire, puis appuyez sur « Ajouter la tâche ».'; rendreSaisie(); annoncer(S.erreurNote); return; }
+  const cible = rattachementSaisie();
+  if (!cible) { S.erreurNote = 'Choisissez d’abord le chantier ou la commande.'; rendreSaisie(); return; }
+  try {
+    const a = await api('POST', '/actions', { cle: cle(), capacite: 'tache.creer', cible, parametres: { titre, echeance: null }, executer: true });
+    S.note = '';
+    await charger();
+    rendreSaisie();
+    toast({ texte: typo(a.etat === 'executee' ? `Tâche ajoutée : ${titre}` : `Tâche en attente d’approbation : ${titre}`), ton: 'ok' });
+  } catch (e) {
+    if (!e.session) { S.erreurNote = e.message; rendreSaisie(); }
+  }
+}
+
+/** Dictée : la reconnaissance vocale du navigateur, sans dépendance. Absente, le bouton n'existe pas. */
+function lancerDictee() {
+  const S = E.saisie;
+  const Reco = SAISIE.reconnaissance(window);
+  if (!Reco) return;
+  let r;
+  try { r = new Reco(); } catch { S.erreurNote = SAISIE.messageDictee('service-not-allowed'); rendreSaisie(); return; }
+  r.lang = 'fr-FR';
+  r.continuous = false;
+  r.interimResults = false; // le texte arrive quand la phrase est finie : pas de mot qui danse sous le pouce
+  r.onresult = (ev) => {
+    const dit = [...ev.results].map((x) => x[0]?.transcript ?? '').join(' ').trim();
+    if (dit) S.note = `${S.note ? `${S.note} ` : ''}${dit}`;
+  };
+  r.onerror = (ev) => { S.erreurNote = SAISIE.messageDictee(ev.error); };
+  r.onend = () => { S.ecoute = null; rendreSaisie(); if (S.note) annoncer(`Note dictée : ${S.note}`); };
+  S.erreurNote = null;
+  S.ecoute = r;
+  try { r.start(); } catch { S.ecoute = null; S.erreurNote = SAISIE.messageDictee('service-not-allowed'); }
+  rendreSaisie();
+}
+function arreterDictee() {
+  try { E.saisie.ecoute?.stop(); } catch { /* déjà arrêtée */ }
+  E.saisie.ecoute = null;
+  rendreSaisie();
+}
+
+/** Ce qui part au comptable : une ligne par justificatif complet, avec le nom du fichier photo à joindre. */
+function exporterJustificatifs() {
+  const r = SAISIE.lignesComptables(E.saisie.liste);
+  E.saisie.erreurListe = null;
+  if (!r.lignes.length) { E.saisie.erreurListe = 'Aucun justificatif complet à exporter : renseignez le montant, la date et le fournisseur.'; rendreSaisie(); return; }
+  telecharger('justificatifs.csv', texteCsv([r.entetes, ...r.lignes]));
+  toast({ ton: 'ok', texte: typo(r.aCompleter
+    ? `${pluriel(r.lignes.length, 'justificatif exporté', 'justificatifs exportés')} · ${pluriel(r.aCompleter, 'encore à compléter', 'encore à compléter')}`
+    : pluriel(r.lignes.length, 'justificatif exporté', 'justificatifs exportés')) });
+}
+
+/**
+ * Gestes du terrain ajoutés à une fiche : photographier un justificatif pour ce chantier ou cette commande, et faire
+ * une tâche d'un rendez-vous. Jamais pour tous les rendez-vous d'un coup — un artisan en a quarante par semaine.
+ */
+function boutonsTerrain(o) {
+  const liste = [];
+  if (o.famille === 'projet' || o.famille === 'commande') {
+    liste.push(h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { E.saisie.concerne = o.id; ecrireLocal(CLE_RATTACHEMENT, o.id); fermerFiche(); changerVue('saisie'); } },
+      icone('camera'), 'Photographier un justificatif'));
+  }
+  if (o.type === 'rendez_vous') {
+    liste.push(h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => tacheDepuisRendezVous(o.id) }, icone('list-checks'), 'En faire une tâche'));
+  }
+  return liste;
+}
+
+/** « En faire une tâche » depuis un rendez-vous : un clic, et jamais deux tâches si on reclique. */
+async function tacheDepuisRendezVous(id) {
+  try {
+    const r = await api('POST', '/taches/depuis-rendez-vous', { evenement: id });
+    await charger();
+    toast({ ton: 'ok', texte: typo(r.deja ? `Tâche déjà créée pour ce rendez-vous : ${r.tache.nom}` : `Tâche ajoutée : ${r.tache.nom}`),
+      action: r.tache.id ? { libelle: 'Voir la tâche', faire: () => selectionner(r.tache.id) } : null });
+  } catch (e) {
+    if (!e.session) toast({ texte: e.message, ton: 'critique' });
+  }
 }
 
 // ---------------------------------------------------------------- clavier (raccourcis.js) & lancement

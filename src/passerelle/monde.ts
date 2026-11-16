@@ -1955,4 +1955,16 @@ export class Monde {
   tracer(p: Profil, action: string, cible: string | null, detail: string): void {
     this.#tracer(p, this.#reel, action, cible, detail);
   }
+
+  /**
+   * Nom de chaque fiche visible par ce profil, en une passe. Pour un module qui RATTACHE des éléments à des fiches
+   * (les justificatifs photographiés) : il montre le nom du chantier quand le profil le voit, et écarte l'élément
+   * sinon — sans recalculer les situations de chaque fiche comme le fait `fiche()`.
+   */
+  nomsVisibles(p: Profil, sid: string): Map<string, string> {
+    const e = this.#espace(sid);
+    const noms = new Map<string, string>();
+    for (const o of e.objets.values()) if (this.#visible(p, o, e.objets)) noms.set(o.id, o.nom);
+    return noms;
+  }
 }

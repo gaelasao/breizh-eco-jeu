@@ -42,9 +42,10 @@ export function motMateriel(m) {
  * Groupes du rail, dans l'ordre (§6.1 P1) : Aujourd'hui · Planning · Pilotage · Relations · Activité · Réseau.
  * Entrée : { id, vue (vue ouverte au clic), vues (autres vues dont elle est la destination), prefixes, libelle, icone,
  * compte (actions dues seulement, §4.2), compteLibelle (lu par le lecteur d'écran), raccourci }.
- * Options : aFaire (actions d'« Aujourd'hui »), vueAujourdhui ('carte' ou 'matin'), maintenant (pour les tâches dues).
+ * Options : aFaire (actions d'« Aujourd'hui »), vueAujourdhui ('carte' ou 'matin'), maintenant (pour les tâches dues),
+ * aCompleter (justificatifs photographiés dont il manque le montant, la date ou le fournisseur).
  */
-export function groupesNavigation(m, { aFaire = 0, vueAujourdhui = 'carte', maintenant = new Date() } = {}) {
+export function groupesNavigation(m, { aFaire = 0, vueAujourdhui = 'carte', maintenant = new Date(), aCompleter = 0 } = {}) {
   const u = m.univers ?? { roles: [], types: [] };
   const role = (id, defaut) => u.roles?.find((r) => r.id === id)?.pluriel ?? defaut;
   const famille = (f, defaut) => u.types?.find((t) => t.famille === f)?.pluriel ?? defaut;
@@ -88,6 +89,9 @@ export function groupesNavigation(m, { aFaire = 0, vueAujourdhui = 'carte', main
         compte: vehicules, compteLibelle: vehicules ? pluriel(vehicules, materiel.singulier, materiel.pluriel) : '' },
       { id: 'documents', vue: 'type:document', libelle: 'Documents', icone: 'file-text' },
       { id: 'lieux', vue: 'famille:lieu', libelle: 'Lieux', icone: 'map-pin' },
+      // saisie sur le terrain : la photo d'un justificatif et la note dictée, à une main, en plein soleil
+      { id: 'saisir', vue: 'saisie', libelle: 'Saisir', icone: 'camera',
+        compte: aCompleter, compteLibelle: aCompleter ? pluriel(aCompleter, 'justificatif à compléter', 'justificatifs à compléter') : '' },
     ] },
     p.peutAdministrer || p.voitScore ? { id: 'reseau', libelle: 'Réseau', entrees: [
       // « releve » (ce que vos agents ont fait, relevé du réseau) est une vue de cette destination, pas une entrée de

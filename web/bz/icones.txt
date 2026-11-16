@@ -182,3 +182,6 @@ circle-check-big
 megaphone
 hard-hat
 shield
+# Saisie sur le terrain (photo du justificatif, dictée d’une note)
+camera
+mic
