@@ -73,10 +73,12 @@
   /* ---- Rôles typographiques (§3.5) : à utiliser dans h() plutôt que des tailles libres ---- */
   .bz-t-affiche { font: var(--bz-g-display) var(--bz-t-affiche)/var(--bz-i-serre) var(--bz-police-titre); letter-spacing: var(--bz-l-affiche); font-variation-settings: "SOFT" 50, "WONK" 0; text-wrap: balance; }
   .bz-t-titre-1 { font: var(--bz-g-display) var(--bz-t-titre-1)/var(--bz-i-serre) var(--bz-police-titre); letter-spacing: var(--bz-l-affiche); text-wrap: balance; }
-  .bz-t-salutation { font: var(--bz-g-fort) var(--bz-t-titre-3)/var(--bz-i-titre) var(--bz-police-titre); letter-spacing: -0.01em; text-wrap: balance; }
-  .bz-t-titre-2 { font: var(--bz-g-fort) var(--bz-t-titre-2)/var(--bz-i-titre) var(--bz-police); letter-spacing: var(--bz-l-titre); text-wrap: balance; }
-  .bz-t-titre-3 { font: var(--bz-g-fort) var(--bz-t-titre-3)/var(--bz-i-titre) var(--bz-police); letter-spacing: var(--bz-l-titre); text-wrap: balance; }
-  .bz-t-titre-4 { font: var(--bz-g-fort) var(--bz-t-titre-4)/var(--bz-i-label) var(--bz-police); letter-spacing: -0.01em; text-wrap: balance; }
+  .bz-t-salutation { font: var(--bz-g-fort) var(--bz-t-titre-3)/var(--bz-i-titre) var(--bz-police-titre); letter-spacing: var(--bz-l-voix); text-wrap: balance; }
+  /* Titres de page, de panneau, de dialogue et de section : la voix du produit, donc Fraunces. Les données, elles,
+     gardent Inter (nom dans un tableau, libellé de bouton, en-tête de colonne, titre de carte) : la police dit qui parle. */
+  .bz-t-titre-2 { font: var(--bz-g-fort) var(--bz-t-titre-2)/var(--bz-i-titre) var(--bz-police-titre); letter-spacing: var(--bz-l-voix); text-wrap: balance; }
+  .bz-t-titre-3 { font: var(--bz-g-fort) var(--bz-t-titre-3)/var(--bz-i-titre) var(--bz-police-titre); letter-spacing: var(--bz-l-voix); text-wrap: balance; }
+  .bz-t-titre-4 { font: var(--bz-g-fort) var(--bz-t-titre-4)/var(--bz-i-label) var(--bz-police-titre); letter-spacing: var(--bz-l-voix); text-wrap: balance; }
   .bz-t-chapeau { font: var(--bz-g-normal) var(--bz-t-moyen)/var(--bz-i-texte) var(--bz-police); letter-spacing: var(--bz-l-texte); max-inline-size: var(--bz-mesure); }
   .bz-t-texte { font: var(--bz-g-normal) var(--bz-t-base)/var(--bz-i-texte) var(--bz-police); letter-spacing: var(--bz-l-texte); max-inline-size: var(--bz-mesure); }
   .bz-t-bouton { font: var(--bz-g-fort) var(--bz-t-bouton)/var(--bz-i-label) var(--bz-police); letter-spacing: 0; }

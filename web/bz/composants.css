@@ -517,7 +517,11 @@
   .bz-actions { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border: var(--bz-bord-1) solid var(--bz-carte-bord); border-radius: var(--bz-r-3);
     background: var(--bz-surface); box-shadow: var(--bz-elev-carte); }
   .bz-action { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--bz-e-1) var(--bz-e-3); padding: var(--bz-e-3) var(--bz-e-4); }
-  .bz-action + .bz-action { border-block-start: var(--bz-bord-1) solid var(--bz-bordure-decor); }
+  /* Séparateur rentré de la marge de la carte : un filet qui touche les deux bords fait formulaire administratif ;
+     rentré, il sépare sans quadriller. (Pseudo-élément : une bordure, elle, va forcément d'un bord à l'autre.) */
+  .bz-action { position: relative; }
+  .bz-action + .bz-action::before { content: ""; position: absolute; inset-block-start: 0; inset-inline: var(--bz-e-4);
+    border-block-start: var(--bz-bord-1) solid var(--bz-bordure-decor); }
   .bz-action[data-surligne] { background: var(--bz-marque-doux); }
   .bz-action__icone { margin-block-start: var(--bz-e-0-5); }
   .bz-action__texte { display: flex; flex-direction: column; gap: var(--bz-e-0-5); min-inline-size: 0; }
@@ -1493,4 +1497,48 @@
   @media (prefers-reduced-motion: reduce) { .bz-icone.bz-tourne { animation: none; } }
   :root[data-mouvement="reduit"] .bz-icone.bz-tourne { animation: none; }
   @media (forced-colors: active) { .bz-xp__remplissage, .bz-barre__segment { fill: Highlight; } .bz-xp__piste { fill: Canvas; stroke: CanvasText; } .bz-proposition, .bz-kanban__carte, .bz-quete, .bz-trophee { border-color: CanvasText; } }
+
+  /* ================================================================ mouvement (§3.7)
+     Un changement d'état s'accompagne ; il ne saute pas. Tout se mesure en jetons (--bz-d-*, --bz-c-*), et toute
+     distance passe par --bz-deplacement, que « Animations réduites » met à zéro : le mouvement disparaît alors
+     complètement, l'état d'arrivée reste le même, et rien ne dépend d'un transitionend.
+     ---------------------------------------------------------------- */
+
+  /* Survols et états : la couleur glisse au lieu de claquer. Jamais de mouvement, juste la teinte. */
+  .bz-rail__lien, .bz-onglets-bas__lien, .bz-menu [role="menuitem"], .bz-puce, .bz-tableau__tri, .bz-reglages__section {
+    transition: background-color var(--bz-d-2) var(--bz-c-effet), color var(--bz-d-2) var(--bz-c-effet), border-color var(--bz-d-2) var(--bz-c-effet); }
+  .bz-onglets [role="tab"] { transition: color var(--bz-d-2) var(--bz-c-effet), border-color var(--bz-d-3) var(--bz-c-standard); }
+  .bz-tableau tbody tr, .bz-liste__lien { transition: background-color var(--bz-d-2) var(--bz-c-effet); }
+
+  /* Une tuile ou une carte cliquable se soulève un peu sous le curseur : elle dit « je suis un objet », pas une case. */
+  .bz-tuile, .bz-carte:has(.bz-carte__lien) {
+    transition: background-color var(--bz-d-2) var(--bz-c-effet), box-shadow var(--bz-d-2) var(--bz-c-standard), translate var(--bz-d-2) var(--bz-c-standard); }
+  @media (hover: hover) {
+    .bz-tuile:has(.bz-tuile__lien:hover), .bz-carte:has(.bz-carte__lien:hover) {
+      box-shadow: var(--bz-elev-flottant); translate: 0 calc(var(--bz-deplacement) * -1 * var(--bz-e-0-5)); }
+  }
+
+  /* La fiche arrive du bord où elle est ancrée (du bas sur téléphone, de la droite sur ordinateur) au lieu
+     d'apparaître d'un coup. Animation et non transition : elle se rejoue à chaque ouverture, même si l'élément reste. */
+  .bz-fiche:not([hidden]) { animation: bz-fiche-entre var(--bz-d-4) var(--bz-ressort-doux) both; }
+  @keyframes bz-fiche-entre { from { opacity: 0; translate: 0 calc(var(--bz-deplacement) * 2rem); } }
+
+  /* Menus et popovers : montent de deux pixels en s'ouvrant, et s'effacent en se fermant. Sans [popover] ni
+     allow-discrete (iOS < 17), la règle est simplement ignorée : l'ouverture reste instantanée. */
+  .bz-menu, .bz-popover {
+    opacity: 1; translate: 0 0;
+    transition: opacity var(--bz-d-2) var(--bz-c-effet), translate var(--bz-d-3) var(--bz-c-entree),
+      overlay var(--bz-d-2) allow-discrete, display var(--bz-d-2) allow-discrete; }
+  .bz-menu:not(:popover-open), .bz-popover:not(:popover-open) { opacity: 0; translate: 0 calc(var(--bz-deplacement) * -1 * var(--bz-e-1)); }
+  @starting-style { .bz-menu:popover-open, .bz-popover:popover-open { opacity: 0; translate: 0 calc(var(--bz-deplacement) * -1 * var(--bz-e-1)); } }
+
+  /* Changement d'écran : prêt pour document.startViewTransition() côté application. Sans lui, rien ne se passe —
+     aucune règle ci-dessous ne s'applique tant que l'application ne demande pas la transition. */
+  @media (prefers-reduced-motion: no-preference) {
+    ::view-transition-old(root) { animation: bz-vue-sort var(--bz-d-2) var(--bz-c-sortie) both; }
+    ::view-transition-new(root) { animation: bz-vue-entre var(--bz-d-3) var(--bz-c-entree) both; }
+  }
+  @keyframes bz-vue-sort { to { opacity: 0; } }
+  @keyframes bz-vue-entre { from { opacity: 0; translate: 0 calc(var(--bz-deplacement) * var(--bz-e-2)); } }
+  :root[data-mouvement="reduit"] ::view-transition-old(root), :root[data-mouvement="reduit"] ::view-transition-new(root) { animation: none; }
 }
