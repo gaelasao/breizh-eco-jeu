@@ -5924,7 +5924,8 @@ async function rendreAlertes() {
   const S = { brancher: null, erreur: null, occupe: false,
     tg: { etape: 1, jeton: '', ref: null, robot: '', lien: '', conversation: '', message: null },
     wa: { jeton: '', numeroId: '', destinataire: '', modele: '', langue: 'fr' },
-    hook: { url: '', secret: '' } };
+    hook: { url: '', secret: '' },
+    ent: { type: '', champ: '', mois: '24' } };
   const ici = () => E.vue === 'reglages' && E.sousReglages === 'alertes';
   const recharger = async () => { if (ici()) { try { A = await api('GET', '/alertes'); } catch (e) { S.erreur = e.message; } } rendre(); };
   /** Enveloppe un appel : message d'erreur en haut de page, bouton occupé pendant ce temps. */
@@ -6069,6 +6070,52 @@ async function rendreAlertes() {
     interrupteurReglage({ cle: 'alertes-urgences', titre: 'Laisser passer les urgences hors de ces heures', aide: 'Une situation critique seulement : une facture très en retard, un contrôle technique dépassé.', actif: A.quand.urgencesPassent, regler: (v) => reglerQuand({ urgencesPassent: v }) }),
     A.enAttente ? messageEnLigne('info', `${pluriel(A.enAttente, 'chose attend', 'choses attendent')} d’être envoyée au prochain créneau.`) : null);
 
+  // ---- le geste dans le message, et sa limite dite AVANT qu’on compte dessus
+  const sectionGeste = () => sectionReglage('alertes-geste', 'Agir depuis le message',
+    'Une alerte seule porte « C’est fait » et « Plus tard » : deux liens qui ramènent dans Living Business, et qui ne servent qu’une fois.',
+    messageEnLigne(A.geste.possible ? 'ok' : 'attention', A.geste.phrase),
+    h('ul', { class: 'bz-liste-simple', role: 'list' },
+      h('li', { texte: '« C’est fait » : Living Business arrête de vous le rappeler. Aucune fiche n’est modifiée depuis un message.' }),
+      h('li', { texte: '« Plus tard » : on vous en reparle demain, comme le report de l’écran Aujourd’hui.' })));
+
+  // ---- rappels d’entretien chez le client : prévenir l’entreprise, jamais le client
+  const sectionEntretien = () => {
+    const possibles = A.entretiensPossibles ?? [];
+    const choisi = () => possibles.find((t) => t.type === S.ent.type) ?? possibles[0] ?? null;
+    const champs = choisi()?.champs ?? [];
+    const ajouter = () => agir(async () => {
+      await api('POST', '/alertes/entretiens', { type: S.ent.type || choisi()?.type, champ: S.ent.champ || champs[0]?.id, apresMois: Number(S.ent.mois) });
+      informer('Rappel d’entretien ajouté.', 'ok');
+      S.ent = { ...S.ent, ouvert: false };
+    });
+    return sectionReglage('alertes-entretien', `Rappels d’entretien · ${A.entretiens.length}`,
+      'Un travail terminé il y a longtemps vaut souvent un contrôle : vous êtes prévenu, et vous décidez d’en parler au client. Living Business ne lui écrit jamais de lui-même.',
+      A.entretiens.length
+        ? h('ul', { class: 'bz-liste-simple', role: 'list' }, A.entretiens.map((r) => h('li', { class: 'bz-champ' },
+            h('p', { class: 'bz-t-label', texte: `${r.libelleType} · ${r.apres} après « ${r.libelleChamp} »` }),
+            h('div', { class: 'bz-groupe-boutons' }, bouton(`ent-${r.id}`, 'bz-bouton--fantome bz-bouton--critique bz-bouton--sm', 'trash-2', 'Retirer', () => agir(async () => {
+              await api('DELETE', `/alertes/entretiens/${encodeURIComponent(r.id)}`);
+              informer('Rappel retiré.', 'ok');
+            }))))))
+        : blocVide({ titre: 'Aucun rappel d’entretien.', texte: 'Par exemple : deux ans après la fin d’un chantier.', compact: true }),
+      possibles.length === 0
+        ? messageEnLigne('info', 'Aucun de vos types de fiches ne porte de date : il n’y a rien sur quoi poser un rappel pour l’instant.')
+        : A.entretiens.length >= A.entretiensMax ? messageEnLigne('info', `Vous avez atteint ${A.entretiensMax} rappels.`)
+        : h('form', { class: 'bz-formulaire', novalidate: true, onsubmit: (e) => { e.preventDefault(); ajouter(); } },
+            h('div', { class: 'bz-grille-champs' },
+              h('div', { class: 'bz-champ' },
+                h('label', { class: 'bz-champ__libelle', for: 'ent-type', texte: 'Sur quelles fiches ?' }),
+                h('div', { class: 'bz-select' }, h('select', { id: 'ent-type', cle: 'ent-type', onchange: (e) => { S.ent = { ...S.ent, type: e.target.value, champ: '' }; rendre(); } },
+                  possibles.map((t) => h('option', { value: t.type, selected: t.type === choisi()?.type, texte: t.libelle }))))),
+              h('div', { class: 'bz-champ' },
+                h('label', { class: 'bz-champ__libelle', for: 'ent-champ', texte: 'Quelle date dit que le travail est fait ?' }),
+                h('div', { class: 'bz-select' }, h('select', { id: 'ent-champ', cle: 'ent-champ', onchange: (e) => { S.ent = { ...S.ent, champ: e.target.value }; } },
+                  champs.map((c) => h('option', { value: c.id, selected: c.id === (S.ent.champ || champs[0]?.id), texte: c.libelle }))))),
+              champ('ent-mois', 'Combien de mois après ?', String(S.ent.mois), (v) => { S.ent = { ...S.ent, mois: v }; }, { type: 'number', min: '1', max: '120', step: '1', inputmode: 'numeric' }, 'Par exemple 24 pour deux ans.')),
+            h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'submit', class: 'bz-bouton bz-bouton--secondaire' }, 'Ajouter ce rappel'))),
+      messageEnLigne(A.ecrireAuClient.compris ? 'ok' : 'info', A.ecrireAuClient.phrase));
+  };
+
   const sectionLien = () => sectionReglage('alertes-adresse', 'Le lien dans les messages',
     'Chaque message finit par un lien qui ouvre le bon écran. Donnez l’adresse à laquelle vous ouvrez Living Business depuis votre téléphone.',
     h('form', { class: 'bz-formulaire', novalidate: true, onsubmit: (e) => { e.preventDefault(); agir(async () => { await api('PUT', '/alertes', { adresseJeu: $('#alertes-adresse-jeu')?.value.trim() || null }); informer('Adresse enregistrée.', 'ok'); }); } },
@@ -6094,7 +6141,9 @@ async function rendreAlertes() {
         S.brancher === 'telegram' ? formTelegram() : S.brancher === 'whatsapp' ? formWhatsapp() : S.brancher === 'webhook' ? formWebhook() : null),
       sectionSujets(),
       sectionQuand(),
-      sectionLien());
+      sectionLien(),
+      sectionGeste(),
+      sectionEntretien());
   };
   rendre();
 }
