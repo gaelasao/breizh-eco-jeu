@@ -5,15 +5,20 @@
 
 /** Rôles de couleur de la scène : chacun a un jeton --bz-scene-jour-<rôle> et --bz-scene-nuit-<rôle> dans tokens.css. */
 export const ROLES_SCENE = Object.freeze([
-  'ciel-zenith', 'ciel-horizon', 'brume', 'mer', 'mer-profonde', 'ecume', 'sable', 'lande', 'granit', 'ardoise', 'chaux',
+  'ciel-zenith', 'ciel-bas', 'ciel-horizon', 'brume', 'nuage', 'mer', 'mer-profonde', 'ecume', 'sable', 'lande', 'granit', 'ardoise', 'chaux',
   'bois', 'platre', 'soleil', 'hemi-ciel', 'hemi-sol', 'fenetres', 'surbrillance', 'phare', 'contour', 'encre', 'halo',
   'quartier-clients', 'quartier-fournisseurs', 'quartier-partenaires', 'quartier-equipe', 'quartier-stock', 'quartier-prospects',
 ]);
 
 export const REGLAGES_HEURE = Object.freeze({ reelle: 'Réelle', jour: 'Toujours le jour', theme: 'Suivre le thème' });
 
-/** Intensités du §5.3 : hémisphère froide 1,0 ; lumière principale chaude 1,6 le jour, 0,5 la nuit. */
-export const INTENSITES = Object.freeze({ hemisphere: 1.0, soleilJour: 1.6, soleilNuit: 0.5 });
+/**
+ * Intensités du §5.3. Lumière atlantique : la voûte céleste (froide, bleue) ne vaut plus que 0,52 et le soleil
+ * (chaud, bas) monte à 2,5 — soit presque cinq fois plus de soleil que de ciel, au lieu de une fois et demie.
+ * C'est ce rapport qui rend le relief : une façade au soleil est franchement chaude, sa face à l'ombre tire sur le
+ * bleu du ciel. À 1,0 contre 1,6, l'hémisphère remplissait les ombres et tout retombait à plat.
+ */
+export const INTENSITES = Object.freeze({ hemisphere: 0.52, soleilJour: 2.5, soleilNuit: 0.42 });
 
 /** Palette { jour: { rôle: '#rrggbb' }, nuit: {…}, soleilBas, peinturePerimee } lue par une fonction (getComputedStyle). */
 export function lirePalette(lire) {
@@ -53,7 +58,7 @@ const lisse = (t) => t * t * (3 - 2 * t);
  * chaude de l'aube et du crépuscule), elevation (radians, hauteur de la lumière principale), azimut (radians) }.
  */
 export function etatHeure(date = new Date(), { reglage = 'reelle', themeSombre = false } = {}) {
-  if (reglage === 'jour' || (reglage === 'theme' && !themeSombre)) return { nom: 'jour', nuit: 0, soleilBas: 0, elevation: 1.0, azimut: 0.7 };
+  if (reglage === 'jour' || (reglage === 'theme' && !themeSombre)) return { nom: 'jour', nuit: 0, soleilBas: 0, elevation: 0.72, azimut: 0.7 };
   if (reglage === 'theme') return { nom: 'nuit', nuit: 1, soleilBas: 0, elevation: 0.95, azimut: -0.6 };
   const h = date.getHours() + date.getMinutes() / 60;
   let nom;
@@ -64,9 +69,11 @@ export function etatHeure(date = new Date(), { reglage = 'reelle', themeSombre =
   else { nom = 'nuit'; nuit = 1; }
   // teinte chaude au milieu des transitions, nulle en plein jour et en pleine nuit
   const soleilBas = nom === 'aube' || nom === 'crepuscule' ? Math.sin(Math.PI * (1 - Math.abs(nuit * 2 - 1)) / 2) : 0;
-  // le soleil se lève à l'est (aube), passe au sud, se couche à l'ouest ; la lune reste haute la nuit
+  /* Le soleil se lève à l'est (aube), passe au sud, se couche à l'ouest ; la lune reste haute la nuit.
+     Il ne monte plus au zénith : 0,78 rad au plus haut (45°), l'heure dorée plutôt que midi. Un soleil au-dessus de
+     la tête écrase les ombres sous les bâtiments et il ne reste plus un pan de mur éclairé de biais. */
   const jourCourse = Math.max(0, Math.min(1, (h - 6) / 14));
-  const elevation = nuit >= 1 ? 0.95 : 0.35 + Math.sin(Math.PI * jourCourse) * 0.75;
+  const elevation = nuit >= 1 ? 0.95 : 0.26 + Math.sin(Math.PI * jourCourse) * 0.52;
   const azimut = nuit >= 1 ? -0.6 : -1.3 + jourCourse * 2.6;
   return { nom, nuit, soleilBas, elevation, azimut };
 }
@@ -79,7 +86,7 @@ export function lumieres(palette, etat) {
   const c = (r) => couleurRole(palette, r, etat);
   const soleil = melanger(c('soleil'), palette.soleilBas ?? c('soleil'), etat.soleilBas);
   return {
-    zenith: c('ciel-zenith'), horizon: c('ciel-horizon'), brume: c('brume'),
+    zenith: c('ciel-zenith'), bas: c('ciel-bas'), horizon: c('ciel-horizon'), brume: c('brume'), nuage: c('nuage'),
     hemiCiel: c('hemi-ciel'), hemiSol: c('hemi-sol'), hemiIntensite: INTENSITES.hemisphere,
     soleil, soleilIntensite: INTENSITES.soleilJour + (INTENSITES.soleilNuit - INTENSITES.soleilJour) * etat.nuit,
     fenetresAllumees: etat.nuit >= 0.5,

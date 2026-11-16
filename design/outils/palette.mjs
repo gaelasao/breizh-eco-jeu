@@ -38,16 +38,22 @@ export const quartiers = {
   nuit: { clients: [0.34, 0.04, 20], fournisseurs: [0.27, 0.012, A], partenaires: [0.33, 0.035, NU], equipe: [0.32, 0.045, 140], stock: [0.28, 0.04, 70], prospects: [0.37, 0.035, 85] },
 };
 export const materiaux = { clients: 'pavés de granit rose (damier à deux tons)', fournisseurs: 'enrobé et marquages blancs', partenaires: 'dalles d’ardoise à joints décalés', equipe: 'pelouse', stock: 'planches de quai', prospects: 'sable et étals rayés' };
+/* Lumière atlantique (§5.2) : un soleil bas et chaud, une voûte céleste franchement bleue (c'est elle qui donne aux
+   ombres leur fraîcheur), et un ciel à trois assises — zénith, bande chaude au-dessus de l'horizon, brume de mer.
+   Le ciel et la brume ne portent plus la même couleur : sans cela l'horizon disparaissait et la scène n'avait plus
+   d'air. « nuage » sert au temps qu'il fait (web/carte/meteo.js) : le ciel et la brume virent vers lui sous la pluie. */
 export const scene = {
   jour: {
-    'ciel-zenith': '#7fb6d3', 'ciel-horizon': '#dfeceb', brume: '#dfeceb', mer: '#2f8aa0', 'mer-profonde': '#1d5f74', ecume: '#e9f5f3',
-    sable: '#e8dcc2', lande: '#9db37c', granit: '#a9a69e', ardoise: '#4b5763', chaux: '#f4f0e7', bois: '#9a7652', platre: '#ece8e1',
-    soleil: '#fff4df', 'hemi-ciel': '#9fc3e0', 'hemi-sol': '#b9ab8f', fenetres: '#3c4a56', surbrillance: '#2ba1b9', phare: '#f2c84b',
+    'ciel-zenith': '#4f94c6', 'ciel-bas': '#ffd9ae', 'ciel-horizon': '#e7e3d6', brume: '#d3d9d3', nuage: '#c5c8c6',
+    mer: '#2b8197', 'mer-profonde': '#1a5468', ecume: '#e9f5f3',
+    sable: '#e8dcc2', lande: '#92ab72', granit: '#b0a69c', ardoise: '#47566a', chaux: '#f4f0e7', bois: '#a07a52', platre: '#ece8e1',
+    soleil: '#ffe6b8', 'hemi-ciel': '#7fb2e0', 'hemi-sol': '#c2a68a', fenetres: '#3c4a56', surbrillance: '#2ba1b9', phare: '#f2c84b',
     contour: '#323a42', encre: hex(clair.granit[12]), halo: '#f4f0e7',
   },
   nuit: {
-    'ciel-zenith': '#08131f', 'ciel-horizon': '#1f3346', brume: '#1a2b3b', mer: '#123542', 'mer-profonde': '#0a2230', ecume: '#6f8f98',
-    sable: '#5f5a50', lande: '#3f4c3a', granit: '#4f5357', ardoise: '#262d35', chaux: '#8b8c8a', bois: '#4e3d2e', platre: '#3a3e44',
+    'ciel-zenith': '#08131f', 'ciel-bas': '#1b2c3e', 'ciel-horizon': '#1f3346', brume: '#1a2b3b', nuage: '#243343',
+    mer: '#123542', 'mer-profonde': '#0a2230', ecume: '#6f8f98',
+    sable: '#5f5a50', lande: '#3f4c3a', granit: '#52504f', ardoise: '#242d3a', chaux: '#8b8c8a', bois: '#4e3d2e', platre: '#3a3e44',
     soleil: '#a9bedc', 'hemi-ciel': '#31465e', 'hemi-sol': '#1b1e22', fenetres: '#ffd27a', surbrillance: '#4fcbda', phare: '#ffd75e',
     contour: '#05080b', encre: hex(sombre.granit[12]), halo: '#1a2028',
   },

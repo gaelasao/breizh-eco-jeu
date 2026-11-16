@@ -86,7 +86,7 @@
 | encre nuit / quartier prospects nuit | 4,5:1 | 8,95 |
 | encre nuit / halo nuit | 4,5:1 | 13,96 |
 
-Verre et étiquettes : pire cas calculé sans flou, sur les 44 couleurs de la scène qui peuvent se trouver derrière (jour et nuit, quel que soit le thème de l'interface). `--bz-texte-3` et le texte désactivé sont interdits sur le verre : ils y descendent sous 4,5:1.
+Verre et étiquettes : pire cas calculé sans flou, sur les 48 couleurs de la scène qui peuvent se trouver derrière (jour et nuit, quel que soit le thème de l'interface). `--bz-texte-3` et le texte désactivé sont interdits sur le verre : ils y descendent sous 4,5:1.
 
 Rampe séquentielle `--bz-dv-seq-1…5` sur `--bz-surface` : clair 1,18 · 1,43 · 2,12 · 3,06 · 7,40 ; sombre 1,14 · 1,46 · 2,42 · 3,74 · 9,08. Les trois premiers paliers sont sous 3:1 : une case colorée affiche toujours sa valeur (ou la vue Tableau), la couleur n'est jamais seule porteuse de l'information (1.4.1, 1.4.11).
 
@@ -98,7 +98,7 @@ Monotonie de la luminosité : granit, iroise et ajonc vont dans un seul sens dan
 
 P3 : tous les aplats renforcés gardent leurs seuils.
 
-Poids de `tokens.css` : 32,5 Ko brut ; version servie `dist/tokens.min.css` : 17,7 Ko brut, 4,5 Ko en gzip, 3,9 Ko en brotli.
+Poids de `tokens.css` : 32,7 Ko brut ; version servie `dist/tokens.min.css` : 17,8 Ko brut, 4,5 Ko en gzip, 4,0 Ko en brotli.
 
 | Primitive | Clair (OKLCH → sRGB) | Sombre (OKLCH → sRGB) |
 |---|---|---|

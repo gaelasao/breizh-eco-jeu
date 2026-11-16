@@ -19,6 +19,7 @@ import { MAX_ETIQUETTES, PRIORITE, ordreClavier, placerEtiquettes, regrouperParQ
 import { categorieDe, peintureDe } from '/carte/categories.js';
 import { FAMILLES_PERSONNALISABLES, estPersonnalisee, ordonner } from '/carte/personnalisation.js';
 import { CADENCE, palierInferieur, profil, qualiteInitiale, surveillance, vieAmbiante } from '/carte/qualite.js';
+import { CLAIR, DEPART as DEPART_METEO, coeurDuPassage, effets as effetsMeteo, etatMeteo } from '/carte/meteo.js';
 import { ALLEGE, ATLAS_ENSEIGNES, COUCHES_CUITES, MASQUE, NB_MASQUES, NOMS_COUCHES, details, echelleMur, estMobilier, masqueCalque, mursBaisses, orientationMur, placeEnseigne, rvb, uvEnseigne } from '/carte/lots.js';
 
 CameraControls.install({ THREE });
@@ -37,7 +38,13 @@ const P = {
   client: 'ardoise', fournisseur: 'ardoise', partenaire: 'ardoise', prospect: 'bois', mixte: 'ardoise', autre: 'granit',
   critique: 0xd23b2f, attention: 0xe5a321, info: 0x3d7fc0, simu: 0x8e5bd6,
   feuillage: [0x6b8f58, 0x77975e, 0x5f8150, 0x80a066], tronc: 0x6f5236,
+  // Le pays, au pied des arbres : hortensias (les bleus et les mauves des jardins sur sol acide) et ajoncs en fleur.
+  hortensia: [0x6f8ec9, 0x8f7ec6, 0xc77fa8, 0x97b3dd], ajoncFleur: 0xe3b534, ajoncVert: 0x4d6b3e,
 };
+/* Rugosité des matières du pays (qualité Haute, matériaux PBR). L'ardoise mouillée de Bretagne garde toujours un
+   peu de lustre : à 0,46 elle accroche le soleil bas sur ses rives. Le granit, la chaux et le plâtre, eux, boivent
+   la lumière. Sans cette table, tout le décor était à 0,85 : une seule matière pour tout le port. */
+const RUGOSITE = { ardoise: 0.46, granit: 0.88, chaux: 0.94, platre: 0.92, bois: 0.72, lande: 0.95, sable: 0.96, ecume: 0.8 };
 const EQUIPES = [0x2f6fb0, 0xd07a2b, 0x3f8a52, 0x8e5bd6, 0xc0392b, 0x16a085, 0xb7950b, 0x5d6d7e];
 const PEAUX = [0xf1d0b5, 0xe2b48f, 0xc68e66, 0x9a6744, 0x6e4a32];
 const CHEVEUX = [0x2b2018, 0x5a3b22, 0x8a6a45, 0xc9a26a, 0x3a3a3a, 0xa0522d, 0xd8d0c0];
@@ -84,7 +91,8 @@ const mats = new Map();
 function mat(c, o = {}) {
   const k = `${c}|${JSON.stringify(o)}`;
   if (!mats.has(k)) {
-    const m = nouveau(o);
+    // une matière nommée prend sa rugosité du pays, sauf si l'appelant en impose une
+    const m = nouveau(typeof c === 'string' && o.roughness === undefined && RUGOSITE[c] !== undefined ? { ...o, roughness: RUGOSITE[c] } : o);
     if (typeof c === 'string') suivre(m, c); else m.color.set(c);
     mats.set(k, m);
   }
@@ -164,7 +172,7 @@ const HAUTEUR_ETATS = 16; // 4 096 objets
 const uLot = {
   uNuit: { value: 0 }, uEtats: { value: null }, uPlatreJ: { value: new THREE.Vector3(1, 1, 1) }, uPlatreN: { value: new THREE.Vector3(1, 1, 1) },
   uGarde: { value: 0.4 }, uMasque: { value: new Array(NB_MASQUES).fill(1) }, uBaisse: { value: [0, 0, 0, 0, 0] },
-  uFenetres: { value: 0 }, uCouleurFenetres: { value: new THREE.Color() },
+  uFenetres: { value: 0 }, uCouleurFenetres: { value: new THREE.Color() }, uMouille: { value: 0 },
 };
 // commun aux lots, à leur ombre et à la passe de normales de l'occlusion (GTAO) : calque masqué, mur abaissé
 const GLSL_LOT_TETE = `attribute vec4 aInfo; // objet, motif de sol, masque, orientation du mur (0 : aucun)
@@ -205,6 +213,7 @@ const GLSL_LOT_COULEUR = `#include <color_vertex>
   }`;
 const GLSL_LOT_F = `uniform float uGarde;
 uniform float uFenetres;
+uniform float uMouille;
 uniform vec3 uCouleurFenetres;
 varying float vPeint;
 varying float vPerime;
@@ -264,7 +273,8 @@ function matLot(s) {
   if (vPerime > 0.5) { float l = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722)); diffuseColor.rgb = mix(vec3(l), diffuseColor.rgb, uGarde); }
   float allumeLot = vAllume * uFenetres;
   if (allumeLot > 0.5) diffuseColor = vec4(0.0, 0.0, 0.0, 0.85);`)
-        .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = vRugo.x;')
+        // pierre mouillée : après l'averse, la rugosité baisse et le soleil bas vient luire sur les toits et les quais
+        .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(vRugo.x, vRugo.x * 0.52, uMouille);')
         .replace('#include <metalnessmap_fragment>', 'float metalnessFactor = vRugo.y;')
         .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += vEmis + vec3(0.08 * vSurvol) + allumeLot * uCouleurFenetres;');
     };
@@ -600,7 +610,29 @@ const FABRIQUES = {
     ctx.fillStyle = teinteScene('ardoise');
     ctx.fillRect(0, 0, n, n);
     const rnd = alea(29);
-    for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) { voile(ctx, true, rnd() * 0.06); ctx.fillRect(x * (n / 8) + (y % 2 ? n / 16 : 0) + 1, y * (n / 16) + 1, n / 8 - 2, n / 16 - 2); }
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 8; x++) {
+      const px = x * (n / 8) + (y % 2 ? n / 16 : 0) + 1;
+      const py = y * (n / 16) + 1;
+      voile(ctx, true, rnd() * 0.06);
+      ctx.fillRect(px, py, n / 8 - 2, n / 16 - 2);
+      // la rive de chaque ardoise accroche la lumière : c'est ce liseré qui fait un toit et non une surface grise
+      voile(ctx, true, 0.07 + rnd() * 0.07);
+      ctx.fillRect(px, py, n / 8 - 2, 2);
+      voile(ctx, false, 0.16);
+      ctx.fillRect(px, py + n / 16 - 4, n / 8 - 2, 1);
+    }
+    ctx.globalAlpha = 1;
+  },
+  /** Granit gris-rose : un grain serré et quelques micas, sans joint — c'est une pierre, pas un appareillage. */
+  granit: (ctx, n) => {
+    bruit(ctx, n, 'granit', 24, 2, 31);
+    const rnd = alea(37);
+    for (let i = 0; i < 300; i++) {
+      voile(ctx, rnd() > 0.35, 0.05 + rnd() * 0.16);
+      const t = 1 + Math.round(rnd() * 2);
+      ctx.fillRect(rnd() * n, rnd() * n, t, t);
+    }
+    ctx.globalAlpha = 1;
   },
 };
 function tex(nom, rx = 1, ry = 1) {
@@ -968,6 +1000,35 @@ function arbre(x, z, rnd, echelle = 1) {
   f.scale.setScalar(echelle);
   g.add(f);
   g.position.set(x, 0, z);
+  return g;
+}
+/* Hortensia au pied d'un arbre : une touffe verte et quatre boules bleues, mauves ou roses. Procédural (aucun
+   modèle à télécharger, aucune licence à suivre) et cuit avec le reste du décor : pas un appel de dessin de plus. */
+function hortensia(x, z, rnd) {
+  const g = new THREE.Group();
+  const c = P.hortensia[Math.floor(rnd() * P.hortensia.length)];
+  // 6 segments : facettées et à plat, ces boules n'ont besoin de rien de plus, et elles comptent au budget du §5.10
+  g.add(piece(SP(0.4, 6), mat(0x4f6b43, { flatShading: true }), 0, 0.2, 0));
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + rnd();
+    g.add(piece(SP(0.2 + rnd() * 0.07, 6), mat(c, { flatShading: true }), Math.cos(a) * 0.27, 0.46 + rnd() * 0.16, Math.sin(a) * 0.27));
+  }
+  g.position.set(x, 0, z);
+  g.rotation.y = rnd() * Math.PI;
+  return g;
+}
+/** Touffe d'ajonc : un coussin épineux vert sombre, piqué de jaune. */
+function ajonc(x, z, rnd) {
+  const g = new THREE.Group();
+  const e = 0.8 + rnd() * 0.5;
+  g.add(piece(geo('ajonc', () => new THREE.IcosahedronGeometry(0.55, 0).scale(1.2, 0.72, 1.2)), mat(P.ajoncVert, { flatShading: true }), 0, 0.34, 0));
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + rnd();
+    g.add(piece(SP(0.12, 6), mat(P.ajoncFleur, { flatShading: true }), Math.cos(a) * 0.4, 0.5 + rnd() * 0.1, Math.sin(a) * 0.4, false));
+  }
+  g.position.set(x, 0, z);
+  g.scale.setScalar(e);
+  g.rotation.y = rnd() * Math.PI;
   return g;
 }
 
@@ -1849,8 +1910,13 @@ export async function creerScene(conteneur, options) {
   renderer.shadowMap.enabled = PROFIL.ombres > 0;
   renderer.shadowMap.type = THREE.PCFShadowMap; // r186 : PCFSoftShadowMap est retiré, PCF filtré le remplace
   renderer.shadowMap.autoUpdate = false;        // recalculée seulement quand la caméra ou les données bougent
+  /* Cartographie des tons : « Neutral » gardée exprès. Elle conserve la teinte et la saturation telles qu'on les a
+     réglées — ce qui compte pour un outil de travail, où un sol de quartier doit rester reconnaissable à sa couleur,
+     et où l'écart entre deux sols voisins est vérifié sur les jetons (design/outils/). Le caractère vient de la
+     lumière, pas d'une courbe qui triche. Exposition 0,95 : un demi-diaphragme en moins, pour laisser de la place
+     au soleil bas et empêcher les enrobés et la pelouse de monter en pâte claire. */
   renderer.toneMapping = THREE.NeutralToneMapping;
-  renderer.toneMappingExposure = 1.0;
+  renderer.toneMappingExposure = 0.95;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.info.autoReset = false; // une image = toutes ses passes (ombres, rendu, occlusion) : budget du §5.10
   const canvas = renderer.domElement;
@@ -1883,12 +1949,36 @@ export async function creerScene(conteneur, options) {
   }
   scene.add(soleil, soleil.target);
 
-  // ciel en dôme : dégradé zénith → horizon, sans texture (§5.2)
+  /* Ciel en dôme, sans texture (§5.2). Trois assises au lieu de deux : le zénith bleu, une bande chaude juste
+     au-dessus de la mer, la brume à la ligne d'horizon — plus le halo du soleil, qui dit où il est même quand on ne
+     le voit pas. Avec un seul dégradé bleu pâle → blanc, le ciel et la brume portaient la même couleur : il n'y
+     avait plus d'horizon, donc plus d'air. `uGris` mêle la couleur « nuage » à tout cela quand le temps se couvre. */
   const ciel = new THREE.Mesh(new THREE.SphereGeometry(500, 32, 16), new THREE.ShaderMaterial({
-    uniforms: { uZenith: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() } },
+    uniforms: {
+      uZenith: { value: new THREE.Color() }, uBas: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() },
+      uNuage: { value: new THREE.Color() }, uGris: { value: 0 }, uHalo: { value: new THREE.Color() }, uDirSoleil: { value: new THREE.Vector3(0, 1, 0) },
+    },
     side: THREE.BackSide, depthWrite: false, fog: false,
     vertexShader: 'varying vec3 vDir;\nvoid main() {\n  vDir = normalize(position);\n  vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);\n  gl_Position = p.xyww;\n}',
-    fragmentShader: 'uniform vec3 uZenith;\nuniform vec3 uHorizon;\nvarying vec3 vDir;\nvoid main() {\n  gl_FragColor = vec4(mix(uHorizon, uZenith, smoothstep(0.0, 0.55, vDir.y)), 1.0);\n  #include <tonemapping_fragment>\n  #include <colorspace_fragment>\n}',
+    fragmentShader: `uniform vec3 uZenith;
+uniform vec3 uBas;
+uniform vec3 uHorizon;
+uniform vec3 uNuage;
+uniform vec3 uHalo;
+uniform vec3 uDirSoleil;
+uniform float uGris;
+varying vec3 vDir;
+void main() {
+  float h = vDir.y;
+  vec3 c = mix(uHorizon, uBas, smoothstep(-0.03, 0.02, h));
+  c = mix(c, uZenith, smoothstep(0.015, 0.1, h)); // le bleu descend bas : la bande chaude n'est qu'un liseré sur la mer
+  // halo du soleil : serré, il dit où il est sans repeindre le ciel ; il s'éteint sous les nuages
+  float d = max(dot(vDir, normalize(uDirSoleil)), 0.0);
+  c += uHalo * (pow(d, 24.0) * 0.5 + pow(d, 5.0) * 0.07) * (1.0 - uGris);
+  gl_FragColor = vec4(mix(c, uNuage, uGris), 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`,
   }));
   ciel.renderOrder = -1;
   ciel.frustumCulled = false;
@@ -1961,7 +2051,7 @@ export async function creerScene(conteneur, options) {
   for (const [x, z, l, p] of [[0, zCote + 5.2, 35, 0.8], [-17.4, zCote + 2, 0.8, 6.6], [17.4, zCote + 2, 0.8, 6.6], [0, zCote + 16, 4, 0.8]]) statique.add(piece(B(l, 0.05, p), ecume, x, Y_ECUME, z, false));
   // la plage repose sur la pelouse, elle ne la double pas : à hauteur égale, les deux se disputaient 192 m de rivage
   statique.add(piece(B(larg, 0.34, 4), mat(P.sable), 0, -0.3, zCote - 2, false));
-  statique.add(piece(B(34, 0.8, 6), mat(P.beton), 0, -0.5, zCote + 2));
+  statique.add(piece(B(34, 0.8, 6), matTex('granit', 11, 2), 0, -0.5, zCote + 2)); // quai de granit, et non une dalle unie
   statique.add(piece(B(3, 0.3, 11), matTex('parquet', 1, 4), 0, -0.25, zCote + 10));
   // sols des quartiers (§5.5) : équipe en pelouse au centre, quais en planches, clients en pavés, fournisseurs en
   // enrobé, partenaires en dalles d'ardoise (le quartier du nord : partenaires, et clients et fournisseurs à la fois)
@@ -2036,6 +2126,13 @@ export async function creerScene(conteneur, options) {
     }
   }
   const rnd = alea(42);
+  /* Les hortensias et les ajoncs tirent leur hasard à part : sans cela, ils décalaient la suite de `rnd` et le reste
+     du décor (arbres, bancs, corbeilles) ne tombait plus au même endroit selon la qualité — un changement de palier
+     redessinait la ville. */
+  const rndFleurs = alea(77);
+  /* Hortensias et ajoncs : jamais sur téléphone. Ils font une quinzaine de milliers de triangles, et le budget du
+     §5.10 n'en laisse que 120 000 à un téléphone — où, à 390 px de large, une boule d'hortensia fait deux pixels. */
+  const fleursDuPays = PROFIL.accessoires && !estTelephone;
   const ou = (x, z) => (auCentre(x, z) ? centreVille : statique);
   const mobilierUrbain = (nom, echelle, x, z, rot, petit = false) => {
     if ((petit || nom.endsWith('light') || nom.startsWith('trafficlight')) && !PROFIL.accessoires) return; // Économie : ni lampadaires ni feux
@@ -2048,6 +2145,11 @@ export async function creerScene(conteneur, options) {
     mobilierUrbain('streetlight', 5, x + 6, 5.3, Math.PI);
     ou(x + 3, 6.6).add(arbre(x + 3, 6.6, rnd, 0.9));
     statique.add(arbre(x + 9, -45.5, rnd, 0.9));
+    // le pays au pied des arbres : à l'emplacement d'un arbre, on sait que rien d'autre ne tombera là
+    if (fleursDuPays) {
+      ou(x + 4.4, 6.9).add(hortensia(x + 4.4, 6.9, rndFleurs));
+      statique.add(ajonc(x + 10.4, -45.2, rndFleurs));
+    }
     if (rnd() > 0.6) mobilierUrbain('bench', 4.5, x + 1.5, -5.6, 0, true);
     if (rnd() > 0.7) mobilierUrbain('trash_A', 4.5, x - 2, 5.6, 0, true);
   }
@@ -2055,6 +2157,10 @@ export async function creerScene(conteneur, options) {
     if (Math.abs(z) < 6 || Math.abs(z + 40) < 6) continue;
     statique.add(arbre(-51, z, rnd, 0.85));
     statique.add(arbre(51, z, rnd, 0.85));
+    if (fleursDuPays) {
+      statique.add(hortensia(-51.4, z + 1.3, rndFleurs));
+      statique.add(ajonc(51.4, z + 1.3, rndFleurs));
+    }
     mobilierUrbain('streetlight', 5, -40.7, z + 5, Math.PI / 2);
     mobilierUrbain('streetlight', 5, 40.7, z + 5, -Math.PI / 2);
   }
@@ -2148,6 +2254,49 @@ export async function creerScene(conteneur, options) {
     scene.add(g);
     if (Math.abs(x) > 10) statique.add(piece(CY(0.25, 0.3, 0.6, 10), mat(P.sombre), x, -0.1, z, false));
     mouettes.push({ g, battement, depart: new THREE.Vector3(x, y, z), vol: 0 });
+  }
+
+  /* Rideau d'averse (§5.2) : une boîte de traits qui suit la caméra. Un seul maillage, un seul appel de dessin ;
+     chaque trait tombe et se replace dans le vertex shader (rien à calculer côté JS), et se tient toujours face à
+     la caméra — dans le repère de la caméra, le quadrilatère ne dépend pas de l'orientation de la vue.
+     Masqué dès que la pluie s'arrête, et jamais construit en qualité Économie ni en « animations réduites ». */
+  const PLUIE = { cote: 40, hauteur: 34, vitesse: 17 };
+  const versPluie = new THREE.Vector3();
+  let pluie = null;
+  if (PROFIL.qualite !== 'economie' && !mouvementReduit()) {
+    const nb = PROFIL.qualite === 'haute' ? 760 : 380;
+    const rndP = alea(97);
+    const traits = [];
+    for (let i = 0; i < nb; i++) {
+      const t = new THREE.PlaneGeometry(0.03, 0.55 + rndP() * 0.5);
+      const o = Float32Array.from({ length: t.attributes.position.count * 3 }, (_, k) => {
+        const j = k % 3;
+        return j === 0 ? (rndP() - 0.5) * PLUIE.cote : j === 1 ? rndP() * PLUIE.hauteur : (rndP() - 0.5) * PLUIE.cote;
+      });
+      // un même trait partage son origine : les trois valeurs sont tirées une fois, puis recopiées
+      for (let v = 1; v < t.attributes.position.count; v++) { o[v * 3] = o[0]; o[v * 3 + 1] = o[1]; o[v * 3 + 2] = o[2]; }
+      t.setAttribute('aOrigine', new THREE.BufferAttribute(o, 3));
+      traits.push(t);
+    }
+    const geoPluie = mergeGeometries(traits, false);
+    for (const t of traits) t.dispose();
+    const matPluie = suivre(new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, fog: false }), 'ecume');
+    matPluie.onBeforeCompile = (sh) => {
+      sh.uniforms.uTemps = uTemps;
+      sh.vertexShader = `uniform float uTemps;\nattribute vec3 aOrigine;\n${sh.vertexShader}`.replace('#include <project_vertex>', `
+  vec3 chute = vec3(aOrigine.x, mod(aOrigine.y - uTemps * ${PLUIE.vitesse.toFixed(1)}, ${PLUIE.hauteur.toFixed(1)}), aOrigine.z);
+  vec4 mvPosition = modelViewMatrix * vec4(chute, 1.0);
+  mvPosition.xy += vec2(transformed.x + transformed.y * 0.16, transformed.y); // le trait penche : il y a du vent
+  gl_Position = projectionMatrix * mvPosition;`);
+    };
+    matPluie.customProgramCacheKey = () => 'pluie';
+    pluie = new THREE.Mesh(geoPluie, matPluie);
+    pluie.frustumCulled = false;
+    pluie.renderOrder = 12;
+    pluie.visible = false;
+    pluie.userData.garder = true;
+    pluie.userData.horsOcclusion = true;
+    scene.add(pluie);
   }
 
   // décor cuit en lots : une dizaine d'appels de dessin au lieu de plusieurs milliers (§5.10)
@@ -3291,22 +3440,63 @@ export async function creerScene(conteneur, options) {
     demander();
   }
 
+  /* ---------------------------------------------------------------- temps qu'il fait (§5.2, §5.3)
+     Le ciel suit le tour de web/carte/meteo.js, à l'horloge de l'ambiance : il ralentit avec l'éloignement et
+     s'arrête net quand la carte se repose ou que l'onglet est caché (§5.10) — rien ne redemande une image.
+     Jamais en qualité Économie, jamais en « animations réduites », jamais en pause : le ciel reste alors au clair. */
+  const METEO_CLAIRE = effetsMeteo(CLAIR);
+  let meteoForcee = null; // outils de développement (?diagnostic) : fige un passage, pour une capture comparable
+  let METEO = METEO_CLAIRE;
+  let LUM = lumieres(PAL, ETAT); // dernières couleurs de l'heure : relues par la météo sans recalculer les mélanges
+  const meteoActive = () => PROFIL.qualite !== 'economie' && (meteoForcee !== null || (animations && !enPause && !mouvementReduit()));
+  const couleurNuage = new THREE.Color();
+  const couleurHalo = new THREE.Color();
+  /** Ce que le temps qu'il fait change, et rien d'autre : jamais les ombres, jamais les couleurs des matières. */
+  function appliquerMeteo() {
+    const m = meteoActive() ? METEO : METEO_CLAIRE;
+    // le ciel couvert rend en voûte ce que le soleil perd : la scène garde son niveau, elle perd son contraste
+    // (intensités du §5.3 en unités « héritées » : three.js ≥ r155 compte en unités physiques, d'où le facteur π)
+    hemi.intensity = LUM.hemiIntensite * m.ciel * Math.PI;
+    soleil.intensity = LUM.soleilIntensite * m.soleil * Math.PI;
+    ciel.material.uniforms.uGris.value = m.gris;
+    scene.fog.color.set(LUM.brume).lerp(couleurNuage, m.gris * 0.6); // la brume prend la couleur du nuage (sa portée : image())
+    uLot.uMouille.value = PROFIL.materiauPbr ? m.lustre : 0;
+    matMer.roughness = 0.3 - 0.12 * m.lustre; // la mer se lisse sous la pluie : le reflet du soleil s'y allonge
+    if (pluie) {
+      pluie.visible = m.pluie > 0.02;
+      pluie.material.opacity = 0.32 * m.pluie;
+    }
+  }
+  /** Avance le ciel d'un pas d'ambiance ; ne redemande une image que si quelque chose a bougé pour de bon. */
+  function avancerMeteo() {
+    if (!meteoActive() && METEO === METEO_CLAIRE) return;
+    const avant = METEO;
+    METEO = meteoActive() ? effetsMeteo(etatMeteo(meteoForcee ?? (tempsAmbiance + DEPART_METEO))) : METEO_CLAIRE;
+    const bouge = ['soleil', 'ciel', 'gris', 'brume', 'lustre', 'pluie'].some((k) => Math.abs(METEO[k] - avant[k]) > 0.0015);
+    if (bouge) appliquerMeteo();
+  }
+
   // ---------------------------------------------------------------- lumière à l'heure réelle (§5.3)
   const dirSoleil = new THREE.Vector3();
   function appliquerHeure(etat = etatHeure(new Date(), { reglage: reglageHeure, themeSombre: themeSombre() })) {
     const avant = ETAT.nuit;
     ETAT = etat;
     const l = lumieres(PAL, ETAT);
+    LUM = l;
     hemi.color.set(l.hemiCiel);
     hemi.groundColor.set(l.hemiSol);
-    // intensités du §5.3 en unités « héritées » : three.js ≥ r155 compte en unités physiques (facteur π)
-    hemi.intensity = l.hemiIntensite * Math.PI;
     soleil.color.set(l.soleil);
-    soleil.intensity = l.soleilIntensite * Math.PI;
     dirSoleil.set(-Math.sin(ETAT.azimut) * Math.cos(ETAT.elevation), Math.sin(ETAT.elevation), Math.cos(ETAT.azimut) * Math.cos(ETAT.elevation)).normalize();
-    ciel.material.uniforms.uZenith.value.set(l.zenith);
-    ciel.material.uniforms.uHorizon.value.set(l.horizon);
-    scene.fog.color.set(l.brume);
+    couleurNuage.set(l.nuage);
+    couleurHalo.set(l.soleil).multiplyScalar(ETAT.nuit > 0.5 ? 0.3 : 0.95);
+    const u = ciel.material.uniforms;
+    u.uZenith.value.set(l.zenith);
+    u.uBas.value.set(l.bas);
+    u.uHorizon.value.set(l.horizon);
+    u.uNuage.value.copy(couleurNuage);
+    u.uHalo.value.copy(couleurHalo);
+    u.uDirSoleil.value.copy(dirSoleil);
+    appliquerMeteo();
     for (const { m, role } of suivis) m.color.copy(role === 'texture' ? facteurTexture() : couleurDe(role));
     for (const f of fenetres) f.material = l.fenetresAllumees ? matVerreAllume : matVerre;
     uLot.uNuit.value = ETAT.nuit; // lots : teinte de jour → nuit dans les sommets
@@ -3452,13 +3642,22 @@ export async function creerScene(conteneur, options) {
     ciel.position.copy(camera.position);
     controles.getTarget(cible);
     const d = camera.position.distanceTo(cible);
-    scene.fog.near = d + 40;
-    scene.fog.far = d + 260;
+    // sous les nuages la brume se referme : l'horizon se rapproche, comme un grain qui arrive sur la rade
+    const portee = 1 - 0.3 * (meteoActive() ? METEO.brume : 0);
+    scene.fog.near = d + 40 * portee;
+    scene.fog.far = d + 260 * portee;
     couches.alertes.visible = etatCalques.alertes !== false && d > 70; // de près, les anneaux gêneraient la lecture de l'intérieur
     // trait d'une commande en cours : il relie deux bâtiments, donc il ne veut dire quelque chose que si on voit les
     // deux bouts. De près, il ne reste qu'une rayure en travers de la vue : seul le colis demeure.
     const filsVus = d > SEUIL_FIL_FLUX;
     if (filsFlux.length && filsFlux[0].visible !== filsVus) for (const f of filsFlux) f.visible = filsVus;
+    // le rideau d'averse se pose entre la caméra et ce qu'elle regarde, et grandit avec le recul
+    if (pluie?.visible) {
+      versPluie.copy(cible).sub(camera.position).normalize();
+      pluie.scale.setScalar(Math.max(0.7, Math.min(3, d / 85)));
+      pluie.position.copy(camera.position).addScaledVector(versPluie, d * 0.42);
+      pluie.position.y = 0;
+    }
     accessoires.visible = PROFIL.accessoires && d < 0.6 * controles.maxDistance; // sous 40 % du zoom : petits accessoires masqués
     if (uLot.uMasque.value[MASQUE.accessoires] !== (accessoires.visible ? 1 : 0)) { uLot.uMasque.value[MASQUE.accessoires] = accessoires.visible ? 1 : 0; renderer.shadowMap.needsUpdate = true; }
     majDetails();
@@ -3491,9 +3690,10 @@ export async function creerScene(conteneur, options) {
   /** `vie` (1 de près, 0 en vue d'ensemble) ralentit tout jusqu'à l'arrêt : rien ne bouge sans qu'on puisse le voir. */
   function animer(dt, vie = 1) {
     const pas = dt * vie;
-    tempsAmbiance += pas; // mer, fanions, phare, bateaux : leur temps se fige avec l'éloignement
+    tempsAmbiance += pas; // mer, fanions, phare, bateaux, ciel : leur temps se fige avec l'éloignement
     const t = tempsAmbiance;
     uTemps.value = t;
+    avancerMeteo();
     for (const f of flux) { f.t = (f.t + f.v * pas) % 1; f.colis.position.copy(f.courbe.getPoint(f.t)).setY(f.colis.position.y - 0.6); }
     // anneau critique : une pulsation de 1,2 s toutes les 4 s
     pulsation = (t % 4) / 1.2;
@@ -3625,7 +3825,7 @@ export async function creerScene(conteneur, options) {
     estDedans: () => dedans,
     calques(etat) { Object.assign(etatCalques, etat); appliquerCalques(); },
     etatCalques: () => ({ ...etatCalques }),
-    pause(v) { enPause = v ?? !enPause; reveiller(); return enPause; },
+    pause(v) { enPause = v ?? !enPause; appliquerMeteo(); reveiller(); return enPause; }, // en pause, le ciel revient au clair
     enPause: () => enPause || !ambianceActive(),
     /** Réglages › Carte : animations ambiantes, heure de la carte. */
     /** Le HUD a changé (panneau replié, feuille déplacée) : recalcule le centre de la vue. */
@@ -3674,6 +3874,7 @@ export async function creerScene(conteneur, options) {
       window.removeEventListener('pagehide', surDepart);
       document.removeEventListener('keydown', arreterVol, true);
       controles.dispose();
+      pluie?.geometry.dispose();
       composer?.dispose?.();
       renderer.dispose();
       canvas.remove();
@@ -3682,6 +3883,18 @@ export async function creerScene(conteneur, options) {
       conteneur.removeAttribute('data-focus-clavier');
     },
   };
-  if (/[?&]diagnostic\b/.test(location.search)) window.__carte = { api, camera, controles, renderer, scene, etats: { donnees: donneesEtats, texture: texEtats, numeros: () => numeros } }; // outils de développement seulement
+  if (/[?&]diagnostic\b/.test(location.search)) {
+    // outils de développement seulement ; `meteo(nom)` fige un passage du ciel, le temps d'une capture comparable
+    window.__carte = {
+      api, camera, controles, renderer, scene, etats: { donnees: donneesEtats, texture: texEtats, numeros: () => numeros },
+      meteo(nom) {
+        meteoForcee = nom && nom !== 'auto' && nom !== 'clair' ? coeurDuPassage(nom) : null;
+        METEO = meteoActive() ? effetsMeteo(etatMeteo(meteoForcee ?? (tempsAmbiance + DEPART_METEO))) : METEO_CLAIRE;
+        appliquerMeteo();
+        demander();
+        return etatMeteo(meteoForcee ?? (tempsAmbiance + DEPART_METEO));
+      },
+    };
+  }
   return api;
 }
