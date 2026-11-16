@@ -3455,7 +3455,7 @@ void main() {
     hemi.intensity = LUM.hemiIntensite * m.ciel * Math.PI;
     soleil.intensity = LUM.soleilIntensite * m.soleil * Math.PI;
     ciel.material.uniforms.uGris.value = m.gris;
-    scene.fog.color.set(LUM.brume).lerp(couleurNuage, m.gris * 0.6); // la brume se referme et prend la couleur du nuage
+    scene.fog.color.set(LUM.brume).lerp(couleurNuage, m.gris * 0.6); // la brume prend la couleur du nuage (sa portée : image())
     uLot.uMouille.value = PROFIL.materiauPbr ? m.lustre : 0;
     matMer.roughness = 0.3 - 0.12 * m.lustre; // la mer se lisse sous la pluie : le reflet du soleil s'y allonge
     if (pluie) {
@@ -3638,8 +3638,10 @@ void main() {
     ciel.position.copy(camera.position);
     controles.getTarget(cible);
     const d = camera.position.distanceTo(cible);
-    scene.fog.near = d + 40;
-    scene.fog.far = d + 260;
+    // sous les nuages la brume se referme : l'horizon se rapproche, comme un grain qui arrive sur la rade
+    const portee = 1 - 0.3 * (meteoActive() ? METEO.brume : 0);
+    scene.fog.near = d + 40 * portee;
+    scene.fog.far = d + 260 * portee;
     couches.alertes.visible = etatCalques.alertes !== false && d > 70; // de près, les anneaux gêneraient la lecture de l'intérieur
     // trait d'une commande en cours : il relie deux bâtiments, donc il ne veut dire quelque chose que si on voit les
     // deux bouts. De près, il ne reste qu'une rayure en travers de la vue : seul le colis demeure.
