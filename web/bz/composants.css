@@ -1184,11 +1184,12 @@
   .bz-liste__texte { display: flex; flex-direction: column; min-inline-size: 0; }
   .bz-liste__lien { color: var(--bz-texte); font-weight: var(--bz-g-fort); text-decoration: none; }
   .bz-liste__lien:hover { text-decoration: underline; }
-  /* au toucher, toute la ligne (avatar, nom, méta) est la cible du lien : jamais un nom de 24 px de haut (§4.0) */
-  @media (pointer: coarse) {
-    .bz-tableau__nom .bz-liste__ligne { position: relative; min-block-size: var(--bz-cible-min); }
-    .bz-tableau__nom .bz-liste__lien::after { content: ""; position: absolute; inset: 0; }
-  }
+  /* Toute la colonne du nom (avatar, nom, méta) est la cible du lien, à la souris comme au doigt : viser un nom de
+     24 px de haut faisait hésiter, et c'est le geste le plus fréquent d'une liste. La cible s'arrête au nom : les
+     autres colonnes restent sélectionnables et copiables. (Au toucher, c'était déjà le cas — §4.0.) */
+  .bz-tableau__nom { position: relative; }
+  .bz-tableau__nom .bz-liste__ligne { min-block-size: var(--bz-cible-min); }
+  .bz-tableau__nom .bz-liste__lien::after { content: ""; position: absolute; inset: 0; }
   .bz-liste__meta, .bz-liste__valeur { display: none; }
   .bz-tableau__long { content-visibility: auto; }
   .bz-barre-action { position: fixed; z-index: var(--bz-z-barre-action); inset-inline: var(--bz-e-3); inset-block-end: calc(var(--bz-h-onglets) + var(--bz-pied-bas) + var(--bz-e-2));
