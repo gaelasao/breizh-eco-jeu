@@ -504,3 +504,112 @@ test('carte : l’atlas partagé des modèles n’est jamais fermé (immeubles n
   assert.match(scene, /THREE\.Cache\.enabled = true/);
   assert.doesNotMatch(scene, /\.close\?\.\(\)|\.close\(\)/, 'aucune image fermée dans scene.js');
 });
+
+type Meteo = {
+  CYCLE: readonly { nom: string; duree: number; couverture: number }[]; TOUR: number; FONDU: number; SECHAGE: number;
+  PLAFOND: { soleil: number; ciel: number; gris: number; brume: number; perce: number };
+  CLAIR: { nom: string; couverture: number; pluie: number; mouille: number; perce: number }; DEPART: number;
+  etatMeteo: (s?: number, o?: { cycle?: unknown }) => { nom: string; couverture: number; pluie: number; mouille: number; perce: number };
+  effets: (m?: unknown) => { soleil: number; ciel: number; gris: number; brume: number; lustre: number; pluie: number };
+  coeurDuPassage: (nom: string) => number;
+};
+
+test('carte : le temps qu’il fait suit un tour fixe — l’averse passe, la lumière revient (§5.2)', async () => {
+  const M = await charger<Meteo>('web/carte/meteo.js');
+  assert.deepEqual(M.CYCLE.map((p) => p.nom), ['clair', 'nuages', 'averse', 'eclaircie']);
+  assert.ok(Object.isFrozen(M.CYCLE) && Object.isFrozen(M.CYCLE[0]));
+  assert.equal(M.TOUR, M.CYCLE.reduce((n, p) => n + p.duree, 0));
+  // rien d'aléatoire : le même instant donne toujours le même ciel, et le tour boucle
+  assert.deepEqual(M.etatMeteo(37), M.etatMeteo(37));
+  assert.deepEqual(M.etatMeteo(37), M.etatMeteo(37 + M.TOUR));
+  assert.deepEqual(M.etatMeteo(37), M.etatMeteo(37 - M.TOUR), 'un temps négatif ne sort pas du tour');
+  assert.deepEqual(M.etatMeteo(Number.NaN), M.etatMeteo(0), 'une valeur aberrante retombe au début du tour');
+  // la pluie n'existe que pendant l'averse, elle y monte puis s'en va avant la fin du passage
+  const pas = Array.from({ length: M.TOUR }, (_, t) => M.etatMeteo(t));
+  for (const e of pas) {
+    assert.ok(e.couverture >= 0 && e.couverture <= 1, `couverture ${e.couverture}`);
+    assert.ok(e.pluie >= 0 && e.pluie <= 1);
+    assert.ok(e.mouille >= 0 && e.mouille <= 1);
+    if (e.pluie > 0) assert.equal(e.nom, 'averse', 'il ne pleut que pendant l’averse');
+  }
+  assert.ok(Math.max(...pas.map((e) => e.pluie)) > 0.95, 'l’averse est franche');
+  assert.ok(pas.filter((e) => e.pluie > 0).length < M.CYCLE[2]!.duree, 'elle passe : elle ne dure pas tout le passage');
+  // la pierre reste mouillée après l'averse, puis sèche : au tour suivant il n'en reste rien
+  const finPluie = pas.findLastIndex((e) => e.pluie > 0);
+  assert.equal(pas[finPluie]?.mouille, 1);
+  assert.ok((pas[finPluie + 6]?.mouille ?? 1) < (pas[finPluie + 1]?.mouille ?? 0), 'elle sèche');
+  assert.ok(M.etatMeteo(0).mouille < 0.02 && M.etatMeteo(M.DEPART).mouille === 0, 'le tour repart sur de la pierre sèche');
+  // la lumière qui perce : seulement pendant l'éclaircie, juste après l'averse
+  for (const e of pas) if (e.perce > 0) assert.equal(e.nom, 'eclaircie');
+  assert.ok(Math.max(...pas.map((e) => e.perce)) > 0.95);
+  // la carte s'ouvre au clair : ni nuage bas, ni pierre mouillée
+  assert.equal(M.etatMeteo(M.DEPART).nom, 'clair');
+  assert.ok(M.etatMeteo(M.DEPART).couverture <= 0.1);
+  for (const nom of ['clair', 'nuages', 'averse', 'eclaircie']) assert.equal(M.etatMeteo(M.coeurDuPassage(nom)).nom, nom, `cœur de ${nom}`);
+  assert.equal(M.etatMeteo(M.coeurDuPassage('averse')).pluie, 1, 'le cœur de l’averse, c’est la pluie pleine');
+});
+
+test('carte : sous les nuages la lumière devient douce, jamais sombre (lisibilité, §5.3)', async () => {
+  const M = await charger<Meteo>('web/carte/meteo.js');
+  // ciel au clair : aucun effet du tout (c'est l'état de la qualité Économie et des animations réduites)
+  assert.deepEqual(M.effets(M.CLAIR), { soleil: 1, ciel: 1, gris: 0, brume: 0, lustre: 0, pluie: 0 });
+  assert.deepEqual(M.effets(), M.effets(M.CLAIR), 'sans argument, le ciel est au clair');
+  // le plus couvert du tour : ce que le soleil perd, la voûte céleste le rend — l'éclairement tient, le contraste tombe
+  const pire = Array.from({ length: M.TOUR }, (_, t) => M.effets(M.etatMeteo(t))).reduce((a, b) => (b.soleil < a.soleil ? b : a));
+  assert.ok(pire.soleil >= 0.4, `le soleil ne descend jamais sous 40 % (${pire.soleil.toFixed(2)})`);
+  assert.ok(pire.ciel >= 1.4, `la voûte compense (${pire.ciel.toFixed(2)})`);
+  assert.ok(pire.soleil * 0.7 + pire.ciel >= 1.6, 'l’éclairement total reste du même ordre qu’au clair');
+  assert.ok(pire.gris <= 0.8 && pire.brume <= 0.6, 'ni le ciel ni la brume ne deviennent opaques');
+  for (const k of ['soleil', 'ciel', 'gris', 'brume', 'perce'] as const) assert.ok(M.PLAFOND[k] > 0 && M.PLAFOND[k] <= 1, `plafond ${k}`);
+});
+
+test('carte : le ciel s’arrête avec l’ambiance — rien en Économie, rien en animations réduites, rien en pause', () => {
+  const scene = lire('web/scene.js');
+  assert.match(scene, /from '\/carte\/meteo\.js'/);
+  // une seule porte, et elle ferme sur les trois conditions
+  const porte = /const meteoActive = \(\) => ([^\n]+);/.exec(scene)?.[1] ?? '';
+  assert.match(porte, /PROFIL\.qualite !== 'economie'/, 'rien en qualité Économie');
+  assert.match(porte, /animations/, 'rien quand les animations ambiantes sont coupées');
+  assert.match(porte, /!enPause/, 'rien en pause');
+  assert.match(porte, /!mouvementReduit\(\)/, 'rien en animations réduites');
+  // le temps du ciel est celui de l'ambiance : il se fige avec l'éloignement et à l'arrêt (§5.10)
+  assert.match(scene, /tempsAmbiance \+ DEPART_METEO/);
+  assert.match(scene, /avancerMeteo\(\);/);
+  assert.doesNotMatch(scene, /setInterval\([^)]*avancerMeteo/, 'aucune horloge propre au ciel : il suit l’ambiance');
+  // rideau d'averse : un seul maillage, jamais construit en Économie ni en animations réduites
+  assert.match(scene, /if \(PROFIL\.qualite !== 'economie' && !mouvementReduit\(\)\) \{\s*\n\s*const nb = PROFIL\.qualite === 'haute' \? \d+ : \d+;/);
+  assert.match(scene, /pluie = new THREE\.Mesh\(geoPluie, matPluie\);/);
+  assert.match(scene, /matPluie\.customProgramCacheKey = \(\) => 'pluie'/, 'un seul programme, donc un seul appel de dessin');
+  // la pierre mouillée ne coûte qu'un uniforme, et seulement là où il y a des matériaux PBR
+  assert.match(scene, /uMouille: \{ value: 0 \}/);
+  assert.match(scene, /float roughnessFactor = mix\(vRugo\.x, vRugo\.x \* 0\.52, uMouille\);/);
+  assert.match(scene, /uLot\.uMouille\.value = PROFIL\.materiauPbr \? m\.lustre : 0;/);
+});
+
+test('carte : lumière atlantique — soleil bas et chaud, voûte bleue, ciel à trois assises (§5.2, §5.3)', async () => {
+  const { INTENSITES, etatHeure, lumieres, lirePalette, ROLES_SCENE } = await charger<Omit<Heure, 'etatHeure'> & {
+    INTENSITES: { hemisphere: number; soleilJour: number; soleilNuit: number };
+    etatHeure: (d: Date, o?: { reglage?: string; themeSombre?: boolean }) => { nom: string; nuit: number; elevation: number; azimut: number };
+  }>('web/carte/heure.js');
+  // le rapport soleil / ciel fait le relief : au moins trois fois plus de soleil que de voûte
+  assert.ok(INTENSITES.soleilJour / INTENSITES.hemisphere >= 3, `rapport ${(INTENSITES.soleilJour / INTENSITES.hemisphere).toFixed(1)}`);
+  assert.ok(INTENSITES.hemisphere < 1, 'la voûte ne remplit plus les ombres');
+  // l'heure dorée plutôt que midi : le soleil ne monte jamais au zénith
+  const midi = etatHeure(new Date(2026, 10, 10, 13));
+  assert.ok(midi.elevation < 0.9, `le soleil culmine à ${midi.elevation.toFixed(2)} rad`);
+  assert.ok(etatHeure(new Date(2026, 10, 10, 10), { reglage: 'jour' }).elevation < 0.9, 'y compris en « Toujours le jour »');
+  assert.ok(etatHeure(new Date(2026, 10, 10, 7)).elevation < midi.elevation, 'le soleil monte puis redescend');
+  // trois assises de ciel, et une couleur de nuage pour le temps qu'il fait
+  for (const r of ['ciel-zenith', 'ciel-bas', 'ciel-horizon', 'nuage']) assert.ok(ROLES_SCENE.includes(r), r);
+  const jetons = lire('web/bz/tokens.css');
+  const valeur = (n: string) => new RegExp(`${n.replace(/-/g, '\\-')}:\\s*([^;]+);`).exec(jetons)?.[1]?.trim() ?? '';
+  const l = lumieres(lirePalette(valeur), etatHeure(new Date(2026, 10, 10, 12))) as unknown as Record<string, string>;
+  for (const k of ['zenith', 'bas', 'horizon', 'brume', 'nuage']) assert.match(l[k] ?? '', /^#[0-9a-f]{6}$/, k);
+  assert.notEqual(l.brume, l.horizon, 'la brume et le ciel ne portent plus la même couleur : sinon, plus d’horizon');
+  const scene = lire('web/scene.js');
+  assert.match(scene, /uniform vec3 uBas;/, 'la bande chaude est dans le ciel');
+  assert.match(scene, /uniform vec3 uHalo;/, 'le halo du soleil dit où il est');
+  // la cartographie des tons reste neutre : les couleurs de la scène sont vérifiées sur les jetons
+  assert.match(scene, /renderer\.toneMapping = THREE\.NeutralToneMapping;/);
+  assert.doesNotMatch(scene, /AgXToneMapping|ACESFilmicToneMapping/, 'aucune courbe qui déplace les teintes');
+});
