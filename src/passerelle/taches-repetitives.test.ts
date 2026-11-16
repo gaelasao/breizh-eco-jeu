@@ -126,18 +126,18 @@ test('tâches déclarées : saisies refusées (400, message clair), 100 tâches 
 test('« celle-ci le fait déjà » : la tâche montre l’état de l’automatisation attachée (données manquantes, prête, en marche)', async () => {
   const app = await Application.creer({ connexion: 'comptes' });
   const p = app.monde.initialiser({ nom: 'Maël', entreprise: 'Kerlann', depart: 'vide' });
-  const t = app.automatisations.ajouterTache(p, tache({ nom: 'Rappeler les clients mécontents', recette: 'avis-bas' }));
-  assert.equal(t.automatisation?.id, 'avis-bas');
-  assert.equal(t.automatisation?.nom, 'Client mécontent');
+  const t = app.automatisations.ajouterTache(p, tache({ nom: 'Renouveler les attestations', recette: 'documents' }));
+  assert.equal(t.automatisation?.id, 'documents');
+  assert.equal(t.automatisation?.nom, 'Papiers à renouveler');
   assert.equal(t.automatisation?.etat, 'a_brancher');
-  assert.match(t.automatisation?.manque ?? '', /clients/);
+  assert.match(t.automatisation?.manque ?? '', /documents/);
   const etat = () => app.automatisations.taches(p).taches.find((x) => x.id === t.id)?.automatisation;
-  app.monde.creerObjet(p, 's', { type: 'entreprise', nom: 'Cave du Port', roles: ['client'], champs: {} });
-  assert.equal(etat()?.etat, 'prete', 'un client suffit : l’automatisation peut être mise en marche');
+  app.monde.creerObjet(p, 's', { type: 'document', nom: 'Attestation de TVA', champs: {} });
+  assert.equal(etat()?.etat, 'prete', 'un document suffit : l’automatisation peut être mise en marche');
   assert.equal(etat()?.manque, null);
-  app.automatisations.activer(p, 'avis-bas', { actif: true });
+  app.automatisations.activer(p, 'documents', { actif: true });
   assert.equal(etat()?.etat, 'active');
-  app.automatisations.activer(p, 'avis-bas', { actif: false });
+  app.automatisations.activer(p, 'documents', { actif: false });
   assert.equal(etat()?.etat, 'prete');
   // sans automatisation attachée : rien à montrer ; l'écran dit ce qu'il reste à faire selon `outilBranche`
   const seule = app.automatisations.ajouterTache(p, tache({ nom: 'Recopier les commandes' }));
@@ -322,7 +322,7 @@ test('API : lister, estimer, ajouter, modifier, supprimer à l’écran ; une cl
     assert.deepEqual([suppr.statut, suppr.json.ok], [200, true]);
     assert.equal((await t.ecran('GET', '/automatisations/taches')).json.taches.length, 0);
     // la mise en marche d'une automatisation passe toujours par sa propre route
-    assert.equal((await t.ecran('POST', '/automatisations/relance-factures', { actif: true })).json.active, true);
+    assert.equal((await t.ecran('POST', '/automatisations/documents', { actif: true })).json.active, true);
     assert.equal(t.s.appels.length, 0, 'rien n’est parti vers l’extérieur');
   } finally { t.fermer(); }
 });

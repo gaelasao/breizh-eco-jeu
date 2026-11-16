@@ -344,16 +344,17 @@ test('optimisations : pistes chiffrées avec hypothèse, puis automatisation ide
   assert.ok(terrain);
   assert.throws(() => a.automatisations.optimisations(terrain), /interdit/);
   const avant = a.monde.objetsReels().filter((x) => x.famille === 'tache').length;
-  a.automatisations.activer(p, 'relance-factures', { actif: true });
+  // deux automatisations comprises dans Living Business (celles qui demandent l'offre sont essayées dans offre-automatisations.test.ts)
   a.automatisations.activer(p, 'documents', { actif: true });
+  a.automatisations.activer(p, 'vehicules', { actif: true });
   const n1 = await a.automatisations.executer();
   assert.ok(n1 >= 2);
   const apres = a.monde.objetsReels().filter((x) => x.famille === 'tache');
   assert.ok(apres.length > avant);
-  assert.ok(apres.some((t) => t.nom.startsWith('Relancer ')));
+  assert.ok(apres.some((t) => t.nom.startsWith('Renouveler ')));
   const n2 = await a.automatisations.executer();
   assert.equal(n2, 0, 'pas de doublon au passage suivant');
-  assert.equal(a.automatisations.optimisations(p).opportunites.find((x) => x.id === 'relance-factures')?.active, true);
+  assert.equal(a.automatisations.optimisations(p).opportunites.find((x) => x.id === 'documents')?.active, true);
 });
 
 test('modification de fiche : validée par l’univers, refusée si valeur hors liste', async () => {

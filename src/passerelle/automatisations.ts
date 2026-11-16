@@ -7,10 +7,14 @@
  * - Tâches répétitives DÉCLARÉES (« est-ce que ça vaut le coup de l'automatiser ? ») : une personne décrit une tâche,
  *   le jeu rend son verdict (calcul pur : ../core/taches-repetitives.ts) et, si une automatisation existante la fait
  *   déjà, son état. Enregistrées ici avec les automatisations ; rien n'est envoyé à l'extérieur.
+ * - Celles qui PRODUISENT et ENVOIENT demandent l'offre Breizhcosystem ACTIVE ; celles qui ne font que SIGNALER sont
+ *   comprises. Le partage, sa raison et ce que vaut vraiment ce verrou : ../core/offre.ts (à lire avant d'y toucher).
+ *   Une automatisation réservée reste dans la même liste, avec son gain chiffré : elle est présentée, pas cachée.
  */
 import { randomUUID } from 'node:crypto';
 import type { Profil } from '../demo/donnees.ts';
 import type { ObjetMetier, ValeurChamp } from '../core/model.ts';
+import { lireOffre, motifVerrou, phraseOffre, verrouillee as reserveeParLOffre, type EtatOffre, type LectureOffre } from '../core/offre.ts';
 import { ANONYMAT_MIN, detecterOptimisations } from '../core/optimisations.ts';
 import { calculerTache, ErreurTache, HORIZON_MAX, IDEES, lireHorizon, lireSaisie, RANG_VERDICT, TACHES_MAX, type SaisieTache } from '../core/taches-repetitives.ts';
 import type { Enquetes } from './enquetes.ts';
@@ -123,18 +127,22 @@ export class Automatisations {
   #attente: NodeJS.Timeout | null = null;
   #trous: () => number;
   #trousProchains: () => number;
+  #droits: () => LectureOffre;
 
   /**
    * `trous` : trous du planning AUJOURD'HUI (tâche du jour) ; `trousProchains` : ceux des 6 prochains jours ouvrés,
    * aujourd'hui compris, comptés comme sur l'écran Planning (piste « Signaler les trous » : mêmes chiffres, P3).
+   * `droits` : les DERNIERS droits confirmés par le réseau, lus sans aucun appel (voir ../core/offre.ts) ; absent,
+   * l'entreprise est tenue pour non reliée et garde les automatisations comprises.
    */
-  constructor(monde: Monde, enquetes: Enquetes, synchro: Synchro, o: { etat?: EtatAutomatisations | null; changement?: () => void; trous?: () => number; trousProchains?: () => number } = {}) {
+  constructor(monde: Monde, enquetes: Enquetes, synchro: Synchro, o: { etat?: EtatAutomatisations | null; changement?: () => void; trous?: () => number; trousProchains?: () => number; droits?: () => LectureOffre } = {}) {
     this.#monde = monde;
     this.#enquetes = enquetes;
     this.#synchro = synchro;
     this.#changement = o.changement ?? (() => {});
     this.#trous = o.trous ?? (() => 0);
     this.#trousProchains = o.trousProchains ?? this.#trous;
+    this.#droits = o.droits ?? (() => ({ relie: false, plan: null, etatAbonnement: null }));
     const e = o.etat;
     this.#etat = {
       actives: Array.isArray(e?.actives) ? e.actives.filter((x) => RECETTES.some((r) => r.id === x)) : [],
@@ -156,11 +164,31 @@ export class Automatisations {
     if (!p.peutAdministrer && !p.peutApprouver) throw new ErreurApi(403, 'interdit');
   }
 
+  /** L'offre dont dispose l'entreprise, lue sans appel réseau ; une lecture qui échoue ne casse jamais l'écran. */
+  #offre(): EtatOffre {
+    try {
+      return lireOffre(this.#droits());
+    } catch {
+      return 'non_reliee';
+    }
+  }
+
+  /**
+   * Celles qui agissent VRAIMENT : mises en marche par la direction et à la portée de l'entreprise. Une automatisation
+   * réservée mise en marche du temps où l'offre était ouverte reste enregistrée mais n'agit plus — rien n'est effacé,
+   * elle repart telle quelle si l'offre revient.
+   */
+  #actives(offre = this.#offre()): Set<string> {
+    return new Set(this.#etat.actives.filter((id) => !reserveeParLOffre(id, offre)));
+  }
+
   lister(p: Profil) {
     this.#autorise(p);
+    const offre = this.#offre();
+    const actives = this.#actives(offre);
     return {
-      tauxHoraire: this.#etat.tauxHoraire,
-      recettes: RECETTES.map((r) => ({ ...r, active: this.#etat.actives.includes(r.id), declenchements: this.#etat.compteurs[r.id]?.n ?? 0, dernier: this.#etat.compteurs[r.id]?.dernier ?? null })),
+      tauxHoraire: this.#etat.tauxHoraire, offre,
+      recettes: RECETTES.map((r) => ({ ...r, active: actives.has(r.id), verrouillee: reserveeParLOffre(r.id, offre), declenchements: this.#etat.compteurs[r.id]?.n ?? 0, dernier: this.#etat.compteurs[r.id]?.dernier ?? null })),
     };
   }
 
@@ -169,6 +197,8 @@ export class Automatisations {
     const r = RECETTES.find((x) => x.id === id);
     if (!r) throw new ErreurApi(404, 'introuvable');
     const actif = (d as { actif?: unknown })?.actif === true;
+    // mettre en marche une automatisation réservée : refusé, en disant pourquoi ; l'arrêter reste toujours possible
+    if (actif && reserveeParLOffre(r.id, this.#offre())) throw new ErreurApi(402, 'nexus_active_requis', motifVerrou(r.id));
     this.#etat.actives = actif ? [...new Set([...this.#etat.actives, r.id])] : this.#etat.actives.filter((x) => x !== r.id);
     this.#changement();
     if (actif) this.planifier(200);
@@ -182,35 +212,52 @@ export class Automatisations {
    *   n'est à traiter aujourd'hui) ;
    * - « à brancher » : le jeu ne voit pas ces données ; `manque` dit quoi relier ou saisir.
    * `outilBranche` : un outil d'automatisation reçoit les événements du jeu (sinon les envois deviennent des tâches).
+   * `verrouillee` : réservée à l'offre, que l'entreprise n'a pas (../core/offre.ts). Elle reste dans la liste, avec
+   * son gain calculé sur les données réelles et son motif : c'est l'inverse d'une fonction cachée. `pretes` et
+   * `heuresMois` ne comptent que ce qui est à portée ; `reservees` et `heuresMoisReservees` disent ce qui reste.
    */
   preparation(p: Profil) {
     this.#autorise(p);
     const objets = this.#monde.objetsReels();
+    const offre = this.#offre();
+    const actives = this.#actives(offre);
     const pistes = new Map(this.#detecter().opportunites.filter((o) => o.recette).map((o) => [o.recette as string, o]));
     const recettes = RECETTES.map((r) => {
       const besoin = BESOINS[r.id];
-      const active = this.#etat.actives.includes(r.id);
+      const active = actives.has(r.id);
+      const verrou = reserveeParLOffre(r.id, offre);
       const vues = besoin ? besoin.vues(objets) : true;
       const etat: EtatRecette = active ? 'active' : vues ? 'prete' : 'a_brancher';
+      const piste = pistes.get(r.id);
       return { id: r.id, nom: r.nom, quand: r.quand, alors: r.alors, etat, manque: etat === 'a_brancher' ? (besoin?.donnees ?? null) : null,
-        heuresMois: active ? 0 : (pistes.get(r.id)?.heuresMois ?? 0), versOutil: besoin?.versOutil === true };
+        heuresMois: active ? 0 : (piste?.heuresMois ?? 0), euroMois: active ? 0 : (piste?.euroMois ?? 0),
+        verrouillee: verrou, motif: verrou ? motifVerrou(r.id) : null, versOutil: besoin?.versOutil === true };
     });
-    const pretes = recettes.filter((r) => r.etat === 'prete');
-    return { recettes, pretes: pretes.length, aBrancher: recettes.filter((r) => r.etat === 'a_brancher').length, heuresMois: Math.round(pretes.reduce((n, r) => n + r.heuresMois, 0) * 2) / 2,
+    const somme = (l: readonly { heuresMois: number }[]) => Math.round(l.reduce((n, r) => n + r.heuresMois, 0) * 2) / 2;
+    const pretes = recettes.filter((r) => r.etat === 'prete' && !r.verrouillee);
+    const reservees = recettes.filter((r) => r.verrouillee);
+    return { recettes, pretes: pretes.length, aBrancher: recettes.filter((r) => r.etat === 'a_brancher' && !r.verrouillee).length, heuresMois: somme(pretes),
+      offre, phraseOffre: phraseOffre(offre), reservees: reservees.length, heuresMoisReservees: somme(reservees),
+      euroMoisReservees: Math.round(reservees.reduce((n, r) => n + r.euroMois, 0)),
       tauxHoraire: this.#etat.tauxHoraire, outilBranche: this.#synchro.peutNotifier() };
   }
 
-  /** « J'automatise » : active d'un geste tout ce qui est prêt ; rien de ce qui reste à brancher. Administrateur seulement. */
+  /**
+   * « J'automatise » : active d'un geste tout ce qui est prêt ET à la portée de l'entreprise ; rien de ce qui reste à
+   * brancher, rien de ce qui demande l'offre. Administrateur seulement. `reservees` dit ce qui n'a pas été allumé.
+   */
   toutActiver(p: Profil) {
     if (!p.peutAdministrer) throw new ErreurApi(403, 'interdit');
     const avant = this.preparation(p);
-    const activees = avant.recettes.filter((r) => r.etat === 'prete').map((r) => r.id);
+    const activees = avant.recettes.filter((r) => r.etat === 'prete' && !r.verrouillee).map((r) => r.id);
     if (activees.length) {
       this.#etat.actives = [...new Set([...this.#etat.actives, ...activees])];
       this.#changement();
       this.planifier(200);
     }
-    return { activees, aBrancher: avant.recettes.filter((r) => r.etat === 'a_brancher').map((r) => ({ id: r.id, nom: r.nom, manque: r.manque })), outilBranche: avant.outilBranche };
+    return { activees, aBrancher: avant.recettes.filter((r) => r.etat === 'a_brancher' && !r.verrouillee).map((r) => ({ id: r.id, nom: r.nom, manque: r.manque })),
+      reservees: avant.recettes.filter((r) => r.verrouillee).map((r) => ({ id: r.id, nom: r.nom, heuresMois: r.heuresMois, euroMois: r.euroMois })),
+      offre: avant.offre, phraseOffre: avant.phraseOffre, outilBranche: avant.outilBranche };
   }
 
   /** Coût horaire (toutes les estimations en euros) et durée comptée pour les tâches déclarées : l'un, l'autre ou les deux. */
@@ -239,7 +286,7 @@ export class Automatisations {
     return {
       ...t, personne: personne?.id ?? null, qui: personne ? sansMention(personne.nom) : t.qui,
       calcul: calculerTache(t, { tauxHoraire: this.#etat.tauxHoraire, horizonAns: this.#etat.horizonAns }),
-      automatisation: r ? { id: r.id, nom: r.nom, quand: r.quand, alors: r.alors, etat: r.etat, manque: r.manque, versOutil: r.versOutil } : null,
+      automatisation: r ? { id: r.id, nom: r.nom, quand: r.quand, alors: r.alors, etat: r.etat, manque: r.manque, versOutil: r.versOutil, verrouillee: r.verrouillee, motif: r.motif } : null,
     };
   }
 
@@ -316,7 +363,7 @@ export class Automatisations {
   /** Pour le score de santé (l'appelant vérifie que le profil voit le score). */
   resumeSante(): { actives: number; heuresRecuperables: number } {
     const r = this.#detecter();
-    return { actives: this.#etat.actives.length, heuresRecuperables: Math.round(r.opportunites.filter((o) => !o.active).reduce((s, o) => s + o.heuresMois, 0)) };
+    return { actives: this.#actives().size, heuresRecuperables: Math.round(r.opportunites.filter((o) => !o.active).reduce((s, o) => s + o.heuresMois, 0)) };
   }
 
   #detecter() {
@@ -328,7 +375,8 @@ export class Automatisations {
       maintenant: this.#monde.maintenant(),
       tauxHoraire: this.#etat.tauxHoraire,
       connecteurs: this.#synchro.resume().actifs,
-      recettesActives: new Set(this.#etat.actives),
+      // une automatisation réservée n'agit pas : son gain reste à récupérer, et il reste affiché
+      recettesActives: this.#actives(),
     });
   }
 
@@ -393,7 +441,8 @@ export class Automatisations {
     this.#enCours = true;
     let n = 0;
     try {
-      const actives = new Set(this.#etat.actives);
+      // réservée à l'offre et l'entreprise ne l'a pas : elle n'agit pas (son réglage reste enregistré)
+      const actives = this.#actives();
       const recette = (id: string) => RECETTES.find((r) => r.id === id) as Recette;
       const objets = this.#monde.objetsReels();
       const parId = new Map(objets.map((o) => [o.id, o]));
