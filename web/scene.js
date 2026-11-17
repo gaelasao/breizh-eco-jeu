@@ -923,24 +923,190 @@ function rack(nbCartons, enAlerte, perime, long = 2.7) {
   if (enAlerte) g.add(piece(B(0.7, 0.28, 0.02), mat(P.critique, { emissive: P.critique, emissiveIntensity: 0.5 }), 0, 3.95, 0.52, false));
   return g;
 }
-function chariotElevateur() {
+/* ---------------------------------------------------------------- véhicules et engins (§5.10)
+
+   Les voitures viennent du jeu de modèles KayKit, comme les bâtiments. Le camion, la camionnette, le chariot et
+   les engins, eux, étaient faits de boîtes : une caisse, un bandeau de couleur, une cabine, un pare-brise plat et
+   des cylindres nus pour les roues — neuf lignes chacun. Dans l'univers du bâtiment, où le parc est fait de
+   camions et d'engins, il ne restait donc à l'écran que des boîtes, à côté de voitures et de maisons dessinées.
+
+   Ils sont refaits ici dans le même langage que les modèles : volumes creusés aux bons endroits, roues à jante et
+   moyeu, vitrages teintés, pare-chocs, garde-boue, feux, gyrophare. Toutes les géométries passent par geo() : une
+   seule par forme, partagée par tous les véhicules, et fusionner() réunit ensuite le tout en un maillage. En
+   qualité « économie », les cylindres descendent à dix côtés et le détail s'arrête. */
+
+const ECO = () => PROFIL.qualite === 'economie';
+/** Cylindre couché sur l'axe des z (roues, vérins, rouleaux) : centré, contrairement à CY. */
+const CZ = (r, l, s, cle) => geo(`CZ${cle}`, () => new THREE.CylinderGeometry(r, r, l, s).rotateX(Math.PI / 2));
+/** Cylindre couché sur l'axe des x (bras, flèches). */
+const CX = (r, l, s, cle) => geo(`CX${cle}`, () => new THREE.CylinderGeometry(r, r, l, s).rotateZ(Math.PI / 2));
+
+/** Une roue complète : pneu, jante, moyeu. Posée par son centre, pas par sa base. */
+function roue(rayon, largeur, cle) {
   const g = new THREE.Group();
-  const jaune = mat(0xe8b22a, { roughness: 0.45, metalness: 0.1 });
-  g.add(piece(B(1.9, 1.0, 1.1), jaune, 0, 0.3, 0));
-  g.add(piece(B(0.9, 0.06, 1.0), mat(P.sombre), -0.3, 2.1, 0));
-  for (const [x, z] of [[-0.7, 0.48], [-0.7, -0.48], [0.1, 0.48], [0.1, -0.48]]) g.add(piece(B(0.05, 1.8, 0.05), mat(P.sombre), x, 1.3, z, false));
-  for (const z of [-0.45, 0.45]) g.add(piece(B(0.1, 2.6, 0.1), mat(P.sombre), 1.0, 0.2, z, false));
-  for (const z of [-0.25, 0.25]) g.add(piece(B(1.1, 0.05, 0.12), mat(P.metal, { metalness: 0.6 }), 1.55, 0.2, z, false));
-  for (const [x, z] of [[-0.6, 0.55], [0.6, 0.55], [-0.6, -0.55], [0.6, -0.55]]) g.add(piece(geo('roueC', () => new THREE.CylinderGeometry(0.28, 0.28, 0.22, 14).rotateX(Math.PI / 2)), mat(P.pneu), x, 0.28, z, false));
+  const s = ECO() ? 10 : 18;
+  g.add(piece(CZ(rayon, largeur, s, `p${cle}`), mat(P.pneu, { roughness: 0.9 }), 0, 0, 0, false));
+  g.add(piece(CZ(rayon * 0.6, largeur * 1.06, s, `j${cle}`), mat(0xb6bdc5, { metalness: 0.55, roughness: 0.35 }), 0, 0, 0, false));
+  if (!ECO()) g.add(piece(CZ(rayon * 0.18, largeur * 1.14, 8, `m${cle}`), mat(P.sombre), 0, 0, 0, false));
   return g;
 }
+/** Pose une roue à sa place (y = rayon : elle touche le sol). */
+const poserRoue = (g, rayon, largeur, cle, x, z) => { const r = roue(rayon, largeur, cle); r.position.set(x, rayon, z); g.add(r); };
+
+/** Deux feux, un de chaque côté : phares à l'avant, feux rouges à l'arrière. */
+function feux(g, x, y, demiLargeur, couleur, taille = 0.18) {
+  for (const z of [-demiLargeur, demiLargeur]) {
+    g.add(piece(geo(`feu${taille}`, () => new THREE.BoxGeometry(0.06, taille, taille * 1.4)), mat(couleur, { emissive: couleur, emissiveIntensity: 0.35 }), x, y, z, false));
+  }
+}
+
+/** Camion à caisse : châssis, caisse nervurée, cabine vitrée, six roues jumelées à l'arrière. */
+function camion(couleur) {
+  const g = new THREE.Group();
+  const teinte = mat(couleur, { roughness: 0.42, metalness: 0.12 });
+  const caisse = mat(0xf4f4f0, { roughness: 0.55 });
+  const vitre = mat(0x25313d, { roughness: 0.1, metalness: 0.45 });
+  const acier = mat(0x8e959d, { metalness: 0.55, roughness: 0.4 });
+  // châssis, sous la caisse et la cabine
+  g.add(piece(B(6.9, 0.26, 1.72), mat(P.sombre), -3.4, 0.5, 0, false));
+  // caisse : panneaux blancs, nervures verticales, bandeau de couleur en haut, portes à l'arrière
+  g.add(piece(B(4.25, 2.3, 2.3), caisse, -3.35, 0.76, 0));
+  // nervures : même hauteur que la caisse et deux centimètres de débord, sinon elles entaillent la silhouette
+  if (!ECO()) for (let i = 0; i < 4; i++) g.add(piece(B(0.07, 2.3, 2.34), caisse, -2.75 + i * 1.0, 0.76, 0, false));
+  g.add(piece(B(4.27, 0.26, 2.33), teinte, -3.36, 2.8, 0, false));
+  g.add(piece(B(0.08, 1.9, 2.26), mat(0xe6e6e1, { roughness: 0.6 }), -3.42, 0.9, 0, false));
+  // cabine : capot plus bas que le toit, pare-brise incliné, vitres latérales, calandre
+  g.add(piece(B(1.95, 1.95, 2.26), teinte, 0.95, 0.76, 0));
+  g.add(piece(B(0.75, 0.95, 2.2), teinte, 2.9, 0.76, 0));
+  const pb = piece(B(1.5, 0.08, 2.1), vitre, 0, 0, 0, false);
+  pb.rotation.z = -0.34;
+  pb.position.set(2.38, 2.1, 0);
+  g.add(pb);
+  for (const z of [-1.14, 1.14]) g.add(piece(B(1.1, 0.72, 0.06), vitre, 1.1, 1.62, z, false));
+  g.add(piece(B(0.12, 0.6, 1.9), acier, 3.34, 1.0, 0, false));
+  g.add(piece(B(0.26, 0.34, 2.2), mat(P.sombre), 3.3, 0.5, 0, false)); // pare-chocs
+  feux(g, 3.36, 1.0, 0.82, 0xf6e7b8);
+  feux(g, -5.55, 0.95, 0.95, 0xcf3a2c, 0.16);
+  // rétroviseurs et gyrophare
+  if (!ECO()) {
+    for (const z of [-1.24, 1.24]) g.add(piece(B(0.08, 0.34, 0.16), mat(P.sombre), 2.6, 1.95, z, false));
+    g.add(piece(geo('gyro', () => new THREE.CylinderGeometry(0.1, 0.1, 0.14, 10)), mat(0xe5a321, { emissive: 0xe5a321, emissiveIntensity: 0.5 }), 1.6, 2.78, 0, false));
+  }
+  // garde-boue au-dessus des roues arrière
+  for (const z of [-1.1, 1.1]) g.add(piece(B(2.3, 0.1, 0.52), mat(P.sombre), -3.3, 1.06, z, false));
+  for (const x of [2.55, -2.2, -3.25]) { poserRoue(g, 0.52, 0.34, 'c', x, 0.86); poserRoue(g, 0.52, 0.34, 'c', x, -0.86); }
+  return g;
+}
+
+/** Camionnette : museau arrondi, baie vitrée, ligne de porte latérale, quatre roues. */
+function camionnette(couleurBande = 0x2f6fb0) {
+  const g = new THREE.Group();
+  const blanc = mat(0xf6f6f3, { roughness: 0.38, metalness: 0.08 });
+  const vitre = mat(0x27333f, { roughness: 0.1, metalness: 0.45 });
+  g.add(piece(B(4.55, 1.95, 1.98), blanc, -2.3, 0.34, 0));
+  g.add(piece(B(1.35, 1.3, 1.92), blanc, 2.25, 0.34, 0)); // capot
+  if (!ECO()) g.add(piece(geo('museau', () => new THREE.CylinderGeometry(0.62, 0.62, 1.9, 12, 1, false, -Math.PI / 2, Math.PI).rotateX(Math.PI / 2)), blanc, 2.25, 1.02, 0, false));
+  const pb = piece(B(0.95, 0.07, 1.84), vitre, 0, 0, 0, false);
+  pb.rotation.z = -0.48;
+  pb.position.set(1.72, 1.75, 0);
+  g.add(pb);
+  for (const z of [-0.99, 0.99]) {
+    g.add(piece(B(0.9, 0.64, 0.05), vitre, 0.6, 1.4, z, false));
+    g.add(piece(B(0.06, 1.5, 0.04), mat(0xdedeDA, { roughness: 0.6 }), -0.4, 0.5, z, false)); // ligne de porte coulissante
+  }
+  g.add(piece(B(4.58, 0.2, 2.0), mat(couleurBande), -2.31, 1.18, 0, false));
+  g.add(piece(B(0.22, 0.3, 1.94), mat(P.sombre), 2.9, 0.26, 0, false));
+  feux(g, 2.94, 0.92, 0.7, 0xf6e7b8, 0.16);
+  feux(g, -3.78, 1.1, 0.82, 0xcf3a2c, 0.16);
+  for (const [x, z] of [[1.55, 0.95], [1.55, -0.95], [-1.75, 0.95], [-1.75, -0.95]]) poserRoue(g, 0.38, 0.26, 'v', x, z);
+  return g;
+}
+
+/** Chariot élévateur : contrepoids, cage de conduite, mât à deux rails, tablier et fourches. */
+function chariotElevateur() {
+  const g = new THREE.Group();
+  const jaune = mat(0xe3ad24, { roughness: 0.45, metalness: 0.15 });
+  const acier = mat(0x8e959d, { metalness: 0.6, roughness: 0.35 });
+  g.add(piece(B(1.95, 0.85, 1.12), jaune, -1.0, 0.26, 0)); // contrepoids et bloc moteur
+  g.add(piece(B(0.9, 0.5, 1.0), jaune, -1.4, 1.11, 0, false));
+  g.add(piece(B(0.62, 0.12, 0.84), mat(P.sombre), -0.75, 1.11, 0, false)); // assise
+  g.add(piece(B(0.14, 0.52, 0.8), mat(P.sombre), -1.28, 1.23, 0, false)); // dossier
+  // cage de conduite
+  for (const [x, z] of [[-1.42, 0.5], [-1.42, -0.5], [-0.18, 0.5], [-0.18, -0.5]]) g.add(piece(B(0.07, 1.75, 0.07), acier, x, 1.11, z, false));
+  g.add(piece(B(1.42, 0.08, 1.12), acier, -1.46, 2.86, 0, false));
+  g.add(piece(B(0.3, 0.06, 0.3), mat(P.sombre), -0.95, 1.63, 0, false)); // volant
+  // mât : deux rails, traverse, tablier, fourches
+  for (const z of [-0.42, 0.42]) {
+    g.add(piece(B(0.12, 2.75, 0.14), acier, 0.1, 0.18, z, false));
+    g.add(piece(B(0.09, 2.2, 0.1), mat(0xa9b0b8, { metalness: 0.6, roughness: 0.3 }), 0.26, 0.3, z, false));
+  }
+  g.add(piece(B(0.14, 0.12, 1.0), acier, 0.09, 2.9, 0, false));
+  g.add(piece(B(0.1, 0.9, 0.98), acier, 0.3, 0.22, 0, false)); // tablier
+  for (const z of [-0.3, 0.3]) {
+    g.add(piece(B(1.15, 0.07, 0.14), acier, 0.4, 0.2, z, false));
+    g.add(piece(B(0.09, 0.3, 0.14), acier, 0.4, 0.24, z, false));
+  }
+  if (!ECO()) g.add(piece(geo('gyroC', () => new THREE.CylinderGeometry(0.08, 0.08, 0.12, 10)), mat(0xe5a321, { emissive: 0xe5a321, emissiveIntensity: 0.5 }), -1.1, 2.94, 0, false));
+  poserRoue(g, 0.34, 0.26, 'ca', 0.0, 0.52);
+  poserRoue(g, 0.34, 0.26, 'ca', 0.0, -0.52);
+  poserRoue(g, 0.26, 0.2, 'cb', -1.55, 0.42);
+  poserRoue(g, 0.26, 0.2, 'cb', -1.55, -0.42);
+  return g;
+}
+
+/** Engin de chantier : pelle sur chenilles — tourelle vitrée, flèche, balancier, godet. */
+function engin() {
+  const g = new THREE.Group();
+  const jaune = mat(0xe0a526, { roughness: 0.5, metalness: 0.15 });
+  const acier = mat(0x8a9199, { metalness: 0.55, roughness: 0.4 });
+  const vitre = mat(0x27333f, { roughness: 0.1, metalness: 0.45 });
+  // chenilles : patin, barbotin et roue folle à chaque bout
+  for (const z of [-0.82, 0.82]) {
+    g.add(piece(B(3.3, 0.46, 0.52), mat(P.pneu, { roughness: 0.95 }), -1.65, 0.16, z, false));
+    for (const x of [-1.5, 1.5]) g.add(piece(CZ(0.31, 0.54, ECO() ? 10 : 16, 'chen'), mat(P.pneu, { roughness: 0.95 }), x, 0.31, z, false));
+    if (!ECO()) for (let i = 0; i < 7; i++) g.add(piece(B(0.1, 0.1, 0.6), mat(0x2f343a), -1.45 + i * 0.47, 0.56, z, false));
+  }
+  g.add(piece(B(3.0, 0.18, 1.5), acier, -1.5, 0.62, 0, false)); // châssis
+  // tourelle
+  g.add(piece(geo('tourelle', () => new THREE.CylinderGeometry(0.95, 0.95, 0.22, ECO() ? 10 : 18).translate(0, 0.11, 0)), jaune, -0.25, 0.8, 0, false));
+  g.add(piece(B(1.55, 0.85, 1.5), jaune, -1.5, 1.02, 0)); // capot moteur
+  g.add(piece(B(0.9, 1.35, 1.0), jaune, -0.5, 1.02, 0.18)); // cabine
+  g.add(piece(B(0.05, 0.95, 0.86), vitre, 0.38, 1.3, 0.18, false));
+  for (const z of [-0.3, 0.68]) g.add(piece(B(0.8, 0.8, 0.05), vitre, -0.45, 1.4, z, false));
+  g.add(piece(B(1.05, 0.08, 1.06), mat(0xd49b20, { roughness: 0.55 }), -0.52, 2.37, 0.18, false)); // toit
+  // flèche, balancier, godet et vérins
+  const fleche = piece(B(2.3, 0.3, 0.34), jaune, 0, 0, 0, false);
+  fleche.rotation.z = 0.52;
+  fleche.position.set(0.5, 1.0, -0.42);
+  g.add(fleche);
+  const balancier = piece(B(1.7, 0.24, 0.26), jaune, 0, 0, 0, false);
+  balancier.rotation.z = -0.95;
+  balancier.position.set(2.42, 2.15, -0.42);
+  g.add(balancier);
+  const verin = piece(CX(0.1, 1.3, 10, 'v1'), acier, 0, 0, 0, false);
+  verin.rotation.z = 0.28;
+  verin.position.set(1.25, 1.1, -0.42);
+  g.add(verin);
+  const godet = piece(geo('godet', () => new THREE.CylinderGeometry(0.42, 0.42, 0.62, ECO() ? 8 : 14, 1, false, 0, Math.PI * 1.25).rotateX(Math.PI / 2)), acier, 0, 0, 0, false);
+  godet.rotation.z = 1.9;
+  godet.position.set(3.0, 0.75, -0.42);
+  g.add(godet);
+  if (!ECO()) for (let i = 0; i < 4; i++) g.add(piece(B(0.1, 0.16, 0.07), mat(0xb9c0c8, { metalness: 0.6 }), 3.3, 0.5, -0.66 + i * 0.16, false));
+  return g;
+}
+
+/** Machine d'atelier : bâti, capot vitré, pupitre et voyant. */
 function machine() {
   const g = new THREE.Group();
-  g.add(piece(B(2.2, 1.6, 1.4), mat(0xdfe3e6, { roughness: 0.4, metalness: 0.3 }), 0, 0, 0));
-  g.add(piece(B(1.2, 0.8, 0.02), mat(0x8fb7cc, { transparent: true, opacity: 0.5, roughness: 0.1 }), -0.2, 0.6, 0.71, false));
-  g.add(piece(B(0.35, 0.5, 0.06), mat(P.sombre), 0.85, 0.9, 0.72, false));
-  g.add(piece(B(0.28, 0.2, 0.01), mat(0x1e3a2e, { emissive: 0x2fae6a, emissiveIntensity: 0.6 }), 0.85, 1.05, 0.755, false));
-  g.add(piece(B(2.2, 0.1, 1.4), mat(0x2f6fb0), 0, 1.6, 0, false));
+  const bati = mat(0xdbe0e4, { roughness: 0.42, metalness: 0.28 });
+  g.add(piece(B(2.2, 1.35, 1.4), bati, -1.1, 0, 0));
+  g.add(piece(B(2.24, 0.14, 1.44), mat(0x2f6fb0, { roughness: 0.5 }), -1.12, 1.35, 0, false));
+  g.add(piece(B(1.5, 0.82, 0.04), mat(0x8fb7cc, { transparent: true, opacity: 0.45, roughness: 0.1 }), -1.5, 0.42, 0.72, false));
+  if (!ECO()) for (const z of [0.7, -0.7]) g.add(piece(B(1.54, 0.05, 0.05), mat(P.sombre), -1.52, 0.4, z, false));
+  g.add(piece(B(0.34, 0.46, 0.08), mat(P.sombre), -0.3, 0.72, 0.73, false)); // pupitre
+  g.add(piece(B(0.26, 0.18, 0.02), mat(P.ecran, { emissive: 0x2fae6a, emissiveIntensity: 0.55 }), -0.3, 0.9, 0.78, false));
+  for (const [x, c] of [[-0.3, 0xcf3a2c], [-0.16, 0xe5a321]]) g.add(piece(geo('bouton', () => new THREE.CylinderGeometry(0.045, 0.045, 0.04, 8).rotateX(Math.PI / 2)), mat(c), x, 0.64, 0.77, false));
+  for (const [x, z] of [[-1.95, 0.6], [-1.95, -0.6], [-0.3, 0.6], [-0.3, -0.6]]) g.add(piece(B(0.14, 0.16, 0.14), mat(P.sombre), x, 0, z, false));
   return g;
 }
 function etabli() {
@@ -950,25 +1116,6 @@ function etabli() {
   g.add(piece(B(2, 1.0, 0.04), mat(0x8c96a0, { metalness: 0.3 }), 0, 0.94, -0.38, false));
   g.add(piece(B(0.3, 0.2, 0.2), mat(0xc0392b), -0.5, 0.94, 0, false));
   g.add(piece(B(0.4, 0.12, 0.25), mat(0x2f6fb0), 0.4, 0.94, 0.1, false));
-  return g;
-}
-function camionnette(couleurBande = 0x2f6fb0) {
-  const g = new THREE.Group();
-  const blanc = mat(0xf5f5f2, { roughness: 0.35, metalness: 0.1 });
-  g.add(piece(B(3.9, 1.95, 1.9), blanc, -0.45, 0.4, 0));
-  g.add(piece(B(1.2, 1.35, 1.88), blanc, 2.0, 0.4, 0));
-  g.add(piece(B(0.05, 0.7, 1.6), mat(0x23303c, { roughness: 0.1 }), 2.62, 1.05, 0, false));
-  g.add(piece(B(3.92, 0.22, 1.92), mat(couleurBande), -0.45, 1.25, 0, false));
-  for (const [x, z] of [[-1.6, 0.92], [1.8, 0.92], [-1.6, -0.92], [1.8, -0.92]]) g.add(piece(geo('roueV', () => new THREE.CylinderGeometry(0.36, 0.36, 0.26, 16).rotateX(Math.PI / 2)), mat(P.pneu), x, 0.36, z, false));
-  return g;
-}
-function camion(couleur) {
-  const g = new THREE.Group();
-  g.add(piece(B(6.2, 2.7, 2.4), mat(0xf2f2ee, { roughness: 0.5 }), -1.3, 0.55, 0));
-  g.add(piece(B(6.22, 0.3, 2.42), mat(couleur), -1.3, 2.1, 0, false));
-  g.add(piece(B(2.0, 2.3, 2.35), mat(couleur, { roughness: 0.4, metalness: 0.1 }), 2.9, 0.55, 0));
-  g.add(piece(B(0.05, 0.9, 2.0), mat(0x23303c, { roughness: 0.1 }), 3.91, 1.8, 0, false));
-  for (const [x, z] of [[-3.4, 1.05], [-2.3, 1.05], [2.9, 1.05], [-3.4, -1.05], [-2.3, -1.05], [2.9, -1.05]]) g.add(piece(geo('roueT', () => new THREE.CylinderGeometry(0.46, 0.46, 0.3, 16).rotateX(Math.PI / 2)), mat(P.pneu), x, 0.46, z, false));
   return g;
 }
 function voiture(rnd = Math.random) {
@@ -3000,8 +3147,15 @@ void main() {
         const indispo = val(r, 'disponible') === false;
         const nomV = r.nom.toLowerCase();
         const rndV = alea(hash(r.id));
-        const g = icone === 'vehicule' ? (/camion/.test(nomV) ? camion(0x2f6fb0) : /voiture/.test(nomV) ? voiture(rndV) : camionnette())
-          : /chariot/.test(nomV) ? chariotElevateur() : machine();
+        /* Le nom dit le plus souvent de quoi il s'agit ; à défaut, une camionnette pour un véhicule, et une pelle
+           pour tout ce que l'univers appelle « engin » (le bâtiment en est plein). Une machine d'atelier reste le
+           dernier recours : avant, elle servait aussi aux engins, d'où des caisses grises sur les chantiers. */
+        const g = icone === 'vehicule'
+          ? (/camion|benne|poids.?lourd|semi|porteur|toupie/.test(nomV) ? camion(0x2f6fb0)
+            : /voiture|berline|citadine|break|utilitaire l\u00e9ger/.test(nomV) ? voiture(rndV) : camionnette())
+          : /chariot|transpalette|fenwick|gerbeur/.test(nomV) ? chariotElevateur()
+          : icone === 'engin' || /pelle|nacelle|compacteur|chargeuse|bulldozer|niveleuse|tractopelle/.test(nomV) ? engin()
+          : machine();
         const interieur = icone !== 'vehicule' && info.b.machines?.[info.machineLibre];
         const place = interieur ? info.b.machines[info.machineLibre++] : (info.b.parkings[info.parkingLibre++] ?? new THREE.Vector3(0, 0, 14 + info.parkingLibre * 5));
         g.position.copy(versMonde(info, place));
