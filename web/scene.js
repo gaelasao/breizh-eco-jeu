@@ -659,7 +659,7 @@ function matTex(nom, rx, ry, o = {}) {
 // ---------------------------------------------------------------- modèles glTF (KayKit, CC0)
 const MODELES = {
   mobilier: ['table_medium_long', 'table_medium', 'table_small', 'table_low', 'chair_A', 'chair_B', 'chair_C', 'cabinet_medium', 'cabinet_medium_decorated', 'cabinet_small_decorated', 'shelf_A_big', 'shelf_B_large_decorated', 'couch', 'couch_pillows', 'armchair', 'lamp_standing', 'lamp_table', 'cactus_medium_A', 'cactus_small_A', 'rug_rectangle_stripes_A', 'rug_rectangle_A', 'book_set', 'pictureframe_large_A', 'pictureframe_medium'],
-  ville: ['building_A', 'building_B', 'building_C', 'building_D', 'building_E', 'building_F', 'building_G', 'building_H', 'car_sedan', 'car_hatchback', 'car_stationwagon', 'bench', 'bush', 'streetlight', 'trafficlight_A', 'dumpster', 'trash_A', 'firehydrant'],
+  ville: ['building_A', 'building_B', 'building_C', 'building_D', 'building_E', 'building_F', 'building_G', 'building_H', 'car_sedan', 'car_hatchback', 'car_stationwagon', 'bench', 'bush', 'streetlight', 'trafficlight_A', 'trafficlight_B', 'dumpster', 'trash_A', 'trash_B', 'firehydrant', 'box_A', 'box_B'],
 };
 const gabarits = new Map();
 async function chargerModeles() {
@@ -918,7 +918,11 @@ function rack(nbCartons, enAlerte, perime, long = 2.7) {
     const niv = Math.floor(i / 3);
     const x = -long / 3 + (i % 3) * (long / 3);
     g.add(piece(B(0.8, 0.12, 0.9), palette, x, niveaux[niv] + 0.1, 0, false));
-    g.add(piece(B(0.76, 0.85, 0.86), carton, x, niveaux[niv] + 0.22, 0));
+    /* Caisses : les modèles box_A et box_B étaient livrés avec le décor et n'avaient jamais servi — le stock
+       restait fait de boîtes peintes, à côté de bâtiments dessinés. Une caisse périmée garde la boîte, elle seule
+       peut être grisée (les modèles partagent un atlas, on ne les teinte pas un par un). */
+    const m = perime ? null : placer(modele(i % 2 ? 'box_B' : 'box_A', i % 2 ? 5.3 : 4.0, false), x, niveaux[niv] + 0.22, 0, (i % 3) * 0.4 - 0.4);
+    g.add(m ?? piece(B(0.76, 0.85, 0.86), carton, x, niveaux[niv] + 0.22, 0));
   }
   if (enAlerte) g.add(piece(B(0.7, 0.28, 0.02), mat(P.critique, { emissive: P.critique, emissiveIntensity: 0.5 }), 0, 3.95, 0.52, false));
   return g;
