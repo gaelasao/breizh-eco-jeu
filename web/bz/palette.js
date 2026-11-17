@@ -103,10 +103,21 @@ function filtrer(groupes, q) {
     idx.forEach((i, rang) => { if (!trouves.has(i) || trouves.get(i) > rang) trouves.set(i, rang); });
   }
   const resultat = groupes.map((g) => ({ ...g, elements: [] }));
+  // Dès qu'on tape, l'ordre des intertitres suit la qualité de ce qui est trouvé, et non plus l'ordre déclaré : un
+  // « Apparence et accessibilité » attrapé de loin (une lettre près de « preferences ») ne passe plus devant le client
+  // dont le nom contient le mot écrit. Sans rien taper, l'ordre déclaré est gardé (Suggestions, Actions, Aller à…).
+  const rangGroupe = new Map();
   [...trouves.entries()].sort((a, b) => a[1] - b[1] || score(f, tous[b[0]].e.id) - score(f, tous[a[0]].e.id))
-    .forEach(([i]) => { const { e, gi } = tous[i]; if (resultat[gi].elements.length < PAR_GROUPE) resultat[gi].elements.push(e); });
+    .forEach(([i]) => {
+      const { e, gi } = tous[i];
+      if (resultat[gi].elements.length >= PAR_GROUPE) return;
+      resultat[gi].elements.push(e);
+      if (!rangGroupe.has(gi)) rangGroupe.set(gi, rangGroupe.size);
+    });
   let reste = MAX;
-  return resultat.filter((g) => g.elements.length).map((g) => { const el2 = g.elements.slice(0, Math.max(0, reste)); reste -= el2.length; return { ...g, elements: el2 }; }).filter((g) => g.elements.length);
+  return resultat.map((g, gi) => [g, rangGroupe.get(gi) ?? Infinity]).filter(([g]) => g.elements.length)
+    .sort((a, b) => a[1] - b[1])
+    .map(([g]) => { const el2 = g.elements.slice(0, Math.max(0, reste)); reste -= el2.length; return { ...g, elements: el2 }; }).filter((g) => g.elements.length);
 }
 
 const FEUILLE = '(max-width: 37.49em)';

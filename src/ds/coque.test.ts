@@ -256,8 +256,34 @@ test('listes sur téléphone : recherche et filtre sur une ligne, indications co
   const css = lire('web/bz/composants.css');
   const app = lire('web/app.js');
   assert.match(css, /@media \(max-width: 37\.49em\) \{\s*\.bz-liste__outils \{ flex-wrap: nowrap; \}\s*\.bz-liste__recherche \{ flex: 1 1 6rem; min-inline-size: 0; \}/);
-  assert.match(app, /placeholder: estTelephone\(\) \? 'Rechercher…' : `Rechercher dans \$\{libelleListe\.toLowerCase\(\)\}…`/);
-  assert.match(app, /placeholder: estTelephone\(\) \? 'Rechercher…' : 'Rechercher un expéditeur, un objet…'/);
+  assert.match(app, /placeholder: estTelephone\(\) \? 'Filtrer…' : `Filtrer ces \$\{pluriel\(tous\.length, 'fiche', 'fiches'\)\}…`/);
+  assert.match(app, /placeholder: estTelephone\(\) \? 'Filtrer…' : 'Filtrer : expéditeur, objet…'/);
   assert.match(app, /estTelephone\(\) \? 'Importer' : 'Importer un fichier'/, 'le bouton secondaire se raccourcit avant de pousser la liste plus bas');
-  assert.match(app, /texte: `Rechercher dans \$\{libelleListe\.toLowerCase\(\)\}` \}\)/, 'le nom accessible reste entier');
+  assert.match(app, /texte: `Filtrer la liste \$\{libelleListe\.toLowerCase\(\)\}` \}\)/, 'le nom accessible reste entier');
+});
+
+test('chercher et filtrer : deux mots, deux outils, et chacun renvoie à l’autre', () => {
+  const app = lire('web/app.js');
+  // l'en-tête cherche (partout, et fait des actions) ; le champ d'une liste filtre ce qui est au-dessous
+  assert.match(app, /'aria-label': 'Rechercher ou faire une action'/);
+  assert.doesNotMatch(app, /Rechercher dans \$\{libelleListe|Rechercher dans le courrier|Rechercher un expéditeur/, 'plus deux champs qui disent « rechercher »');
+  assert.match(app, /class: 'bz-recherche bz-liste__recherche' \},\n?\s*icone\('filter'\)/, 'l’icône dit le filtre, pas la loupe');
+  // la vue enregistrée n'est pas un troisième filtre : elle se nomme
+  assert.match(app, /'Vue : toutes les fiches' : 'Vue : non enregistrée'/);
+  // filtre sans résultat → la recherche globale reprend la saisie
+  assert.match(app, /cle: 'chercher-partout', onclick: \(\) => ouvrirPalette\(\{ requete: E\.recherche\.trim\(\) \}\)/);
+  // et la recherche globale sait resserrer la liste au lieu d'ouvrir une fiche
+  assert.match(app, /function contenuPalette\(requete = '', \{ plus = false \} = \{\}\)/, 'la palette reçoit ce qui est tapé');
+  assert.match(app, /groupe: 'Sur cet écran', elements: \[\{ id: 'action:filtrer-ecran'/);
+  // jamais une proposition pour rien : seulement sur une liste, si le filtre garde une fiche, et s'il n'est pas déjà posé
+  assert.match(app, /const surLaListe = tape\.length >= 2 && estVueListe\(E\.vue\) && E\.recherche\.trim\(\)\.toLowerCase\(\) !== tape\.toLowerCase\(\)\n\s*&& objetsDeVue\(E\.vue\)\.filter\(dansFiltre\)\.some\(\(x\) => correspondFiltre\(x, tape\.toLowerCase\(\)\)\);/);
+  // une seule règle de filtre, écrite une fois, partagée par la liste et par la palette
+  assert.match(app, /^const correspondFiltre = \(x, q\) => !q \|\| x\.nom\.toLowerCase\(\)\.includes\(q\)/m);
+  assert.equal(app.match(/correspondFiltre\(x, /g)?.length, 2, 'la liste et la palette appellent la même règle');
+  // et la recherche montre d'abord ce qui est vraiment trouvé : les intertitres suivent la qualité, plus l'ordre déclaré
+  const palette = lire('web/bz/palette.js');
+  assert.match(palette, /if \(!rangGroupe\.has\(gi\)\) rangGroupe\.set\(gi, rangGroupe\.size\);/);
+  assert.match(palette, /return resultat\.map\(\(g, gi\) => \[g, rangGroupe\.get\(gi\) \?\? Infinity\]\)\.filter\(\(\[g\]\) => g\.elements\.length\)\n\s*\.sort\(\(a, b\) => a\[1\] - b\[1\]\)/);
+  // sans rien de tapé, l'ordre déclaré reste (Suggestions, Actions, Aller à…)
+  assert.match(palette, /if \(!q\.trim\(\)\) \{\n\s*return groupes\.filter\(\(g\) => g\.vide\)/);
 });

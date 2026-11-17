@@ -258,6 +258,8 @@ const E = {
   if (v?.startsWith('reglages:')) { E.sousReglages = v.slice(9); E.vue = 'reglages'; } else if (v) E.vue = v; else if (ouvrirSurListe()) E.vue = 'matin';
 }
 const estVueListe = (v) => /^(role|famille|type):/.test(v);
+/** Le filtre d'une liste : le nom, le type ou n'importe quelle valeur de la fiche contient ce qui est tapé (minuscules). */
+const correspondFiltre = (x, q) => !q || x.nom.toLowerCase().includes(q) || x.libelleType.toLowerCase().includes(q) || x.champs.some((c) => String(c.valeur ?? c.lien?.nom ?? '').toLowerCase().includes(q));
 
 // ---------------------------------------------------------------- démarrage : installation, connexion, puis directement la carte
 async function demarrer() {
@@ -2980,7 +2982,7 @@ async function rendreListe(vue) {
   const libelleListe = o?.libelle ?? (genre === 'role' ? m.univers.roles.find((r) => r.id === cleVue)?.pluriel : m.univers.types.find((t) => t.id === cleVue || t.famille === cleVue)?.pluriel) ?? 'Liste';
   const q = E.recherche.trim().toLowerCase();
   const tous = objetsDeVue(vue).filter(dansFiltre);
-  const filtres = tous.filter((x) => !q || x.nom.toLowerCase().includes(q) || x.libelleType.toLowerCase().includes(q) || x.champs.some((c) => String(c.valeur ?? c.lien?.nom ?? '').toLowerCase().includes(q)));
+  const filtres = tous.filter((x) => correspondFiltre(x, q));
   const sitsPar = new Map();
   for (const s of m.situations) { if (!sitsPar.has(s.objetId)) sitsPar.set(s.objetId, []); sitsPar.get(s.objetId).push(s); }
   const situationDe = (x) => trierSituations(sitsPar.get(x.id) ?? [])[0] ?? null;
@@ -3073,11 +3075,14 @@ async function rendreListe(vue) {
   };
 
   const visibles = liste.slice(0, L.limite);
+  // Deux champs voisins faisaient la même promesse. Celui de l'en-tête **cherche** (partout, et fait des actions) ;
+  // celui-ci **filtre** ce qui est au-dessous, se combine au tri et au filtre, et s'enregistre en vue. Le mot et
+  // l'icône le disent maintenant, et le nombre dit sur quoi il mord.
   const champRecherche = h('label', { class: 'bz-recherche bz-liste__recherche' },
-    icone('search'),
-    h('span', { class: 'bz-visuellement-cache', texte: `Rechercher dans ${libelleListe.toLowerCase()}` }),
+    icone('filter'),
+    h('span', { class: 'bz-visuellement-cache', texte: `Filtrer la liste ${libelleListe.toLowerCase()}` }),
     // téléphone : le champ partage sa ligne avec le filtre, l'indication reste entière (le nom de la liste est au-dessus)
-    h('input', { class: 'bz-champ__saisie', type: 'search', id: 'recherche-liste', enterkeyhint: 'search', autocomplete: 'off', placeholder: estTelephone() ? 'Rechercher…' : `Rechercher dans ${libelleListe.toLowerCase()}…`, value: E.recherche,
+    h('input', { class: 'bz-champ__saisie', type: 'search', id: 'recherche-liste', enterkeyhint: 'search', autocomplete: 'off', placeholder: estTelephone() ? 'Filtrer…' : `Filtrer ces ${pluriel(tous.length, 'fiche', 'fiches')}…`, value: E.recherche,
       oninput: (e) => { E.recherche = e.target.value; rerendre(); } }));
   remplir($('#page'),
     h('div', { class: 'bz-ecran bz-liste', 'data-selection': coches.length ? '' : null },
@@ -3096,7 +3101,8 @@ async function rendreListe(vue) {
           h('label', { class: 'bz-visuellement-cache', for: 'vue-enregistree', texte: 'Vue enregistrée' }),
           h('div', { class: 'bz-select' },
             h('select', { id: 'vue-enregistree', class: 'bz-champ__saisie', onchange: (e) => choisirVue(e.target.value) },
-              h('option', { value: '', selected: !vueActive, texte: vueActive || (!q && L.tri.colonne === 'nom' && E.filtreDep === 'tous') ? 'Toutes les fiches' : 'Vue non enregistrée' }),
+              // « Toutes les fiches » se lisait comme un troisième filtre, à côté des deux autres : le mot « Vue » le situe
+              h('option', { value: '', selected: !vueActive, texte: vueActive || (!q && L.tri.colonne === 'nom' && E.filtreDep === 'tous') ? 'Vue : toutes les fiches' : 'Vue : non enregistrée' }),
               vues.map((v) => h('option', { value: v.nom, selected: vueActive?.nom === v.nom, texte: v.nom }))),
             icone('chevron-down', { taille: 'sm' })),
           !vueActive && (q || L.tri.colonne !== 'nom' || L.tri.sens !== 'asc' || E.filtreDep !== 'tous') ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: enregistrerVueCourante }, icone('bookmark-plus'), 'Enregistrer cette vue') : null,
@@ -3105,8 +3111,11 @@ async function rendreListe(vue) {
       // ordre strict : vide filtré → contenu (le vide initial a son écran, plus haut)
       !liste.length ? h('div', { class: 'bz-vide' },
         h('h2', { class: 'bz-vide__titre', texte: 'Aucune fiche pour ces filtres.' }),
-        h('p', { class: 'bz-vide__texte', texte: 'Essayez d’élargir la recherche.' }),
-        h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { E.recherche = ''; E.filtreDep = 'tous'; rerendre(); } }, icone('x'), 'Effacer les filtres'))
+        // le filtre ne regarde que cette liste : si la fiche existe ailleurs, la recherche la trouve, et reprend la saisie
+        h('p', { class: 'bz-vide__texte', texte: q ? 'Ce filtre ne regarde que cette liste. La recherche, elle, regarde partout.' : 'Essayez d’élargir le filtre.' }),
+        h('div', { class: 'bz-groupe-boutons' },
+          q ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', cle: 'chercher-partout', onclick: () => ouvrirPalette({ requete: E.recherche.trim() }) }, icone('search'), `Chercher « ${E.recherche.trim()} » partout`) : null,
+          h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => { E.recherche = ''; E.filtreDep = 'tous'; rerendre(); } }, icone('x'), 'Effacer les filtres')))
       : h('div', { class: 'bz-tableau-cadre bz-liste__cadre' }, h('table', { class: 'bz-tableau bz-tableau--liste', 'aria-label': libelleListe },
         h('thead', {}, h('tr', {},
           h('th', { scope: 'col', class: 'bz-tableau__case' }, h('label', { class: 'bz-tableau__cible' }, caseTout)),
@@ -5456,8 +5465,8 @@ async function rendreCourrier() {
       // boîte vide : le bouton est dans l'écran vide, plus bas (une seule action principale, jamais deux fois la même)
       peut && toutes.length ? h('div', { class: 'bz-groupe-boutons' }, boutonAjouter('bz-bouton--secondaire')) : null),
     toutes.length ? h('div', { class: 'bz-liste__outils' },
-      h('label', { class: 'bz-recherche bz-liste__recherche' }, icone('search'), h('span', { class: 'bz-visuellement-cache', texte: 'Rechercher dans le courrier' }),
-        h('input', { class: 'bz-champ__saisie', type: 'search', id: 'recherche-courrier', enterkeyhint: 'search', autocomplete: 'off', placeholder: estTelephone() ? 'Rechercher…' : 'Rechercher un expéditeur, un objet…', value: C.recherche, oninput: (e) => changer('recherche', e.target.value) })),
+      h('label', { class: 'bz-recherche bz-liste__recherche' }, icone('filter'), h('span', { class: 'bz-visuellement-cache', texte: 'Filtrer le courrier' }),
+        h('input', { class: 'bz-champ__saisie', type: 'search', id: 'recherche-courrier', enterkeyhint: 'search', autocomplete: 'off', placeholder: estTelephone() ? 'Filtrer…' : 'Filtrer : expéditeur, objet…', value: C.recherche, oninput: (e) => changer('recherche', e.target.value) })),
       dests.length ? h('div', { class: 'bz-liste__vues' },
         h('label', { class: 'bz-visuellement-cache', for: 'courrier-pour', texte: 'Pour qui' }),
         h('div', { class: 'bz-select' },
@@ -10487,9 +10496,16 @@ function groupeObjets(objets, filtre, groupe, contexte) {
   })) };
 }
 /** Contenu de la palette : Suggestions, Actions, Aller à (recherche vide), puis les objets du monde et l'aide. */
-function contenuPalette(_requete = '', { plus = false } = {}) {
+function contenuPalette(requete = '', { plus = false } = {}) {
   const m = E.monde;
   if (!m) return [];
+  /* Chercher et filtrer ne font pas le même travail — l'un va quelque part, l'autre resserre ce qu'on a sous les yeux
+     pour le trier, le cocher, l'exporter. Les fondre en un seul champ ferait perdre l'un des deux. Ils se répondent :
+     le filtre sans résultat renvoie à la recherche (écran vide de la liste), et la recherche ramène au filtre, ici.
+     Jamais pour rien : seulement sur une liste, si le filtre garderait au moins une fiche, et s'il n'est pas déjà posé. */
+  const tape = requete.trim();
+  const surLaListe = tape.length >= 2 && estVueListe(E.vue) && E.recherche.trim().toLowerCase() !== tape.toLowerCase()
+    && objetsDeVue(E.vue).filter(dansFiltre).some((x) => correspondFiltre(x, tape.toLowerCase()));
   const u = m.univers;
   const libelleRole = (id, defaut) => u.roles.find((r) => r.id === id)?.pluriel ?? defaut;
   const sits = trierSituations(m.situations.filter((s) => s.statut === 'ouverte' || s.statut === 'a_verifier'));
@@ -10535,6 +10551,8 @@ function contenuPalette(_requete = '', { plus = false } = {}) {
   ].filter(Boolean);
   const tiers = (role) => (o) => o.famille === 'tiers' && o.roles.some((r) => r.id === role);
   return [
+    ...(surLaListe ? [{ groupe: 'Sur cet écran', elements: [{ id: 'action:filtrer-ecran', titre: `Filtrer ${titreCourant()} : « ${tape} »`,
+      contexte: 'Resserre la liste au lieu d’ouvrir une fiche', icone: 'filter', mots: tape, faire: () => { E.recherche = tape; void rendreVue(); } }] }] : []),
     // sans rien à suggérer (premier jour), pas d'intertitre « Suggestions » au-dessus de rien
     ...(sits.length ? [{ groupe: 'Suggestions', vide: true, seulementVide: true, max: 5, elements: sits.slice(0, 5).map(alerte) }] : []),
     { groupe: 'Actions', vide: true, elements: actions },
