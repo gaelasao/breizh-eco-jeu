@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 type Suivi = { tacheId: string; titre: string; echeance: string | null; responsable: string | null; nombre: number; texte: string };
 type Action = { cle: string; type: string; ton: string; titre: string; texte?: string; bouton?: string | null; direct?: string | null; objetId?: string | null; revient?: string; verifier?: boolean; suivi?: Suivi };
 type Etape = { id: string; titre: string; sert: string; minutes: number; bouton: string; action: string; faites: number; total: number };
-type Plan = { heros: Action; pile: Action[]; autres: Action[]; enCours: Action[]; reportees: Action[]; aVerifier: Action[]; aFaire: number; actionsReelles: boolean; vide: boolean; sansSource: boolean; etape: Etape | null };
+type Plan = { heros: Action; demarrage: Action | null; pile: Action[]; autres: Action[]; enCours: Action[]; reportees: Action[]; aVerifier: Action[]; aFaire: number; actionsReelles: boolean; vide: boolean; sansSource: boolean; etape: Etape | null };
 type Vus = { carte?: boolean; sante?: boolean; planning?: boolean; invitee?: boolean; sauvegarde?: boolean; passees?: string[] };
 type Tuile = { cle: string; libelle: string; valeur: number | null; ton: string | null; vue: string };
 type Anneau = { score: number | null; arc: number; tour: number; provisoire: boolean; palier: { libelle: string; ton: string } | null; libelle: string; aria: string; part: number; arcCouverture: number; tourCouverture: number };
@@ -117,9 +117,14 @@ test('« Connecter mes données » : héros d’un monde vide, première action 
   assert.ok(vide.vide);
   const exemple = A.planAujourdhui(monde({ demo: true, situations: [sit('f1', 'retard_paiement', 'critique')] }), { maintenant: MATIN });
   assert.equal(exemple.heros.objetId, 'f1', 'la chose à faire maintenant reste en tête');
-  assert.equal(exemple.pile[0]?.type, 'connecter', 'tant qu’aucune source réelle n’est connectée');
+  /* « Connecter mes données » est une MISE EN ROUTE, pas une chose relevée sur les données. Elle était posée en
+     tête de la pile, donc au-dessus d'une situation critique, dans une carte de la même forme : on ne savait plus
+     ce qui pressait. Elle a son propre champ, et la pile ne contient plus que du réel. */
+  assert.equal(exemple.demarrage?.type, 'connecter', 'tant qu’aucune source réelle n’est connectée');
+  assert.ok(!exemple.pile.some((a) => a.type === 'connecter'), 'jamais mêlée aux choses à faire');
+  for (const a of exemple.pile) assert.ok(a.type === 'situation' || a.type === 'attente', `${a.type} n’a rien à faire dans la pile`);
   const lecteur = A.planAujourdhui(monde({ demo: true, admin: false }), { maintenant: MATIN });
-  assert.ok(![lecteur.heros, ...lecteur.pile].some((a) => a.type === 'connecter'));
+  assert.ok(![lecteur.heros, lecteur.demarrage, ...lecteur.pile].some((a) => a?.type === 'connecter'));
   // plus rien d'urgent ET plus aucune étape à proposer (toutes mises de côté) : l'écran le dit, sans rien inventer
   const rien = A.planAujourdhui(monde(), { maintenant: MATIN, vus: TOUT_VU });
   assert.equal(rien.heros.type, 'rien');

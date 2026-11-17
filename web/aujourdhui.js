@@ -88,7 +88,8 @@ function actionDAttente(a, m) {
 
 /**
  * Plan de l'écran : planAujourdhui(monde, { reports, maintenant, filtre, vus }) →
- * { heros, pile (≤ 5), autres, enCours, reportees, aVerifier, aFaire, vide, sansSource, actionsReelles, etape }.
+ * { heros, demarrage, pile (≤ 5), autres, enCours, reportees, aVerifier, aFaire, vide, sansSource, actionsReelles, etape }.
+ * demarrage : « Connecter mes données », mise en route — jamais mêlée aux choses à faire, qui viennent des données.
  * Ordre : critique, puis à approuver, puis attention, puis information ; à gravité égale, l'ordre du serveur.
  * enCours : situations ouvertes déjà prises en charge par une tâche. Elles quittent « À faire maintenant », la pile
  * et le compteur (aFaire) : l'écran prend acte de ce qui a été fait, et ne le redemande pas.
@@ -135,9 +136,15 @@ export function planAujourdhui(m, { reports = {}, maintenant = new Date(), filtr
       bouton: m.sante ? 'Voir ma santé' : null,
     };
   }
-  const suite = [...(connecter && heros !== connecter ? [connecter] : []), ...visibles.filter((a) => a !== heros)];
+  /* « Connecter mes données » ne fait plus partie des choses à faire. C'est une étape de mise en route, pas une
+     situation relevée sur vos données : elle était posée EN TÊTE de la pile, donc au-dessus d'un contrôle technique
+     dépassé, dans une carte de la même forme. On ne savait plus ce qui pressait vraiment. Elle a maintenant son
+     propre bloc, à part. Elle reste la carte principale quand il n'y a rien d'autre : c'est alors la bonne. */
+  const demarrage = connecter && heros !== connecter ? connecter : null;
+  const suite = visibles.filter((a) => a !== heros);
   return {
     heros,
+    demarrage,
     pile: suite.slice(0, ACTIONS_MAX),
     autres: suite.slice(ACTIONS_MAX),
     enCours,

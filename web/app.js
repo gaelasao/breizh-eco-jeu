@@ -2697,6 +2697,12 @@ function contenuAujourdhui(mode) {
         h(niv, { class: panneau ? 'bz-t-label' : 'bz-t-titre-4', id: `pile-${mode}`, tabindex: '-1', texte: 'À faire ensuite' }),
         reste > 0 ? h('a', { href: panneau ? '#/matin' : `#repli-autres-${mode}`, class: 'bz-t-petit bz-lien-cible', onclick: voirReste, texte: reste > 1 ? `Voir les ${reste} autres` : 'Voir l’autre' }) : null),
       h('ul', { class: 'bz-actions', role: 'list' }, pile.map((a) => ligneAction(a, mode)))) : null,
+    /* Mise en route, à part : « Connecter mes données » n'est pas une chose relevée sur vos données, et elle ne
+       doit donc pas se mêler à celles qui le sont — ni les devancer, comme c'était le cas. */
+    plan.demarrage ? h('section', { class: 'bz-aujourdhui__section', 'aria-labelledby': `demarrage-${mode}` },
+      h('div', { class: 'bz-aujourdhui__tete' },
+        h(niv, { class: panneau ? 'bz-t-label' : 'bz-t-titre-4', id: `demarrage-${mode}`, tabindex: '-1', texte: 'Pour bien démarrer' })),
+      h('ul', { class: 'bz-actions', role: 'list' }, [ligneAction(plan.demarrage, `${mode}-demarrage`)])) : null,
     // ce qui est déjà pris en charge : on en prend acte ici, on ne le redemande plus au-dessus
     plan.enCours.length ? (panneau
       ? h('p', { class: 'bz-aujourdhui__encours bz-t-petit' }, icone('hourglass', { taille: 'sm' }),
@@ -8296,7 +8302,10 @@ async function rendreSante() {
   };
 
   const blocPriorites = () => h('section', { class: 'bz-sante__section', 'aria-labelledby': 'priorites-titre' },
-    h('h2', { class: 'bz-t-titre-4', id: 'priorites-titre', texte: priorites.length > 1 ? `Vos ${priorites.length} priorités` : 'Votre priorité' }),
+    /* « Vos 3 priorités » ressemblait à la liste des choses à faire d'Aujourd'hui, et on ne savait plus laquelle
+       faisait autorité. Ce n'est pas la même nature : là-bas, ce que vos données signalent ; ici, ce qui manque ou
+       pèse dans le score. Le titre le dit maintenant. */
+    h('h2', { class: 'bz-t-titre-4', id: 'priorites-titre', texte: 'Ce qui pèse le plus sur votre score' }),
     priorites.length ? h('ol', { class: 'bz-priorites', role: 'list' }, priorites.map((p, i) => h('li', { class: 'bz-priorite' },
       p.ton ? iconeEtat(p.ton, { classe: 'bz-priorite__icone' }) : icone('circle-dashed', { classe: 'bz-priorite__icone', libelle: 'Pas encore renseigné' }),
       h('div', { class: 'bz-priorite__texte' },
