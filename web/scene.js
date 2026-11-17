@@ -2240,12 +2240,19 @@ void main() {
     const enrobe = horiz ? Y_ENROBE.eo : Y_ENROBE.ns;
     cible.add(piece(horiz ? B(long, trottoir, l + 4.4) : B(l + 4.4, trottoir, long), matTex('pave', horiz ? long / 3 : 2, horiz ? 2 : long / 3), cx, 0, cz, false));
     cible.add(piece(horiz ? B(long, 0.12, l) : B(l, 0.12, long), matTex('asphalte', horiz ? long / 6 : l / 6, horiz ? l / 6 : long / 6, { roughness: 0.95 }), cx, enrobe - 0.12, cz, false));
-    // axe de la chaussée : jamais au milieu d'un carrefour, où il n'y a pas de ligne médiane
+    /* Axe de la chaussée et lignes de RIVE : jamais au milieu d'un carrefour, où il n'y a ni l'un ni les autres.
+       L'axe est discontinu (3 m de trait, 3 m de vide) ; les rives sont continues, bord à bord d'un pas à l'autre.
+       Il manquait les rives : une chaussée sans bord peint se lit comme une dalle grise, pas comme une route. */
+    const rive = l / 2 - 0.55;
     for (let t = -long / 2 + 3; t < long / 2 - 2; t += 6) {
       const x = horiz ? cx + t : cx;
       const z = horiz ? cz : cz + t;
       if (dansCarrefour(x, z)) continue;
       cible.add(piece(horiz ? PL(3, 0.15) : PL(0.15, 3), marquage, x, Y_MARQUAGE, z, false));
+      for (const cote of [-1, 1]) {
+        cible.add(piece(horiz ? PL(6, 0.12) : PL(0.12, 6), marquage,
+          horiz ? x : x + cote * rive, Y_MARQUAGE, horiz ? z + cote * rive : z, false));
+      }
     }
   };
   for (const r of ROUTES) {
@@ -2277,6 +2284,12 @@ void main() {
           cible.add(piece(nordSud ? PL(0.55, 2.8) : PL(2.8, 0.55), marquage,
             cx + (nordSud ? ecart : sens * recul), Y_MARQUAGE, cz + (nordSud ? sens * recul : ecart), false));
         }
+        /* Ligne d'arrêt, juste avant le passage : elle ne couvre que la voie d'approche, donc une demi-chaussée, et
+           les deux lignes d'un même axe se font face en diagonale — c'est ce que donne la conduite à droite. */
+        const arret = sens * (recul + 2.0);
+        const milieu = -sens * (route / 4 + 0.15);
+        cible.add(piece(nordSud ? PL(route / 2 - 0.3, 0.42) : PL(0.42, route / 2 - 0.3), marquage,
+          cx + (nordSud ? milieu : arret), Y_MARQUAGE, cz + (nordSud ? arret : milieu), false));
       }
     }
   }
