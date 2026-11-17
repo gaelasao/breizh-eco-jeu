@@ -214,6 +214,23 @@ test('fenêtre étroite (1 024 px) : la date s’efface avant que le titre ne so
   assert.match(css, /\.bz-entete__titre \{ flex: 1 1 auto;/, 'le titre prend la place restante');
 });
 
+test('entreprise exemple : la mention tient dans l’en-tête, plus de bandeau sur toute la largeur', () => {
+  const app = lire('web/app.js');
+  const css = lire('web/bz/composants.css');
+  // la pastille suit le titre, à toutes les largeurs : le mode se lit sans voler une ligne (§4.12, §4.26)
+  assert.match(app, /E\.monde\.organisation\.demo \? h\('span', \{ class: 'bz-badge bz-entete__exemple' \}/);
+  assert.match(css, /\.bz-entete__titre:has\(\+ \.bz-entete__date\), \.bz-entete__titre:has\(\+ \.bz-entete__exemple\) \{ flex-grow: 0; \}/, 'le titre ne pousse pas la pastille au loin');
+  assert.match(css, /\.bz-entete__exemple \{ flex: none; \}/);
+  // plus de bandeau d'exemple : l'état reste pour taire la note de rubrique (§4.20), sans rien dessiner
+  assert.match(app, /\} else if \(etats\[0\] === 'exemple'\) \{\n(?:.*\n){2,6}?    bandeau = null;\n/);
+  assert.doesNotMatch(app, /bandeauDemo|Masquer le bandeau|Vous explorez une entreprise '/);
+  // changer d'exemple : une seule place, le menu du compte (et la palette), plus la barre du haut
+  assert.match(app, /h\('label', \{ class: 'bz-champ__libelle', for: 'jeu-exemple', texte: 'Entreprise exemple' \}\)/);
+  assert.equal(app.match(/changerExemple\(/g)?.length, 3, 'changerExemple : la définition, le menu du compte, la palette');
+  // et la mention ne se répète pas sur chaque liste quand toute l'entreprise est un exemple (§4.12)
+  assert.match(app, /const badgeExemple = \(\) => \(E\.monde\?\.organisation\.demo \? null :/);
+});
+
 test('fenêtre étroite (1 024 px) : menu replié d’office, fiche par-dessus la liste, barre de carte dégagée (G11)', () => {
   const app = lire('web/app.js');
   const css = lire('web/bz/composants.css');
@@ -227,9 +244,10 @@ test('fenêtre étroite (1 024 px) : menu replié d’office, fiche par-dessus l
   // fiche : par-dessus la liste sous 1 100 px (68,75 em), côte à côte au-delà
   assert.match(css, /@media \(min-width: 68\.75em\) \{\s*\.bz-coque__contenu\[data-fiche\] \{ grid-template-columns:/);
   assert.doesNotMatch(css, /@media \(min-width: 60em\) \{\s*\.bz-coque__contenu\[data-fiche\]/);
-  // barre de la carte : « Connecter mes données » et le plan du port s'effacent quand la carte est à l'étroit
+  // barre de la carte : le plan du port s'efface quand la carte est à l'étroit
   assert.match(app, /const carteEtroite = \(\) => !matchMedia\('\(min-width: 68\.75em\)'\)\.matches \|\| \(Boolean\(E\.selection\) && !matchMedia\('\(min-width: 100em\)'\)\.matches\);/, 'fiche ouverte : la barre se resserre, sauf sur un très grand écran (F11)');
-  assert.match(app, /const connecter = sansSourceReelle\(\) && !carteEtroite\(\) \?/);
+  // « Connecter mes données » ne s'y double plus du menu ni de « Pour bien démarrer » : une action, un endroit
+  assert.doesNotMatch(app, /hud-connecter|herosPrincipal/);
   assert.match(app, /\(E\.miniCarte \?\? !carteEtroite\(\)\) \? miniCarte\(\{ repliable: true \}\)/);
   assert.match(app, /miniCarte: lireLocal\('lb-minicarte'\) === 'repliee' \? false : lireLocal\('lb-minicarte'\) === 'ouverte' \? true : null,/);
 });

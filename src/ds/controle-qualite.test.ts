@@ -198,7 +198,11 @@ test('sombre : sur une surface élevée, un composant garde sa forme (jamais la 
 
 test('une vue, un bouton principal : carte avec la carte héros, Mettre en ligne étape 2, avis réseau faible', () => {
   const app = lire('web/app.js');
-  assert.match(app, /class: `bz-bouton \$\{herosPrincipal \? 'bz-bouton--secondaire' : 'bz-bouton--principal'\}`, cle: 'hud-connecter'/);
+  // sur la carte, le seul bouton principal est celui de la carte héros : rien de principal posé sur la carte elle-même
+  assert.match(app, /cle: `\$\{id\}-principal`, 'aria-describedby': id/);
+  for (const [i, l] of app.split('\n').entries()) {
+    assert.ok(!(l.includes('bz-verre') && l.includes('bz-bouton--principal')), `web/app.js:${i + 1} : bouton principal posé sur la carte`);
+  }
   assert.match(app, /rendre, \{ principal: false \}\)\);/, 'export de Mettre en ligne en secondaire');
   assert.match(app, /class: 'bz-bouton bz-bouton--secondaire', cle: 'charger-3d'/);
 });

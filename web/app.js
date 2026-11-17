@@ -222,7 +222,6 @@ const E = {
   assistant: null,
   calquesOuverts: false,
   matinReduit: lireLocal('lb-panneau-aujourdhui') === 'replie',
-  bandeauDemo: true,
   vueCarte: null,
   filtreDep: 'tous',
   palette: null,
@@ -1038,8 +1037,13 @@ const erreurEcran = (titre, e, reessayer) => h('div', { class: 'bz-ecran' }, blo
 /** Message en ligne, près de ce qu'il concerne (jamais un toast seul pour une erreur, §4.16). */
 const messageEnLigne = (ton, texte, detail = null) => (texte ? encadre(ton, texte, detail) : null);
 
-/** Mention « Exemple », une seule fois par vue (§4.12). */
-const badgeExemple = () => h('span', { class: 'bz-badge' }, icone('flask-conical', { taille: 'sm' }), 'Exemple');
+/**
+ * Mention « Exemple », une seule fois par vue (§4.12).
+ *
+ * Dans une entreprise exemple, l'en-tête la porte déjà en permanence : la répéter sur chaque liste n'ajoute rien et
+ * fait du bruit. Elle ne sert donc que dans une vraie entreprise, pour marquer les données d'exemple qui s'y mêlent.
+ */
+const badgeExemple = () => (E.monde?.organisation.demo ? null : h('span', { class: 'bz-badge' }, icone('flask-conical', { taille: 'sm' }), 'Exemple'));
 
 /** Lien externe (nouvel onglet) avec son icône : jamais la flèche Unicode « ↗ ». */
 /**
@@ -1403,6 +1407,8 @@ function rendreEntete() {
     h('img', { class: 'bz-entete__symbole', src: '/symbole-living-business.svg', alt: MARQUE.jeu, width: '28', height: '28' }),
     h(vueAvecTitre(E.vue) ? 'h1' : 'p', { class: `bz-entete__titre${salue ? ' bz-t-salutation' : ''}`, id: 'titre-vue', texte: titre }),
     salue ? h('span', { class: 'bz-entete__date', id: 'horloge', texte: horloge() }) : null,
+    // Entreprise exemple : la mention suit le titre, sur tous les écrans, au lieu d'un bandeau sur toute la largeur
+    E.monde.organisation.demo ? h('span', { class: 'bz-badge bz-entete__exemple' }, icone('flask-conical', { taille: 'sm' }), 'Exemple') : null,
     h('button', { type: 'button', class: 'bz-entete__recherche', cle: 'entete-recherche', 'aria-label': 'Rechercher ou faire une action', 'aria-keyshortcuts': 'Meta+K Control+K', onclick: () => ouvrirPalette() },
       icone('search'), h('span', { 'aria-hidden': 'true', texte: 'Rechercher ou faire une action…' }), h('kbd', { class: 'bz-raccourci', 'aria-hidden': 'true', texte: formater('$mod+k') })),
     h('div', { class: 'bz-entete__actions' },
@@ -1436,6 +1442,13 @@ function contenuMenuCompte() {
         h('div', { class: 'bz-select' },
           h('select', { id: 'voir-comme', onchange: (e) => { cacher($('#menu-compte')); voirComme(e.target.value); } },
             E.profilsDemo.map((x) => h('option', { value: x.id, selected: x.id === p.id, texte: x.nom }))),
+          icone('chevron-down')))) : null,
+    m.organisation.demo && p.peutAdministrer && m.organisation.exemples ? h('div', { class: 'bz-menu-compte__section' },
+      h('div', { class: 'bz-champ' },
+        h('label', { class: 'bz-champ__libelle', for: 'jeu-exemple', texte: 'Entreprise exemple' }),
+        h('div', { class: 'bz-select' },
+          h('select', { id: 'jeu-exemple', onchange: (e) => { cacher($('#menu-compte')); changerExemple(e.target.value); } },
+            Object.entries(m.organisation.exemples).map(([k, l]) => h('option', { value: k, selected: m.organisation.exemple === k, texte: l }))),
           icone('chevron-down')))) : null,
     h('div', { class: 'bz-menu-compte__section' },
       E.connexion?.connexion === 'comptes' ? bouton('user', 'Mon compte', () => changerVue('compte')) : null,
@@ -1574,11 +1587,11 @@ function rendreBanniere() {
     E.apercu && E.session ? 'apercu' : null,
     avis ? 'securite' : null,
     maj ? 'maj' : null,
-    m.organisation.demo && E.bandeauDemo ? 'exemple' : null,
+    m.organisation.demo ? 'exemple' : null,
   ].filter(Boolean);
   const PUCES = { simulation: 'Mode simulation', apercu: 'Aperçu', securite: 'Avis de sécurité', maj: 'Nouvelle version', exemple: 'Exemple' };
-  const puces = etats.slice(1).map((e) => h('span', { class: 'bz-badge', texte: PUCES[e] }));
-  const admin = m.profil.peutAdministrer;
+  // la pastille « Exemple » vit dans l'en-tête : elle ne se répète pas en puce sur le bandeau d'un autre état
+  const puces = etats.slice(1).filter((e) => e !== 'exemple').map((e) => h('span', { class: 'bz-badge', texte: PUCES[e] }));
   let bandeau = null;
   if (etats[0] === 'simulation') {
     bandeau = h('div', { class: 'bz-bandeau bz-bandeau--simulation' }, icone('flask-conical'),
@@ -1603,19 +1616,11 @@ function rendreBanniere() {
         h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => changerVue('reglages:a-propos'), texte: 'Comment mettre à jour' }),
         h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--icone bz-bouton--sm', 'aria-label': 'Plus tard (masquer jusqu’à la version suivante)', 'data-infobulle': 'Plus tard', onclick: () => { E.majMasquee = maj.version; rendreBanniere(); } }, icone('x'))));
   } else if (etats[0] === 'exemple') {
-    bandeau = h('div', { class: 'bz-bandeau bz-bandeau--exemple' }, icone('flask-conical'),
-      // sur téléphone, une seule ligne (« Entreprise exemple. ») : l'en-tête et le bandeau ne mangent pas l'écran
-      h('p', { class: 'bz-bandeau__texte' }, h('span', { class: 'bz-bandeau__long', texte: 'Vous explorez une entreprise ' }), h('span', { class: 'bz-bandeau__court', texte: 'Entreprise ' }), 'exemple.'),
-      h('div', { class: 'bz-bandeau__actions' },
-        // le passage à ses propres données reste à portée partout, en deux mots sur téléphone
-        admin ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => ouvrirAssistant() },
-          h('span', { class: 'bz-bandeau__long', texte: 'Utiliser mes données' }), h('span', { class: 'bz-bandeau__court', texte: 'Mes données' })) : null,
-        admin && m.organisation.exemples ? h('label', { class: 'bz-select bz-bandeau__secondaire' },
-          h('span', { class: 'bz-visuellement-cache', texte: 'Changer d’exemple' }),
-          h('select', { class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', onchange: (e) => changerExemple(e.target.value) },
-            Object.entries(m.organisation.exemples).map(([k, l]) => h('option', { value: k, selected: m.organisation.exemple === k, texte: l }))),
-          icone('chevron-down', { taille: 'sm' })) : null,
-        h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--icone bz-bouton--sm', 'aria-label': 'Masquer le bandeau d’exemple', 'data-infobulle': 'Masquer', onclick: () => { E.bandeauDemo = false; rendreBanniere(); } }, icone('x'))));
+    // L'entreprise exemple ne prend plus de ligne : la pastille « Exemple » tient dans l'en-tête (§4.12), changer
+    // d'exemple est dans le menu du compte, et en sortir est dans « Pour bien démarrer » et dans ce même menu
+    // (« Créer mon entreprise ») — une action, un endroit. L'état reste dans `etats` pour que la note de rubrique
+    // ne s'affiche pas par-dessus (§4.20) et pour que les autres bandeaux gardent leurs puces.
+    bandeau = null;
   } else {
     // aucun bandeau de mode : la note d'une rubrique qui vient d'entrer dans le menu, lue une fois (§4.20 ; jamais
     // pendant le bandeau d'exemple ni au démarrage, puisque le menu du premier jour est tenu pour connu)
@@ -1822,8 +1827,7 @@ const QUARTIERS_LISTE = [['entreprise', 'Mon entreprise'], ['clients', null], ['
 function enteteVueCarte(titre, texte) {
   return h('div', { class: 'bz-pile bz-vue-carte__tete' },
     segmentsVueCarte(),
-    h('p', { class: 'bz-t-petit bz-texte-2', texte }),
-    E.monde.organisation.demo ? h('span', { class: 'bz-badge' }, icone('flask-conical', { taille: 'sm' }), 'Exemple') : null);
+    h('p', { class: 'bz-t-petit bz-texte-2', texte }));
 }
 function ligneLieu(o, sits) {
   const c = categorieDe(o);
@@ -1895,9 +1899,6 @@ const PRESETS_CALQUES = {
 /** Vue de la carte : Carte, Tableau (la même information en liste, §5.1 règle 3) ou Pipeline (relations commerciales). */
 const VUES_CARTE = [['carte', 'Carte'], ['tableau', 'Tableau'], ['pipeline', 'Pipeline']];
 const estVueCarte = (v) => v === 'carte' || v === 'tableau' || v === 'pipeline';
-/** Aucune source réelle connectée (exemple ou carte vide) : « Connecter mes données » reste le bouton principal (§5.6). */
-const sansSourceReelle = () => Boolean(E.monde?.profil.peutAdministrer) && (Boolean(E.monde.organisation.demo) || !E.monde.objets.some((o) => o.famille !== 'organisation'));
-
 /** Un identifiant (« CC-221 », « F-041 ») n'est jamais coupé au trait d'union : posé dans une portion insécable. */
 function sansCoupure(texte) {
   const t = String(texte ?? '');
@@ -2160,7 +2161,6 @@ function rendreHudInterne() {
     h('button', { type: 'button', 'aria-pressed': E.vueCarte === 'entreprise', 'data-infobulle': 'Les lieux physiques : siège, sites, ateliers, entrepôts', onclick: () => changerVueCarte('entreprise'), texte: 'Par lieux' }),
     h('button', { type: 'button', 'aria-pressed': E.vueCarte === 'departements', 'data-infobulle': 'L’organisation : un bâtiment par département', onclick: () => changerVueCarte('departements') }, 'Par départements', h('span', { class: 'bz-texte-2', texte: ` · ${m.organisation.departements}` }))) : null;
   const sortirBatiment = E.scene?.estDedans() ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-verre', cle: 'hud-sortir', 'aria-keyshortcuts': 'Escape', onclick: () => { E.scene?.sortir(); rendreHud(); } }, icone('log-out'), 'Sortir') : null;
-  const exemple = m.organisation.demo ? h('span', { class: 'bz-badge bz-verre', title: 'Données d’exemple' }, icone('flask-conical', { taille: 'sm' }), 'Exemple') : null;
   // Chaque geste a son bouton (WCAG 2.5.7) : zoom, pivoter, recentrer ; plein écran sur ordinateur
   const zoomAvant = () => boutonCarte('zoom-in', 'Zoom avant', 'Zoom avant (+)', () => E.scene?.zoomer(0.8));
   const zoomArriere = () => boutonCarte('zoom-out', 'Zoom arrière', 'Zoom arrière (−)', () => E.scene?.zoomer(1.25));
@@ -2172,13 +2172,12 @@ function rendreHudInterne() {
   const enPause = E.scene?.enPause() ?? false;
   const pause = () => boutonCarte(enPause ? 'play' : 'pause', enPause ? 'Reprendre les animations' : 'Mettre les animations en pause', enPause ? 'Reprendre les animations (Espace)' : 'Pause des animations (Espace)', () => { E.scene?.pause(); rendreHud(); }, { 'aria-pressed': enPause, cle: 'hud-pause' });
   const visite = E.visite !== null ? rendreVisite() : null;
-  // « Connecter mes données » reste visible tant qu'aucune source n'est connectée (§5.6), mais une vue n'a qu'un bouton
-  // principal (P1, §4.5) : s'il y a déjà celui de la carte héros d'« Aujourd'hui » (panneau ouvert), il passe en secondaire
-  const herosPrincipal = !estTelephone() && !E.matinReduit && !(Boolean(E.selection) && !E.panneauMalgreFiche && !matchMedia('(min-width: 100em)').matches) && Boolean(planCourant().heros?.bouton);
-  // carte à l'étroit (sous 1 100 px, ou fiche ouverte) : la barre d'outils passerait sur deux lignes et recouvrirait le
-  // plan du port. « Connecter mes données » la quitte — il reste dans le menu et dans le panneau — et le plan se replie.
+  // carte à l'étroit (sous 1 100 px, ou fiche ouverte) : le plan du port se replie pour ne pas manger l'écran
   const carteEtroite = () => !matchMedia('(min-width: 68.75em)').matches || (Boolean(E.selection) && !matchMedia('(min-width: 100em)').matches);
-  const connecter = sansSourceReelle() && !carteEtroite() ? h('button', { type: 'button', class: `bz-bouton ${herosPrincipal ? 'bz-bouton--secondaire' : 'bz-bouton--principal'}`, cle: 'hud-connecter', onclick: () => ouvrirAssistant() }, icone('plug'), 'Connecter mes données') : null;
+  /* « Connecter mes données » ne figure plus dans la barre de la carte. Elle y faisait doublon : la même action est
+     dans le menu de gauche, et dans le bloc « Pour bien démarrer » d'Aujourd'hui. Sous 1 100 px elle quittait déjà
+     la barre — « il reste dans le menu et dans le panneau » — preuve que ces deux portes suffisent. Répétée trois
+     fois sur un même écran, une action ne devient pas plus facile : elle prend la place du reste. */
   // un nouveau rendu (calques, mise à jour en direct) garde la position de lecture de la feuille ou du panneau
   const defile = $('#feuille-corps')?.scrollTop ?? $('#panneau-aujourdhui')?.scrollTop ?? 0;
   const garderDefilement = () => { const n = $('#feuille-corps') ?? $('#panneau-aujourdhui'); if (n && defile) n.scrollTop = defile; };
@@ -2202,7 +2201,8 @@ function rendreHudInterne() {
   const [boutonCalques, menu] = menuCalques();
   remplir(hud,
     panneauAujourdhui(),
-    h('div', { class: 'hud-haut' }, sortirBatiment, basculeVue, exemple),
+    // la mention « Exemple » est dans l'en-tête, juste au-dessus : elle ne se repose pas sur la carte (§4.12)
+    h('div', { class: 'hud-haut' }, sortirBatiment, basculeVue),
     h('div', { class: 'hud-droite' },
       h('div', { class: 'commandes-carte bz-verre', role: 'group', 'aria-label': 'Caméra' }, zoomAvant(), zoomArriere(), pivoter(), recentrer(),
         boutonCarte(document.fullscreenElement ? 'minimize' : 'maximize', document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran', document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran', pleinEcran)),
@@ -2214,7 +2214,6 @@ function rendreHudInterne() {
           boutonCalques,
           h('span', { class: 'bz-barre-carte__sep', 'aria-hidden': 'true' }),
           segmentsVueCarte(),
-          connecter ? [h('span', { class: 'bz-barre-carte__sep', 'aria-hidden': 'true' }), connecter] : null,
           h('span', { class: 'bz-barre-carte__sep', 'aria-hidden': 'true' }),
           pause(),
           boutonCarte('eye-off', 'Masquer l’interface', 'Masquer l’interface (H)', basculerInterface, { cle: 'hud-masquer', 'aria-keyshortcuts': 'H' })),
@@ -3085,7 +3084,7 @@ async function rendreListe(vue) {
       h('div', { class: 'bz-liste__tete' },
         h('p', { class: 'bz-liste__compte bz-t-petit bz-texte-2' },
           q || E.filtreDep !== 'tous' ? `${pluriel(liste.length, 'résultat', 'résultats')} sur ${nombre(tous.length)}` : pluriel(tous.length, 'fiche', 'fiches'),
-          exemple ? h('span', { class: 'bz-badge' }, icone('flask-conical', { taille: 'sm' }), 'Exemple') : null),
+          exemple ? badgeExemple() : null),
         h('div', { class: 'bz-groupe-boutons' },
           m.profil.peutAdministrer && cible.type ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => ouvrirSaisie(cible) }, icone('plus'), 'Ajouter') : null,
           // sur téléphone, « Importer » suffit : les deux boutons tiennent alors sur la ligne du compteur (F9)
@@ -3548,7 +3547,7 @@ function rendreFiche() {
         h('h2', { class: 'bz-t-titre-3', id: 'fiche-titre', tabindex: '-1', texte: sansDemo(o.nom) }),
         h('p', { class: 'bz-fiche__etat' },
           etat.ton ? h('span', { class: `bz-badge bz-badge--${etat.ton}` }, icone(ICONE_TON[etat.ton] ?? 'info', { taille: 'sm' }), etat.texte) : h('span', { class: 'bz-badge', texte: etat.texte }),
-          o.mode === 'demo' ? h('span', { class: 'bz-badge' }, icone('flask-conical', { taille: 'sm' }), 'Exemple') : null,
+          o.mode === 'demo' ? badgeExemple() : null,
           o.simule ? h('span', { class: 'bz-badge' }, icone('flask-conical', { taille: 'sm' }), 'Modifié en simulation') : null)),
       fermer,
       entete.length ? h('div', { class: 'bz-fiche__actions' }, entete.map(boutonEntete)) : null),
@@ -8283,7 +8282,7 @@ async function rendreSante() {
     return h('section', { class: 'bz-carte bz-courbe', 'aria-labelledby': 'tendance-titre' },
       h('div', { class: 'bz-carte__tete' },
         h('h2', { class: 'bz-carte__titre', id: 'tendance-titre', texte: `Tendance sur ${S.tendance.jours} jours` }),
-        S.tendance.exemple ? h('span', { class: 'bz-badge' }, icone('flask-conical', { taille: 'sm' }), 'Exemple') : null),
+        S.tendance.exemple ? badgeExemple() : null),
       h('p', { class: 'bz-courbe__resume' },
         R.vide ? null : h('span', { class: 'bz-tuile__variation', 'data-sens': R.variation > 0 ? 'bon' : R.variation < 0 ? 'mauvais' : null }, icone(R.fleche, { taille: 'sm' }), R.variationTexte),
         h('span', { texte: R.texte })),

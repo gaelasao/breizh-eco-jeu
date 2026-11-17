@@ -558,7 +558,10 @@
   .bz-entete__titre { flex: 1 1 auto; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font: var(--bz-g-fort) var(--bz-t-titre-4)/var(--bz-i-label) var(--bz-police); letter-spacing: -0.01em; }
   .bz-entete__titre.bz-t-salutation { font: var(--bz-g-fort) var(--bz-t-titre-4)/var(--bz-i-label) var(--bz-police-titre); }
-  .bz-entete__titre:has(+ .bz-entete__date) { flex-grow: 0; }
+  .bz-entete__titre:has(+ .bz-entete__date), .bz-entete__titre:has(+ .bz-entete__exemple) { flex-grow: 0; }
+  /* Entreprise exemple (§4.12) : la mention suit le titre sur tous les écrans, au lieu d'un bandeau sur toute la
+     largeur (§4.26) — sur un portable, le bandeau mangeait une ligne entière pour trois mots */
+  .bz-entete__exemple { flex: none; }
   .bz-entete__date { display: none; flex: 0 1 auto; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--bz-texte-2); font-size: var(--bz-t-petit); }
   /* La date s'efface avant que le titre ne soit coupé : à 1 024 px, « Aujourd'hui » restait « Aujou… » (§4.1) */
   @media (min-width: 75em) { .bz-entete__date { display: block; } }
