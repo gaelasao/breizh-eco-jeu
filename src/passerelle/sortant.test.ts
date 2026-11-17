@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { once } from 'node:events';
 import { gzipSync } from 'node:zlib';
-import { adressePrivee, appeler, ErreurSortante, lireTexteBorne, recuperateurProtege, verifierUrl } from './sortant.ts';
+import { adressePrivee, appeler, ErreurSortante, lireTexteBorne, messageDuService, recuperateurProtege, verifierUrl } from './sortant.ts';
 
 async function serveur(gerer: Parameters<typeof createServer>[1]): Promise<{ s: Server; port: number; requetes: () => number }> {
   let n = 0;
@@ -128,4 +128,37 @@ test('lecture bornée sur une vraie connexion : le service qui envoie sans fin e
     });
     assert.ok(envoyes < 50 * 1024 * 1024, `connexion coupée tôt (${Math.round(envoyes / 1e6)} Mo poussés)`);
   } finally { fermer(s); }
+});
+
+test('erreur d’un service : sa phrase à lui est rendue, pas avalée (le refus devient une action)', async () => {
+  // Avant : « Accès refusé : vérifiez le jeton et ses droits. » — rien à vérifier, aucune piste. Google dit pourtant
+  // quelle API activer et où cliquer ; Microsoft dit que le segment « me » n'existe pas pour ce compte.
+  const google = JSON.stringify({ error: { code: 403, status: 'PERMISSION_DENIED', message: 'Google Calendar API has not been used in project 42 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=42 then retry.' } });
+  assert.match(messageDuService(google) ?? '', /^Google Calendar API has not been used in project 42/);
+  assert.match(messageDuService(google) ?? '', /console\.developers\.google\.com/, 'le lien à cliquer survit');
+  assert.equal(messageDuService(JSON.stringify({ error: { code: 'ResourceNotFound', message: "Resource not found for the segment 'me'." } })), "Resource not found for the segment 'me'.");
+  // autres formes rencontrées
+  assert.equal(messageDuService(JSON.stringify({ message: 'Table introuvable' })), 'Table introuvable');
+  assert.equal(messageDuService(JSON.stringify({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' })), 'Token has been expired or revoked.');
+  assert.equal(messageDuService(JSON.stringify({ errors: [{ message: 'NOT_FOUND' }] })), 'NOT_FOUND');
+  // rien à dire : on n'invente pas
+  assert.equal(messageDuService(''), null);
+  assert.equal(messageDuService('<html>502 Bad Gateway</html>'), null);
+  assert.equal(messageDuService(JSON.stringify({ error: { code: 403 } })), null);
+  // texte d'un tiers : borné et sans caractères de commande, il est affiché tel quel par le jeu
+  const long = messageDuService(JSON.stringify({ message: `a\u0000b\n\nc ${'x'.repeat(500)}` })) ?? '';
+  assert.ok(long.length <= 240, `borné (${long.length})`);
+  assert.doesNotMatch(long, /[\p{Cc}]/u, 'aucun caractère de commande');
+  assert.match(long, /^a b c /);
+
+  // et de bout en bout : le statut reste, la phrase du service s'ajoute
+  const { s: srv, port } = await serveur((_q, rep) => { rep.writeHead(403, { 'content-type': 'application/json' }); rep.end(google); });
+  try {
+    await avecLocal(async () => {
+      await assert.rejects(
+        appeler(recuperateurProtege, new URL(`http://127.0.0.1:${port}/`)),
+        (e: unknown) => e instanceof ErreurSortante && e.statut === 403 && /Accès refusé/.test(e.message) && /Enable it by visiting/.test(e.message),
+      );
+    });
+  } finally { fermer(srv); }
 });

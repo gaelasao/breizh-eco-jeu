@@ -259,6 +259,38 @@ export class CorpsBrut {
  * `statutsLus` : statuts d'erreur dont l'appelant veut lire le corps au lieu de recevoir une erreur (le client MCP
  * distingue ainsi, sur un 400, 404 ou 405, un serveur récent qui explique son refus d'un serveur ancien).
  */
+/**
+ * Le message d'erreur du service, tel que LUI l'écrit — borné, nettoyé, jamais interprété (le jeu l'affiche en texte).
+ *
+ * Il était lu puis jeté : l'écran disait « Accès refusé : vérifiez le jeton et ses droits » et la personne n'avait
+ * aucun moyen de savoir quoi vérifier. Google, lui, écrit « Google Calendar API has not been used in project … or it
+ * is disabled. Enable it by visiting … » : la réponse est dans la réponse. Microsoft écrit « Resource not found for
+ * the segment 'me' ». Rendre cette phrase change un mur en une action.
+ *
+ * Formes rencontrées : { error: { message } } (Google, Microsoft Graph), { message } (REST), { error_description }
+ * (OAuth), { errors: [ { message } ] } (Airtable, GraphQL).
+ */
+export function messageDuService(brut: string): string | null {
+  if (!brut) return null;
+  let donnees: unknown;
+  try { donnees = JSON.parse(brut); } catch { return null; }
+  const dans = (v: unknown, profondeur = 0): string | null => {
+    if (typeof v === 'string') return v;
+    if (!v || typeof v !== 'object' || profondeur > 3) return null;
+    const o = v as Record<string, unknown>;
+    for (const champ of ['message', 'error_description', 'detail', 'description']) {
+      if (typeof o[champ] === 'string' && (o[champ] as string).trim()) return o[champ] as string;
+    }
+    if (Array.isArray(o.errors) && o.errors.length) return dans(o.errors[0], profondeur + 1);
+    if (o.error !== undefined) return dans(o.error, profondeur + 1);
+    return null;
+  };
+  const m = dans(donnees);
+  if (!m) return null;
+  const propre = m.replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim();
+  return propre ? propre.slice(0, 240) : null;
+}
+
 export async function appeler(
   f: Recuperateur,
   url: URL,
@@ -280,10 +312,13 @@ export async function appeler(
   if (r.status >= 300 && r.status < 400) throw new ErreurSortante('Redirection refusée par sécurité.', r.status);
   const brut = await lireTexteBorne(r, TAILLE_MAX);
   if (init.texte && init.statutsLus?.includes(r.status)) return { statut: r.status, donnees: brut, entetes: r.headers };
-  if (r.status === 401 || r.status === 403) throw new ErreurSortante('Accès refusé : vérifiez le jeton et ses droits.', r.status);
-  if (r.status === 404) throw new ErreurSortante('Introuvable : vérifiez l’identifiant (base, table, base de données…).', r.status);
-  if (r.status === 429) throw new ErreurSortante('Trop de requêtes : le service limite le débit, nouvel essai plus tard.', r.status);
-  if (r.status >= 400) throw new ErreurSortante(`Erreur du service (${r.status}).`, r.status);
+  const duService = messageDuService(brut);
+  const avec = (t: string) => (duService ? `${t} Le service répond : « ${duService} »` : t);
+  if (r.status === 401 || r.status === 403) throw new ErreurSortante(avec('Accès refusé : vérifiez le jeton et ses droits.'), r.status);
+  // l'indice « base, table… » ne vaut que pour un tableur ou une base : dès que le service s'explique, on le cite plutôt
+  if (r.status === 404) throw new ErreurSortante(duService ? `Introuvable. Le service répond : « ${duService} »` : 'Introuvable : vérifiez l’identifiant (base, table, base de données…).', r.status);
+  if (r.status === 429) throw new ErreurSortante(avec('Trop de requêtes : le service limite le débit, nouvel essai plus tard.'), r.status);
+  if (r.status >= 400) throw new ErreurSortante(avec(`Erreur du service (${r.status}).`), r.status);
   if (init.texte) return { statut: r.status, donnees: brut, entetes: r.headers };
   try {
     return { statut: r.status, donnees: brut ? JSON.parse(brut) : null, entetes: r.headers };
