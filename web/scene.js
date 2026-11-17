@@ -659,7 +659,7 @@ function matTex(nom, rx, ry, o = {}) {
 // ---------------------------------------------------------------- modèles glTF (KayKit, CC0)
 const MODELES = {
   mobilier: ['table_medium_long', 'table_medium', 'table_small', 'table_low', 'chair_A', 'chair_B', 'chair_C', 'cabinet_medium', 'cabinet_medium_decorated', 'cabinet_small_decorated', 'shelf_A_big', 'shelf_B_large_decorated', 'couch', 'couch_pillows', 'armchair', 'lamp_standing', 'lamp_table', 'cactus_medium_A', 'cactus_small_A', 'rug_rectangle_stripes_A', 'rug_rectangle_A', 'book_set', 'pictureframe_large_A', 'pictureframe_medium'],
-  ville: ['building_A', 'building_B', 'building_C', 'building_D', 'building_E', 'building_F', 'building_G', 'building_H', 'car_sedan', 'car_hatchback', 'car_stationwagon', 'bench', 'bush', 'streetlight', 'trafficlight_A', 'trafficlight_B', 'dumpster', 'trash_A', 'trash_B', 'firehydrant', 'box_A', 'box_B'],
+  ville: ['building_A', 'building_B', 'building_C', 'building_D', 'building_E', 'building_F', 'building_G', 'building_H', 'bench', 'bush', 'streetlight', 'trafficlight_A', 'trafficlight_B', 'dumpster', 'trash_A', 'trash_B', 'firehydrant', 'box_A', 'box_B'],
 };
 const gabarits = new Map();
 async function chargerModeles() {
@@ -1122,19 +1122,49 @@ function etabli() {
   g.add(piece(B(0.4, 0.12, 0.25), mat(0x2f6fb0), 0.4, 0.94, 0.1, false));
   return g;
 }
+/**
+ * Voiture : capot, pavillon vitré en retrait, custode, pare-chocs, feux, quatre roues à jante.
+ *
+ * Elle venait du jeu de modèles livré. Depuis que le camion et les engins sont dessinés, elle paraissait pauvre à
+ * côté : une carrosserie d'un bloc, sans pare-chocs ni jantes, et une seule silhouette répétée. Elle est donc
+ * construite ici comme eux — trois carrosseries (berline, citadine, break) et six teintes, tirées du hasard qu'on
+ * lui passe, pour qu'une rue ne soit pas la même voiture dix fois.
+ */
 function voiture(rnd = Math.random) {
-  const noms = ['car_sedan', 'car_hatchback', 'car_stationwagon'];
-  const m = modele(noms[Math.floor(rnd() * noms.length)], 4.6);
-  if (m) {
-    const g = new THREE.Group();
-    m.position.y = 0.3;
-    m.rotation.y = Math.PI / 2;
-    g.add(m);
-    return g;
-  }
   const g = new THREE.Group();
-  g.add(piece(B(4.2, 0.8, 1.8), mat(0x8a9199, { roughness: 0.35, metalness: 0.2 }), 0, 0.3, 0));
-  g.add(piece(B(2.2, 0.6, 1.6), mat(0x23303c, { roughness: 0.1 }), -0.2, 1.1, 0));
+  const TEINTES = [0xb3463a, 0x33597f, 0xdcdedf, 0x454e56, 0x4f7a5c, 0xd3a139];
+  const teinte = TEINTES[Math.min(TEINTES.length - 1, Math.floor(rnd() * TEINTES.length))];
+  const forme = Math.min(2, Math.floor(rnd() * 3)); // 0 berline, 1 citadine, 2 break
+  const L = [4.3, 3.7, 4.6][forme];
+  const toit = [1.9, 1.75, 2.5][forme];   // longueur du pavillon
+  const dToit = [-0.15, -0.1, -0.35][forme]; // et son décalage vers l'arrière
+  const carrosserie = mat(teinte, { roughness: 0.32, metalness: 0.25 });
+  const vitre = mat(0x222c36, { roughness: 0.08, metalness: 0.5 });
+  const sombre = mat(P.sombre, { roughness: 0.7 });
+  const chrome = mat(0xb6bdc5, { metalness: 0.65, roughness: 0.28 });
+  // caisse : un bas plus large que le haut, c'est ce qui donne la ligne
+  g.add(piece(B(L, 0.46, 1.82), carrosserie, 0, 0.30, 0));
+  g.add(piece(B(L - 0.5, 0.26, 1.74), carrosserie, 0, 0.76, 0, false));
+  // pavillon en retrait, pare-brise et lunette inclinés
+  g.add(piece(B(toit, 0.4, 1.56), carrosserie, dToit, 1.02, 0, false));
+  const incliner = (geom, matiere, x, y, angle) => { const m = piece(geom, matiere, 0, 0, 0, false); m.rotation.z = angle; m.position.set(x, y, 0); g.add(m); };
+  incliner(B(0.72, 0.06, 1.48), vitre, dToit + toit / 2 + 0.24, 1.14, -0.62);
+  incliner(B(0.6, 0.06, 1.48), vitre, dToit - toit / 2 - 0.18, 1.16, 0.7);
+  for (const z of [-0.79, 0.79]) {
+    g.add(piece(B(toit - 0.3, 0.3, 0.05), vitre, dToit, 1.08, z, false));
+    if (!ECO()) g.add(piece(B(toit - 0.3, 0.05, 0.06), chrome, dToit, 1.42, z, false)); // baguette de custode
+  }
+  // pare-chocs, calandre et feux
+  for (const s of [1, -1]) g.add(piece(B(0.22, 0.28, 1.78), sombre, s * (L / 2 - 0.08), 0.24, 0, false));
+  g.add(piece(B(0.1, 0.14, 1.5), chrome, L / 2 - 0.02, 0.56, 0, false));
+  feux(g, L / 2 - 0.04, 0.66, 0.62, 0xf7ead0, 0.15);
+  feux(g, -L / 2 + 0.04, 0.66, 0.66, 0xc23c2e, 0.15);
+  if (!ECO()) for (const z of [-0.95, 0.95]) g.add(piece(B(0.1, 0.14, 0.1), sombre, dToit + toit / 2 - 0.1, 1.0, z, false)); // rétroviseurs
+  // passages de roue et roues
+  for (const [x, z] of [[L / 2 - 1.05, 0.9], [L / 2 - 1.05, -0.9], [-L / 2 + 1.0, 0.9], [-L / 2 + 1.0, -0.9]]) {
+    g.add(piece(B(1.0, 0.14, 0.14), sombre, x, 0.54, z, false));
+    poserRoue(g, 0.33, 0.24, 'auto', x, z * 0.92);
+  }
   return g;
 }
 function arbre(x, z, rnd, echelle = 1) {
