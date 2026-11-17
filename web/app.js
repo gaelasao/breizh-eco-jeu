@@ -4278,6 +4278,11 @@ function choisirReponse(A, id) {
   majConseils(A);
   const n = CONNECTER.recommandations(id, catalogueDe(A) ?? []).length;
   if (n) annoncer(`${pluriel(n, 'conseil', 'conseils')} pour commencer, puis tout le catalogue.`);
+  /* Les conseils s'écrivent PLUS BAS, souvent sous la ligne de flottaison du dialogue : on cliquait « Dans un CRM »
+     et rien ne bougeait à l'écran — l'annonce ne s'adressait qu'aux lecteurs d'écran. On les amène donc sous les
+     yeux, sans toucher au focus (il reste sur le choix, §4.7) et sans glissement en mouvement réduit. */
+  const zone = $('#assistant-conseils');
+  if (zone && n) zone.scrollIntoView({ behavior: mouvementReduit() ? 'auto' : 'smooth', block: 'nearest' });
 }
 function majConseils(A) { const z = $('#assistant-conseils'); if (z && E.assistant === A) remplir(z, conseilsEtCatalogue(A)); }
 function majCatalogue(A) { const z = $('#assistant-catalogue'); if (z && E.assistant === A) remplir(z, contenuCatalogue(A)); }

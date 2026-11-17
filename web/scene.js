@@ -1146,24 +1146,26 @@ function voiture(rnd = Math.random) {
   g.add(piece(B(L, 0.46, 1.82), carrosserie, 0, 0.30, 0));
   g.add(piece(B(L - 0.5, 0.26, 1.74), carrosserie, 0, 0.76, 0, false));
   // pavillon en retrait, pare-brise et lunette inclinés
-  g.add(piece(B(toit, 0.4, 1.56), carrosserie, dToit, 1.02, 0, false));
+  g.add(piece(B(toit, 0.36, 1.5), carrosserie, dToit, 1.04, 0, false));
   const incliner = (geom, matiere, x, y, angle) => { const m = piece(geom, matiere, 0, 0, 0, false); m.rotation.z = angle; m.position.set(x, y, 0); g.add(m); };
-  incliner(B(0.72, 0.06, 1.48), vitre, dToit + toit / 2 + 0.24, 1.14, -0.62);
-  incliner(B(0.6, 0.06, 1.48), vitre, dToit - toit / 2 - 0.18, 1.16, 0.7);
+  incliner(B(0.84, 0.06, 1.46), vitre, dToit + toit / 2 + 0.3, 1.12, -0.78);
+  incliner(B(0.7, 0.06, 1.46), vitre, dToit - toit / 2 - 0.24, 1.14, 0.86);
   for (const z of [-0.79, 0.79]) {
-    g.add(piece(B(toit - 0.3, 0.3, 0.05), vitre, dToit, 1.08, z, false));
-    if (!ECO()) g.add(piece(B(toit - 0.3, 0.05, 0.06), chrome, dToit, 1.42, z, false)); // baguette de custode
+    g.add(piece(B(toit - 0.26, 0.3, 0.05), vitre, dToit, 1.08, z, false));
+    if (!ECO()) g.add(piece(B(toit - 0.26, 0.05, 0.06), chrome, dToit, 1.4, z, false)); // baguette de custode
   }
   // pare-chocs, calandre et feux
   for (const s of [1, -1]) g.add(piece(B(0.22, 0.28, 1.78), sombre, s * (L / 2 - 0.08), 0.24, 0, false));
   g.add(piece(B(0.1, 0.14, 1.5), chrome, L / 2 - 0.02, 0.56, 0, false));
   feux(g, L / 2 - 0.04, 0.66, 0.62, 0xf7ead0, 0.15);
   feux(g, -L / 2 + 0.04, 0.66, 0.66, 0xc23c2e, 0.15);
+  // bandeau arrière pleine largeur : la signature lumineuse des voitures récentes
+  if (!ECO()) g.add(piece(B(0.06, 0.09, 1.6), mat(0xc23c2e, { emissive: 0xc23c2e, emissiveIntensity: 0.45 }), -L / 2 + 0.02, 0.66, 0, false));
   if (!ECO()) for (const z of [-0.95, 0.95]) g.add(piece(B(0.1, 0.14, 0.1), sombre, dToit + toit / 2 - 0.1, 1.0, z, false)); // rétroviseurs
   // passages de roue et roues
   for (const [x, z] of [[L / 2 - 1.05, 0.9], [L / 2 - 1.05, -0.9], [-L / 2 + 1.0, 0.9], [-L / 2 + 1.0, -0.9]]) {
     g.add(piece(B(1.0, 0.14, 0.14), sombre, x, 0.54, z, false));
-    poserRoue(g, 0.33, 0.24, 'auto', x, z * 0.92);
+    poserRoue(g, 0.36, 0.26, 'auto', x, z * 0.94);
   }
   return g;
 }
