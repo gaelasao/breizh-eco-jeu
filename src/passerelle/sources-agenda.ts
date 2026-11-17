@@ -101,7 +101,7 @@ export function dateSortante(v: ValeurSortante | undefined): { valeur: string; j
 }
 
 /** Fin par défaut quand le jeu n'en donne pas : une heure après le début (ou le jour même). */
-function finParDefaut(debut: { valeur: string; journee: boolean }): { valeur: string; journee: boolean } {
+export function finParDefaut(debut: { valeur: string; journee: boolean }): { valeur: string; journee: boolean } {
   if (debut.journee) return debut;
   const t = Date.parse(`${debut.valeur}Z`);
   if (!Number.isFinite(t)) return debut;

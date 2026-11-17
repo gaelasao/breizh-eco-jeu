@@ -3583,6 +3583,7 @@ function rendreFiche() {
       o.type === 'courrier' && E.monde.profil.peutPreparer ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => basculerCourrierTraite(o, traite) }, icone(traite ? 'undo-2' : 'check'), traite ? 'Remettre à traiter' : 'Marquer comme traité') : null,
       alerteBodaccFiche(o),
       blocSuivi(o),
+      blocRendezVous(o),
       blocSatisfaction(o),
       h('div', { class: 'bz-fiche__groupes' },
         modifiable && o.famille !== 'organisation' ? h('dl', { class: 'bz-champs-fiche' }, ligneChampFiche(o, { id: '__nom', libelle: o.type === 'courrier' ? 'Objet' : 'Nom', type: 'texte', valeur: o.nom }, true)) : null,
@@ -3714,6 +3715,128 @@ async function partagerSuivi(id, pour) {
     if (adresse) { try { await navigator.clipboard.writeText(adresse); informer('Lien copié. Collez-le dans votre message.', 'ok'); } catch { informer(`Lien de suivi : ${adresse}`, 'ok'); } }
     chargerSuiviFiche(id);
   } catch (e) { informer(e.message, 'erreur'); }
+}
+
+/**
+ * RENDEZ-VOUS D'UN CLIENT (§4.12) : pour qui vend du temps — consultant, coach, formateur, courtier — le suivi
+ * client EST la suite des rendez-vous. Quand, ce qui s'y est dit, ce qu'il reste à faire. Les rendez-vous viennent
+ * de l'agenda branché, ou d'un compte rendu collé ici, ou des deux.
+ */
+function blocRendezVous(o) {
+  if (o.famille !== 'tiers' && o.famille !== 'personne') return null;
+  const m = E.monde;
+  const rdv = m.objets
+    .filter((x) => x.type === 'rendez_vous' && x.champs.some((c) => (c.id === 'avec' || c.id === 'concerne') && c.lien?.id === o.id))
+    .sort((a, b) => String(valeurDe(b, 'debut') ?? '').localeCompare(String(valeurDe(a, 'debut') ?? '')));
+  // ni rendez-vous ni droit d'écrire : la fiche ne porte pas une rubrique vide qui ne mène à rien
+  if (!rdv.length && !m.profil.peutPreparer) return null;
+  const compteRendu = (x) => String(valeurDe(x, 'compte_rendu') ?? '');
+  return h('section', { class: 'bz-fiche__section', 'aria-labelledby': 'fiche-rdv' },
+    h('div', { class: 'bz-fiche__section-tete' },
+      h('h3', { class: 'bz-t-titre-4', id: 'fiche-rdv', texte: 'Rendez-vous' }),
+      rdv.length ? h('span', { class: 'bz-badge', texte: String(rdv.length) }) : null),
+    rdv.length
+      ? h('ol', { class: 'bz-liste-simple', role: 'list' }, rdv.slice(0, 5).map((x) => {
+        const quand = String(valeurDe(x, 'debut') ?? '');
+        const suite = String(valeurDe(x, 'suite') ?? '');
+        return h('li', { class: 'bz-pile bz-pile--serre' },
+          h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', cle: `rdv-${x.id}`, onclick: () => selectionner(x.id) },
+            h('span', { texte: sansDemo(x.nom) })),
+          h('span', { class: 'bz-t-micro bz-texte-2', texte: quand ? date(quand) : 'Sans date' }),
+          compteRendu(x) ? h('p', { class: 'bz-t-petit', texte: `${compteRendu(x).slice(0, 180)}${compteRendu(x).length > 180 ? '…' : ''}` }) : null,
+          suite ? h('p', { class: 'bz-t-petit bz-texte-2' }, icone('arrow-right', { taille: 'sm' }), h('span', { texte: suite })) : null);
+      }))
+      : h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Aucun rendez-vous noté. Collez le résumé d’une réunion, ou écrivez vos notes : la date, les participants et ce qu’il reste à faire en sont tirés.' }),
+    m.profil.peutPreparer ? h('div', { class: 'bz-groupe-boutons' },
+      h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', cle: 'rdv-compte-rendu', onclick: () => ouvrirCompteRendu(o) }, icone('square-pen'), 'Noter un compte rendu'),
+      rdv.length > 5 ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => changerVue('type:rendez_vous') }, `Voir les ${rdv.length}`) : null) : null);
+}
+
+/** Module de lecture d'un compte rendu, chargé à la première ouverture (il ne sert qu'ici). */
+let CR = null;
+const chargerCompteRendu = async () => (CR ??= await import('/compte-rendu.js'));
+
+/**
+ * « Noter un compte rendu » : un seul écran, et deux usages dans le même. On colle ce que Fathom, Otter, Fireflies,
+ * Zoom ou Meet ont rendu — ou on écrit ses notes à la main. Ce qui est compris (date, participants, ce qu'il reste à
+ * faire) s'affiche sous le texte, et se corrige : rien n'est enregistré sur une supposition muette.
+ */
+async function ouvrirCompteRendu(client = null) {
+  const M = await chargerCompteRendu();
+  const m = E.monde;
+  const clients = m.objets.filter((x) => x.famille === 'tiers').map((x) => ({ id: x.id, nom: sansDemo(x.nom) }));
+  const S = { texte: '', lu: M.lireCompteRendu(''), client: client?.id ?? '', cochees: new Set(), occupe: false };
+  const relire = () => {
+    S.lu = M.lireCompteRendu(S.texte);
+    S.cochees = new Set(S.lu.actions);
+    if (!client) S.client = M.clientProbable(S.lu, clients)?.id ?? S.client;
+    rendre();
+  };
+  const d = fenetre({
+    titre: 'Noter un compte rendu de rendez-vous',
+    taille: 'md',
+    corps: [h('div', { class: 'bz-pile', id: 'cr-corps' })],
+  });
+  const rendre = () => {
+    const lu = S.lu;
+    const actions = lu.actions;
+    remplir($('#cr-corps'),
+      h('label', { class: 'bz-champ' },
+        h('span', { class: 'bz-champ__libelle', texte: 'Le compte rendu' }),
+        h('textarea', { id: 'cr-texte', class: 'bz-champ__saisie', rows: '8', 'aria-describedby': 'cr-aide',
+          placeholder: 'Collez le résumé rendu par Fathom, Otter, Fireflies, Zoom ou Meet — ou écrivez vos notes.',
+          oninput: (e) => { S.texte = e.target.value; clearTimeout(rendre.t); rendre.t = setTimeout(relire, 400); } }, S.texte),
+        h('span', { class: 'bz-champ__aide', id: 'cr-aide', texte: 'Rien ne sort de cet ordinateur : le texte est lu ici, aucun service n’est appelé.' })),
+      S.texte.trim() ? h('div', { class: 'bz-pile bz-pile--serre' },
+        h('p', { class: 'bz-t-surtitre', texte: 'Ce qui en est tiré' }),
+        h('div', { class: 'bz-grille-champs' },
+          h('label', { class: 'bz-champ' },
+            h('span', { class: 'bz-champ__libelle', texte: 'Date du rendez-vous' }),
+            h('input', { class: 'bz-champ__saisie', type: 'date', value: lu.date || new Date().toISOString().slice(0, 10), onchange: (e) => { S.lu = { ...S.lu, date: e.target.value }; } }),
+            lu.date ? null : h('span', { class: 'bz-champ__aide', texte: 'Aucune date dans le texte : aujourd’hui, sauf si vous la changez.' })),
+          h('label', { class: 'bz-champ' },
+            h('span', { class: 'bz-champ__libelle', texte: 'Avec' }),
+            h('div', { class: 'bz-select' },
+              h('select', { class: 'bz-champ__saisie', onchange: (e) => { S.client = e.target.value; } },
+                h('option', { value: '', selected: !S.client, texte: 'Personne en particulier' }),
+                clients.map((c) => h('option', { value: c.id, selected: S.client === c.id, texte: c.nom }))),
+              icone('chevron-down', { taille: 'sm' })))),
+        lu.participants.length ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `Participants : ${lu.participants.join(', ')}` }) : null,
+        actions.length ? h('fieldset', { class: 'bz-champ' },
+          h('legend', { class: 'bz-champ__libelle', texte: `Ce qu’il reste à faire (${actions.length})` }),
+          h('ul', { class: 'bz-liste-simple', role: 'list' }, actions.map((a) => h('li', {}, h('label', { class: 'bz-case' },
+            h('input', { type: 'checkbox', checked: S.cochees.has(a), onchange: (e) => { if (e.target.checked) S.cochees.add(a); else S.cochees.delete(a); } }),
+            h('span', { texte: a }))))),
+          h('p', { class: 'bz-champ__aide', texte: 'Chaque ligne cochée devient une tâche à faire, rattachée à ce rendez-vous.' }))
+          : h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Aucune action repérée. Le compte rendu est enregistré tel quel.' })) : null,
+      h('div', { class: 'bz-groupe-boutons' },
+        h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'cr-enregistrer', disabled: !S.texte.trim() || S.occupe, onclick: () => enregistrer() },
+          icone('check'), S.occupe ? 'Enregistrement…' : 'Enregistrer le rendez-vous'),
+        h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => d.close() }, 'Annuler')));
+  };
+  const enregistrer = async () => {
+    if (S.occupe || !S.texte.trim()) return;
+    S.occupe = true;
+    rendre();
+    try {
+      const { nom, champs } = M.rendezVousDuCompteRendu(S.lu);
+      const rv = await api('POST', '/objets', { type: 'rendez_vous', nom, roles: [], champs: { ...champs, ...(S.client ? { avec: S.client } : {}) } });
+      // sans échéance : celle du rendez-vous est déjà passée, et une tâche en retard dès sa naissance ferait une
+      // fausse alerte dans « Aujourd'hui ». La date se met à la main, quand elle est connue.
+      const taches = [...S.cochees].slice(0, 20).map((a) => ({ type: 'tache', nom: a, roles: [], champs: { statut: 'à faire', concerne: rv?.id ?? null } }));
+      if (taches.length) await api('POST', '/objets/lot', { objets: taches });
+      d.close();
+      informer(taches.length ? `Rendez-vous enregistré, ${pluriel(taches.length, 'tâche créée', 'tâches créées')}.` : 'Rendez-vous enregistré.', 'ok');
+      await charger();
+      if (rv?.id) selectionner(rv.id);
+    } catch (e) {
+      S.occupe = false;
+      rendre();
+      if (!e.session) informer(e.message, 'erreur');
+    }
+  };
+  rendre();
+  setTimeout(() => $('#cr-texte')?.focus(), 0);
 }
 
 function blocSuivi(o) {
@@ -4348,11 +4471,14 @@ function annoncerResultats(A) {
    fonctionne aujourd'hui : un outil ouvert nulle part n'est proposé nulle part. */
 function resultatsCatalogue(A) {
   const r = CONNECTER.filtrer(catalogueDe(A) ?? [], { famille: A.famille, recherche: A.recherche });
+  // un outil cherché qui existe mais qu'aucune voie n'ouvre ici : il n'est pas proposé, il est expliqué (§4.21)
+  const ferme = r.fermes?.length ? encadre('info', `${CONNECTER.enumerer([...new Set(r.fermes.map((f) => f.libelle))])} : ${r.fermes.length > 1 ? 'ces contenus font' : 'ce contenu fait'} partie du compte ${[...new Set(r.fermes.map((f) => f.compte))].join(' et ')}, mais ${r.fermes.length > 1 ? 'ils ne sont pas ouverts' : 'il n’est pas ouvert'} sur cette installation.`,
+    'La personne qui gère votre serveur Breizhcosystem peut l’ouvrir dans les réglages du relais. Sans cela, rien ici ne mènerait à autre chose qu’un refus.') : null;
   if (!CONNECTER.SECTIONS.some((s) => r[s.id].length)) {
-    return h('div', { class: 'bz-vide bz-vide--compact' }, h('p', { texte: 'Aucun logiciel pour ces filtres.' }),
-      h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => { A.recherche = ''; A.famille = null; majCatalogue(A); $('#assistant-recherche')?.focus(); } }, 'Effacer les filtres'));
+    return h('div', { class: 'bz-pile' }, ferme, h('div', { class: 'bz-vide bz-vide--compact' }, h('p', { texte: 'Aucun logiciel pour ces filtres.' }),
+      h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => { A.recherche = ''; A.famille = null; majCatalogue(A); $('#assistant-recherche')?.focus(); } }, 'Effacer les filtres')));
   }
-  return CONNECTER.SECTIONS.map((s) => {
+  return [ferme, ...CONNECTER.SECTIONS.map((s) => {
     const liste = r[s.id];
     if (!liste.length) return null;
     const id = `assistant-section-${s.id}`;
@@ -4363,7 +4489,7 @@ function resultatsCatalogue(A) {
       h('ul', { class: 'bz-logiciels', role: 'list' }, liste.map((x) => h('li', {}, carteLogiciel(x)))),
       s.id === 'avance' && E.monde.profil.peutAdministrer
         ? h('p', {}, h('a', { href: '#/reglages:cles', class: 'bz-t-petit bz-lien-fleche', onclick: (e) => { e.preventDefault(); fermerAssistant({ garder: true }); changerVue('reglages:cles'); } }, 'Clés d’API, Claude et MCP', icone('arrow-right', { taille: 'sm' }))) : null);
-  });
+  })];
 }
 /** Carte d'un logiciel ou d'un compte (§4.23) : pictogramme, nom en entier ; « 1 clic » est la seule pastille. */
 function carteLogiciel(x, { conseil = false, faire = null } = {}) {
@@ -4371,7 +4497,11 @@ function carteLogiciel(x, { conseil = false, faire = null } = {}) {
   return h('button', { type: 'button', class: `bz-logiciel${conseil ? ' bz-logiciel--conseil' : ''}`, cle: `${conseil ? 'conseil' : 'logiciel'}-${x.cle}`, onclick: () => (faire ? faire(x) : choisirEntree(x)) },
     h('span', { class: 'bz-logiciel__icone', 'aria-hidden': 'true' }, icone(x.icone)),
     h('span', { class: 'bz-logiciel__texte' },
-      h('span', { class: 'bz-logiciel__nom' }, h('span', { texte: x.nom }), x.unClic ? h('span', { class: 'bz-badge' }, icone('mouse-pointer-click'), '1 clic') : null),
+      h('span', { class: 'bz-logiciel__nom' }, h('span', { texte: x.nom }),
+        // trouvée par ce qu'elle contient (« outlook » → le compte Microsoft) : ce qu'on a cherché est nommé ici, à
+        // côté du compte. La description l'énumère déjà, mais noyé dans une phrase : personne n'y relie son Outlook.
+        (x.correspond ?? []).map((c) => h('span', { class: 'bz-badge' }, icone(x.icone, { taille: 'sm' }), c.libelle.replace(/^(une?|des)\s+/i, ''))),
+        x.unClic ? h('span', { class: 'bz-badge' }, icone('mouse-pointer-click'), '1 clic') : null),
       x.description ? h('span', { class: 'bz-logiciel__description', texte: x.description }) : null));
 }
 function choisirEntree(x) {
@@ -4380,10 +4510,12 @@ function choisirEntree(x) {
   A.erreur = null;
   A.entree = x;
   if (x.genre === 'action') { fermerAssistant({ garder: true }); changerVue('accueil'); return; }
-  if (x.genre === 'compte') { demarrerCompte(A, x); return; }
+  if (x.genre === 'compte') { demarrerCompte(A, x, x.correspond?.length === 1 ? x.correspond[0].id : null); return; }
   if (x.genre === 'outil') { const s = (E.sources ?? []).find((y) => y.id === x.id); if (s) demarrerOutil(A, s); return; }
   if (x.id === 'fec') { A.parcours = 'fec'; A.fec ??= { envoi: false, resultat: null, nom: '' }; allerEtape('fec'); return; }
   if (x.id === 'manuel') { A.parcours = 'manuel'; A.source = 'manuel'; allerEtape('contenu'); return; }
+  // le compte rendu a son écran à lui : un texte collé, pas un tableau à associer colonne par colonne
+  if (x.id === 'compte-rendu') { fermerAssistant({ garder: true }); setTimeout(() => ouvrirCompteRendu(), 0); return; }
   const dejaChoisi = Boolean(A.cible);
   A.parcours = 'fichier';
   A.source = x.id === 'coller' ? 'coller' : x.id === 'sheets' ? 'sheets' : 'csv';
@@ -7432,12 +7564,14 @@ function demarrerOutil(A, s) {
  * Un COMPTE (Google, Microsoft) : une seule entrée pour plusieurs logiciels. Quand le compte n'en ouvre qu'un, il est
  * choisi d'office et l'écran se résume au bouton de connexion.
  */
-function demarrerCompte(A, compte) {
+function demarrerCompte(A, compte, contenuId = null) {
   if (A.outil && A.outil.compte?.id !== compte.id) nettoyerOutil(A.outil);
   if (!A.outil || A.outil.compte?.id !== compte.id) {
     A.outil = nouvelOutil(null, compte);
     const dispo = compte.contenus.filter((c) => c.disponible);
-    if (dispo.length === 1) choisirContenu(A.outil, dispo[0]);
+    // un seul contenu ouvert, ou celui qu'on cherchait (« outlook ») : il est déjà choisi, la question ne se pose plus
+    const voulu = contenuId ? dispo.find((c) => c.id === contenuId) : null;
+    if (voulu || dispo.length === 1) choisirContenu(A.outil, voulu ?? dispo[0]);
   }
   A.outil.ferme = false;
   A.parcours = 'outil';
@@ -7682,6 +7816,18 @@ function infoRelais(nomOutil) {
  * Excel ne lit pas les classeurs d'un OneDrive personnel ; Dynamics 365 et Business Central n'existent que pour une
  * entreprise. Un compte personnel est donc refusé dès la page de connexion de Microsoft.
  */
+/*
+ * Outils qui n'auront jamais de « Se connecter avec… » : Apple n'ouvre AUCUN OAuth pour ses agendas, aucun logiciel
+ * n'en a. Écrire « la connexion en un clic arrive » serait faux, et traiter la clé comme un pis-aller pour
+ * informaticien serait pire : ici, c'est LE chemin, et il tient en deux minutes.
+ */
+const SANS_UN_CLIC = Object.freeze({
+  agendaapple: {
+    texte: 'Apple n’ouvre aucune connexion « en un clic » pour ses agendas — aucun logiciel n’en a. Le chemin, celui que prennent tous les autres, est un mot de passe d’application : créé en deux minutes sur votre compte Apple, il ne donne accès qu’à vos agendas et se révoque d’un clic. Se connecter n’importe rien : vous choisirez l’agenda ensuite.',
+    marche: 'Créer le mot de passe d’application (deux minutes, sur votre compte Apple)',
+  },
+});
+
 const AVERTISSEMENT_MICROSOFT = resultatAssistant('attention', 'Il vous faut un compte Microsoft 365 professionnel.', {
   detail: 'L’adresse de votre entreprise, celle qui ouvre Microsoft 365 (OneDrive Entreprise, SharePoint, votre agenda, votre courrier Outlook professionnel). Un compte personnel (Outlook.com, Hotmail, Live) est refusé par Microsoft dès la page de connexion : Microsoft n’ouvre pas Excel aux classeurs d’un OneDrive personnel. Vos fichiers sont sur un compte personnel ? Importez-les en fichier, section « Sans rien connecter ».',
 });
@@ -7758,19 +7904,23 @@ function corpsConnexion(C) {
   const champsCle = champsEtape(C, true);
   const champ = (ch) => (ch.connexion ? blocConnexionMicrosoft(C, ch) : champOutil(C, ch));
   const avances = champsCle.filter((ch) => ch.avance);
+  const sansClic = SANS_UN_CLIC[s.id] ?? null;
   return [
     s.oauth
       ? h('div', { class: 'bz-pile' }, h('p', { class: 'bz-t-surtitre', texte: 'Mode avancé : pour votre informaticien' }),
         h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => modeOAuth(C) }, `Revenir à « Se connecter avec ${nomOutil} », plus simple`)))
       : s.avance ? h('p', { class: 'bz-t-surtitre', texte: 'Mode avancé : pour votre informaticien' })
+      // un outil qui n'aura jamais de bouton « Se connecter avec… » : promettre que « ça arrive » serait faux
+      : sansClic ? h('p', { texte: sansClic.texte })
       // le client veut savoir ce qu'il peut faire aujourd'hui, pas pourquoi l'éditeur n'a pas encore ouvert le clic
       : h('div', { class: 'bz-pile bz-pile--serre' },
         h('p', { texte: `La connexion en un clic à ${s.nom} arrive. En attendant, deux chemins : une clé à créer dans ${s.nom} (la marche à suivre est juste en dessous), ou un fichier exporté de ${s.nom}. Dans les deux cas, se connecter n’importe rien : vous choisirez ensuite ce que vous voulez récupérer.` }),
         h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', cle: 'outil-vers-fichier', onclick: () => importerFichierALaPlace() }, icone('file-spreadsheet'), 'Importer un fichier à la place'))),
     microsoft ? AVERTISSEMENT_MICROSOFT : null,
     s.avance ? h('ol', { class: 'bz-consignes' }, s.etapes.map((e) => h('li', { texte: e })))
-      : h('details', { class: 'bz-repli' },
-        h('summary', {}, h('span', { class: 'bz-repli__titre', texte: `Où trouver la clé d’accès ${s.nom} ? (pour votre informaticien)` }), icone('chevron-down', { taille: 'sm' })),
+      // la marche à suivre est repliée quand elle s'adresse à un informaticien ; ouverte quand c'est LE chemin
+      : h('details', { class: 'bz-repli', open: Boolean(sansClic) },
+        h('summary', {}, h('span', { class: 'bz-repli__titre', texte: sansClic?.marche ?? `Où trouver la clé d’accès ${s.nom} ? (pour votre informaticien)` }), icone('chevron-down', { taille: 'sm' })),
         h('ol', { class: 'bz-repli__corps bz-consignes' }, s.etapes.map((e) => h('li', { texte: e })))),
     h('div', { class: 'bz-grille-champs' }, champsCle.filter((ch) => !ch.avance).map(champ)),
     avances.length ? h('details', { class: 'bz-repli' },
@@ -10513,6 +10663,7 @@ function contenuPalette(requete = '', { plus = false } = {}) {
   const ts = themeSuivant();
   const actions = [
     m.profil.peutAdministrer ? { id: 'action:connecter', titre: 'Connecter mes données', icone: 'plug', mots: 'importer fichier excel google', faire: () => ouvrirAssistant() } : null,
+    m.profil.peutPreparer ? { id: 'action:compte-rendu', titre: 'Noter un compte rendu de rendez-vous', contexte: 'Collez un résumé Fathom, Otter, Zoom… ou vos notes', icone: 'notebook-pen', mots: 'reunion rdv rendez-vous client suivi fathom otter fireflies zoom meet teams notes', faire: () => ouvrirCompteRendu() } : null,
     { id: 'action:simulation', titre: m.mode === 'simulation' ? 'Quitter la simulation' : 'Passer en mode simulation', icone: 'flask-conical', raccourci: '$mod+shift+s', faire: () => basculerSimulation(m.mode !== 'simulation') },
     plus ? null : { id: 'action:plein-soleil', titre: window.bzTheme?.lire().pleinSoleil ? 'Quitter le mode Plein soleil' : 'Plein soleil', contexte: 'Contraste élevé, panneaux opaques', icone: 'sun', mots: 'contraste lumiere exterieur', faire: () => { const oui = window.bzTheme?.pleinSoleil(); informer(oui ? 'Plein soleil activé.' : 'Plein soleil désactivé.', 'ok'); } },
     // en feuille « Plus », les réglages de thème restent dans « Apparence » : ils encombraient la liste des actions

@@ -1250,6 +1250,16 @@
           ]
         },
         {
+          "id": "compte_rendu",
+          "libelle": "Compte rendu",
+          "type": "texte"
+        },
+        {
+          "id": "suite",
+          "libelle": "Ce qu’il reste à faire",
+          "type": "texte"
+        },
+        {
           "id": "lien",
           "libelle": "Ouvrir dans l’agenda",
           "type": "texte"

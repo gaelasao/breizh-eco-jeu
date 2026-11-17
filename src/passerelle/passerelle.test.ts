@@ -235,7 +235,7 @@ test('connecteurs : catalogue honnête (disponible / bientôt), demande d’int�
   await c.connecter('dirigeante');
   const cat = (await c.appel('GET', '/api/v1/connecteurs')).json;
   const dispo = cat.filter((x: any) => x.statut === 'disponible').map((x: any) => x.id).sort();
-  assert.deepEqual(dispo, ['coller', 'csv', 'fec', 'manuel', 'sheets']);
+  assert.deepEqual(dispo, ['coller', 'compte-rendu', 'csv', 'fec', 'manuel', 'sheets']);
   assert.equal(cat.find((x: any) => x.id === 'sage-api').statut, 'bientot');
   assert.equal(cat.find((x: any) => x.id === 'm365'), undefined, 'Excel 365 : branché dans Outils branchés');
   assert.equal(cat.find((x: any) => x.id === 'hubspot'), undefined, 'HubSpot : branché dans Outils branchés, plus « bientôt »');

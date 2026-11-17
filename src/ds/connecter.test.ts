@@ -9,8 +9,8 @@ import { CONNECTEURS } from '../passerelle/connecteurs.ts';
 import { ADAPTATEURS } from '../passerelle/sources.ts';
 
 type Contenu = { id: string; libelle: string; detail: string; source: string | null; disponible: boolean; unClic: boolean; cle: boolean };
-type Entree = { cle: string; genre: string; id: string; nom: string; description: string; famille: string; icone: string; section: string; unClic: boolean; avance: boolean; bientot: boolean; contenus?: Contenu[] };
-type Sections = { 'un-clic': Entree[]; cle: Entree[]; avance: Entree[]; fichier: Entree[]; total: number };
+type Entree = { cle: string; genre: string; id: string; nom: string; description: string; famille: string; icone: string; section: string; unClic: boolean; avance: boolean; bientot: boolean; contenus?: Contenu[]; correspond?: Contenu[] };
+type Sections = { 'un-clic': Entree[]; cle: Entree[]; avance: Entree[]; fichier: Entree[]; fermes: Array<{ compte: string; id: string; libelle: string }>; total: number };
 type Module = {
   QUESTION: string;
   REPONSES: ReadonlyArray<{ id: string; titre: string; detail: string; icone: string }>;
@@ -282,6 +282,25 @@ test('filtre : famille, recherche sans accents, contenu d’un compte, état vid
   assert.ok(M.filtrer(cat, { recherche: 'dynamics' })['un-clic'].some((x) => x.id === 'microsoft'));
   const rien = M.filtrer(cat, { recherche: 'zzzz introuvable' });
   assert.deepEqual([rien['un-clic'].length, rien.cle.length, rien.fichier.length, rien.total], [0, 0, 0, 0]);
+});
+
+test('« Outlook » mène au compte Microsoft, qui dit pourquoi — et seulement si le courrier est ouvert', () => {
+  // le nom que les gens connaissent est celui de l'outil, pas celui du compte : la recherche doit répondre
+  const cat = M.catalogue(sourcesReelles(['excel365', 'outlook', 'tachesmicrosoft']), CONNECTEURS);
+  const microsoft = M.filtrer(cat, { recherche: 'outlook' })['un-clic'].find((x) => x.id === 'microsoft');
+  assert.ok(microsoft, '« outlook » trouve le compte Microsoft');
+  assert.deepEqual(microsoft?.correspond?.map((c) => c.id), ['messagerie'], 'la carte dit par quel contenu');
+  assert.deepEqual(M.filtrer(cat, { recherche: 'to do' })['un-clic'].find((x) => x.id === 'microsoft')?.correspond?.map((c) => c.id), ['taches']);
+  // « Microsoft » cherché par son propre nom ne liste pas ses contenus : il n'y a rien à expliquer
+  assert.equal(M.filtrer(cat, { recherche: 'microsoft' })['un-clic'].find((x) => x.id === 'microsoft')?.correspond, undefined);
+  // règle (3) : un contenu qu'aucune voie n'ouvre ne se cherche pas — sinon la carte promet ce qu'elle n'a pas
+  const sansCourrier = M.catalogue(sourcesReelles(['excel365']).filter((s) => s.id !== 'outlook'), CONNECTEURS);
+  const r = M.filtrer(sansCourrier, { recherche: 'outlook' });
+  assert.equal(r['un-clic'].length, 0);
+  assert.equal(r.total, 0);
+  // mais on ne fait pas semblant qu'Outlook n'existe pas : la recherche le nomme et dit ce qu'il faudrait
+  assert.deepEqual(r.fermes.map((f) => [f.compte, f.id]), [['Microsoft', 'messagerie']]);
+  assert.deepEqual(M.filtrer(cat, { recherche: 'outlook' }).fermes, [], 'ouvert : plus rien à expliquer');
 });
 
 test('ce qu’on trouve dans l’outil se devine : « Clients 2026 » propose la cible « Clients »', () => {

@@ -31,6 +31,7 @@ export const FAMILLES = Object.freeze([
   { id: 'banque', libelle: 'Banque et paiement', icone: 'landmark' },
   { id: 'boutique', libelle: 'Boutique en ligne', icone: 'shopping-bag' },
   { id: 'bases', libelle: 'Bases et notes', icone: 'database' },
+  { id: 'agenda', libelle: 'Agendas et rendez-vous', icone: 'calendar' },
   { id: 'gestion', libelle: 'Gestion', icone: 'building-2' },
 ].map(Object.freeze));
 const ICONE_AVANCE = 'code-xml';
@@ -39,7 +40,7 @@ const ICONE_AVANCE = 'code-xml';
 const FAMILLE_DE_CATEGORIE = Object.freeze({
   Tableur: 'tableurs', Fichier: 'tableurs', Bureautique: 'tableurs',
   Comptabilité: 'facturation', CRM: 'crm', Gestion: 'gestion', ERP: 'gestion',
-  Banque: 'banque', Paiement: 'banque', 'E-commerce': 'boutique', 'Base de données': 'bases',
+  Banque: 'banque', Paiement: 'banque', 'E-commerce': 'boutique', 'Base de données': 'bases', Agenda: 'agenda',
   Automatisation: 'avance', Technique: 'avance', 'IA et connecteurs': 'avance',
 });
 /** Quelques logiciels se cherchent d'abord ailleurs que dans leur catégorie déclarée. */
@@ -115,8 +116,8 @@ export const compteDe = (sourceId) => COMPTES.find((c) => c.contenus.some((x) =>
  * champs sont déjà ceux du jeu. C'est ce qui tient la promesse « pas plus de trois clics après la connexion ».
  */
 export const CIBLE_FIXE = Object.freeze({
-  agendagoogle: 'rendez_vous', agendamicrosoft: 'rendez_vous', tachesgoogle: 'tache', tachesmicrosoft: 'tache',
-  gmail: 'courrier', outlook: 'courrier',
+  agendagoogle: 'rendez_vous', agendamicrosoft: 'rendez_vous', agendaapple: 'rendez_vous',
+  tachesgoogle: 'tache', tachesmicrosoft: 'tache', gmail: 'courrier', outlook: 'courrier',
 });
 export const cibleFixe = (sourceId) => CIBLE_FIXE[sourceId] ?? null;
 
@@ -211,7 +212,7 @@ export function catalogue(sources = [], connecteurs = [], { pasAPas = true } = {
       const famille = familleDe(c.id, c.categorie);
       return {
         cle: `import:${c.id}`, genre: 'import', id: c.id, nom: c.nom, description: c.description ?? '', famille,
-        icone: c.id === 'manuel' ? 'square-pen' : c.id === 'coller' ? 'clipboard-paste' : c.id === 'fec' ? 'calculator' : iconeFamille(famille),
+        icone: c.id === 'manuel' ? 'square-pen' : c.id === 'coller' ? 'clipboard-paste' : c.id === 'fec' ? 'calculator' : c.id === 'compte-rendu' ? 'notebook-pen' : iconeFamille(famille),
         unClic: false, avance: false, bientot: false, ecriture: Boolean(c.ecriture), section: 'fichier',
       };
     });
@@ -240,12 +241,28 @@ export function recommandations(reponse, cat, n = 3) {
  */
 export function filtrer(cat, { famille = null, recherche = '' } = {}) {
   const mots = sansAccent(recherche).split(/\s+/).filter(Boolean);
-  const texteDe = (x) => `${x.nom} ${x.description} ${libelleFamille(x.famille)} ${(x.contenus ?? []).map((c) => `${c.libelle} ${c.detail}`).join(' ')}`;
-  const garde = (x) => (!famille || x.famille === famille || x.avance) && mots.every((m) => sansAccent(texteDe(x)).includes(m));
-  const tous = (cat ?? []).filter(garde);
+  /* Un compte se cherche par ce qu'il contient : « Outlook », « Excel », « To Do » sont les noms que les gens
+     connaissent, « Microsoft » est un compte. Mais seulement par ce qui est VRAIMENT ouvert ici (règle 3) : répondre
+     « Microsoft » à qui cherche Outlook, sur un serveur où le courrier n'est pas ouvert, c'est promettre du vide. */
+  const ouverts = (x) => (x.contenus ?? []).filter((c) => c.disponible);
+  const propre = (x) => sansAccent(`${x.nom} ${x.description} ${libelleFamille(x.famille)}`);
+  const texteDe = (x) => `${propre(x)} ${sansAccent(ouverts(x).map((c) => `${c.libelle} ${c.detail}`).join(' '))}`;
+  const garde = (x) => (!famille || x.famille === famille || x.avance) && mots.every((m) => texteDe(x).includes(m));
+  /* …et l'entrée dit par quoi elle a été trouvée. « Microsoft » tout court n'apprend rien à qui a tapé « Outlook » :
+     la carte porte « Contient : Courrier Outlook », et le clic ouvre directement ce contenu-là. */
+  const correspond = (x) => (mots.length ? ouverts(x).filter((c) => mots.some((m) => !sansAccent(x.nom).includes(m) && sansAccent(`${c.libelle} ${c.detail}`).includes(m))) : []);
+  const tous = (cat ?? []).filter(garde).map((x) => { const c = correspond(x); return c.length ? { ...x, correspond: c } : x; });
   const dans = (id) => tous.filter((x) => x.section === id && (id === 'avance' || !famille || x.famille === famille));
+  /* Ce qui existe dans un compte mais qu'aucune voie n'ouvre ici reste absent des sections (règle 3) — on ne fait pas
+     pour autant semblant qu'il n'existe pas : la recherche le nomme, et dit ce qu'il faudrait pour l'ouvrir. Sans
+     cela, « outlook » ne rend rien du tout, et on en conclut que le jeu ne sait pas lire une boîte Outlook. */
+  const fermes = mots.length
+    ? (cat ?? []).flatMap((x) => (x.contenus ?? [])
+      .filter((c) => !c.disponible && mots.some((m) => sansAccent(`${c.libelle} ${c.detail}`).includes(m)))
+      .map((c) => ({ compte: x.nom, id: c.id, libelle: c.libelle })))
+    : [];
   return {
-    'un-clic': dans('un-clic'), cle: dans('cle'), avance: dans('avance'), fichier: dans('fichier'),
+    'un-clic': dans('un-clic'), cle: dans('cle'), avance: dans('avance'), fichier: dans('fichier'), fermes,
     total: tous.filter((x) => !x.avance && (!famille || x.famille === famille)).length,
   };
 }
