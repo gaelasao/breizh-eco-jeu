@@ -116,7 +116,10 @@ test('carte : chaque couleur de la scène est un jeton --bz-scene-jour-* et --bz
 test('carte : étiquettes placées par priorité, sans chevauchement, focus jamais masqué, 40 au plus (24 sur téléphone)', async () => {
   const { PRIORITE, MAX_ETIQUETTES, placerEtiquettes, boite, chevauche, HYSTERESIS_MS } = await charger<Etiquettes>('web/carte/etiquettes.js');
   assert.deepEqual(Object.entries(PRIORITE).sort((a, b) => a[1] - b[1]).map(([k]) => k), ['focus', 'critique', 'selection', 'alerte', 'principal', 'entite', 'secondaire']);
-  assert.deepEqual(MAX_ETIQUETTES, { ordinateur: 40, telephone: 24 });
+  /* Le plafond a été baissé le 17 novembre 2026 : à 40, une dizaine d'étiquettes se posaient d'un coup sur la ville
+     et le décor devenait illisible. Le tri par priorité garantit que ce sont les MOINS importantes qui tombent. */
+  assert.deepEqual(MAX_ETIQUETTES, { ordinateur: 12, telephone: 7 });
+  assert.ok(MAX_ETIQUETTES.telephone < MAX_ETIQUETTES.ordinateur, 'un écran étroit en montre moins');
   const c = (id: string, x: number, y: number, priorite: number): Candidat => ({ id, x, y, l: 100, h: 28, priorite });
   // trois étiquettes au même endroit : seule la plus prioritaire reste ; le focus clavier passe devant l'alerte critique
   const memes = [c('entite', 200, 200, PRIORITE.entite as number), c('critique', 200, 200, PRIORITE.critique as number), c('focus', 205, 202, PRIORITE.focus as number)];
@@ -128,7 +131,7 @@ test('carte : étiquettes placées par priorité, sans chevauchement, focus jama
   for (let i = 0; i < places.length; i++) for (let j = i + 1; j < places.length; j++) assert.ok(!chevauche(places[i], places[j]), `chevauchement ${i} / ${j}`);
   assert.ok(visibles.size <= 40);
   const serre: Candidat[] = Array.from({ length: 200 }, (_, i) => ({ id: `t${i}`, x: 20 + (i % 20) * 60, y: 40 + Math.floor(i / 20) * 70, l: 40, h: 28, priorite: 5 }));
-  assert.ok(placerEtiquettes(serre, { largeur: 1400, hauteur: 800, max: MAX_ETIQUETTES.telephone }).visibles.size <= 24);
+  assert.ok(placerEtiquettes(serre, { largeur: 1400, hauteur: 800, max: MAX_ETIQUETTES.telephone }).visibles.size <= MAX_ETIQUETTES.telephone);
   // au toucher, la collision se calcule sur la zone de toucher de 44 px
   const proches = [c('a', 100, 100, 5), { ...c('b', 100, 138, 5) }];
   assert.equal(placerEtiquettes(proches, { largeur: 800, hauteur: 600 }).visibles.size, 2, 'à la souris, 28 px de haut : elles tiennent');

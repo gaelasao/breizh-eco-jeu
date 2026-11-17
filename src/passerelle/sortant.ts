@@ -270,6 +270,30 @@ export class CorpsBrut {
  * Formes rencontrées : { error: { message } } (Google, Microsoft Graph), { message } (REST), { error_description }
  * (OAuth), { errors: [ { message } ] } (Airtable, GraphQL).
  */
+/**
+ * Quelques refus reviennent toujours, et leur phrase d'origine est en anglais, technique, et noyée dans le reste.
+ * On la double donc d'une phrase française qui dit QUOI FAIRE. L'originale est gardée telle quelle à la suite :
+ * c'est elle qui porte l'adresse à ouvrir, et c'est elle qui fait foi.
+ */
+const CONSEILS: readonly (readonly [RegExp, string])[] = [
+  [/has not been used in project|is disabled\b/i,
+    'Cette API n’est pas activée dans votre projet Google Cloud : ouvrez l’adresse ci-dessous, cliquez « Activer », attendez une minute, puis réessayez.'],
+  [/mailbox is either inactive, soft-deleted, or is hosted on-premise/i,
+    'Ce compte Microsoft n’a pas de boîte en ligne. L’agenda et le courrier Microsoft 365 demandent une licence qui en fournit une : un compte personnel, ou une boîte hébergée dans vos murs, ne convient pas.'],
+  [/Resource not found for the segment 'me'/i,
+    'La connexion s’est faite sans utilisateur : refaites « Se connecter avec… » en choisissant bien votre compte.'],
+  [/invalid_grant|Token has been expired or revoked/i,
+    'L’autorisation a expiré ou a été retirée chez le fournisseur : reconnectez le compte.'],
+  [/insufficient (authentication )?scopes|insufficientPermissions|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i,
+    'L’autorisation donnée ne couvre pas ce que le jeu demande : reconnectez le compte en acceptant toutes les cases.'],
+];
+
+/** La phrase française à mettre devant, quand le refus est de ceux qu'on sait expliquer ; null sinon. */
+export function conseilDuService(message: string | null): string | null {
+  if (!message) return null;
+  return CONSEILS.find(([motif]) => motif.test(message))?.[1] ?? null;
+}
+
 /** Assez long pour que la phrase de Google tienne entière, adresse comprise. */
 const LONGUEUR_MESSAGE = 400;
 
@@ -320,10 +344,12 @@ export async function appeler(
   const brut = await lireTexteBorne(r, TAILLE_MAX);
   if (init.texte && init.statutsLus?.includes(r.status)) return { statut: r.status, donnees: brut, entetes: r.headers };
   const duService = messageDuService(brut);
-  const avec = (t: string) => (duService ? `${t} Le service répond : « ${duService} »` : t);
+  // quand on sait expliquer le refus, la phrase française remplace la nôtre, générique ; l'originale suit toujours
+  const conseil = conseilDuService(duService);
+  const avec = (t: string) => (duService ? `${conseil ?? t} Le service répond : « ${duService} »` : t);
   if (r.status === 401 || r.status === 403) throw new ErreurSortante(avec('Accès refusé : vérifiez le jeton et ses droits.'), r.status);
   // l'indice « base, table… » ne vaut que pour un tableur ou une base : dès que le service s'explique, on le cite plutôt
-  if (r.status === 404) throw new ErreurSortante(duService ? `Introuvable. Le service répond : « ${duService} »` : 'Introuvable : vérifiez l’identifiant (base, table, base de données…).', r.status);
+  if (r.status === 404) throw new ErreurSortante(duService ? `${conseil ?? 'Introuvable.'} Le service répond : « ${duService} »` : 'Introuvable : vérifiez l’identifiant (base, table, base de données…).', r.status);
   if (r.status === 429) throw new ErreurSortante(avec('Trop de requêtes : le service limite le débit, nouvel essai plus tard.'), r.status);
   if (r.status >= 400) throw new ErreurSortante(avec(`Erreur du service (${r.status}).`), r.status);
   if (init.texte) return { statut: r.status, donnees: brut, entetes: r.headers };

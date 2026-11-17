@@ -808,6 +808,22 @@ export class Synchro {
     const { config, secret, appareil, oauth } = this.#lireConfig(source, estObj(d.config) ? d.config : {});
     if (!secret) throw new ErreurApi(400, 'config_incomplete', 'Connexion manquante : reconnectez-vous.');
     const nom = typeof d.nom === 'string' && d.nom.trim() && d.nom.length <= 80 ? d.nom.trim() : ADAPTATEURS[source].nom;
+    /* Reconnecter le même outil n'empile plus les cartes. Un branchement encore « à choisir » n'a RIEN enregistré :
+       ni type, ni correspondance, ni donnée. Le reconnecter, c'est reprendre celui-là, pas en ouvrir un second —
+       on se retrouvait sinon avec « Google · Courrier Gmail » deux fois dans les réglages, identiques et inertes.
+       Un branchement déjà réglé, lui, n'est pas touché : on peut vouloir deux comptes du même outil. */
+    const enAttente = [...this.#connecteurs.values()].find((x) => x.source === source && x.aChoisir === true);
+    if (enAttente) {
+      enAttente.config = config;
+      enAttente.secret = this.#chiffreur.chiffrer(secret);
+      enAttente.nom = nom;
+      enAttente.message = null;
+      enAttente.statut = 'jamais';
+      if (appareil) this.#appareils.delete(appareil);
+      if (oauth) this.#oauth.delete(oauth);
+      this.#changement();
+      return this.#vue(enAttente);
+    }
     const c: ConnecteurEnregistre = {
       id: `cx-${randomUUID().replace(/-/g, '').slice(0, 12)}`, source, nom, typeObjet: '', roles: [], mapping: {}, config,
       secret: this.#chiffreur.chiffrer(secret), secretEntrant: null, sens: 'lecture', intervalleS: 300, actif: false, aChoisir: true,

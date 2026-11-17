@@ -407,3 +407,22 @@ test('de bout en bout : les rendez-vous entrent dans le Planning, un courrier se
   assert.equal(vu.heure, '9 h 00');
   assert.equal(vu.avec?.nom, client.nom);
 });
+
+test('reconnecter le même outil ne crée pas une deuxième carte tant que rien n’a été choisi', async () => {
+  // Vu en vrai le 17 novembre 2026 : « Google · Courrier Gmail » deux fois dans les réglages, identiques, inertes.
+  // Un branchement encore « à choisir » n'a ni type, ni correspondance, ni donnée : le reconnecter doit le reprendre.
+  const app = await Application.creer({ exemple: 'pme' });
+  const p = app.monde.profil('dirigeante');
+  assert.ok(p);
+  const a = app.synchro.connecter(p, { source: 'gmail', config: { jeton: JETON } });
+  assert.equal(a.aChoisir, true);
+  const b = app.synchro.connecter(p, { source: 'gmail', config: { jeton: `${JETON}2` } });
+  assert.equal(b.id, a.id, 'le même branchement est repris, pas un second');
+  assert.equal(app.synchro.lister(p).filter((c: { source: string }) => c.source === 'gmail').length, 1);
+
+  // une fois qu'on a choisi ce qu'on récupère, un nouveau branchement est bien un nouveau compte
+  app.synchro.modifier(p, a.id, { typeObjet: 'courrier', roles: [], mapping: { titre: '__nom' }, sens: 'lecture', intervalleS: 300, actif: false });
+  const c = app.synchro.connecter(p, { source: 'gmail', config: { jeton: `${JETON}3` } });
+  assert.notEqual(c.id, a.id, 'deux comptes du même outil restent possibles');
+  assert.equal(app.synchro.lister(p).filter((x: { source: string }) => x.source === 'gmail').length, 2);
+});

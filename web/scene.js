@@ -3219,7 +3219,7 @@ void main() {
         enregistrer(g, r, 'vehicules');
         if (icone === 'vehicule') {
           const etat = indispo ? 'Indisponible' : pire ? pire.description.replace(/\s*\(.*$/, '') : r.nom;
-          puce({ texte: r.nom.replace(/\s*\((fictive?s?|démo)\)/gi, ''), detail: etat !== r.nom ? etat : null, plaque: val(r, 'immatriculation'), monde: g.position, hauteur: 3.4, id: r.id, categorie: 'vehicules', lod: niveau ? Infinity : 140,
+          puce({ texte: r.nom.replace(/\s*\((fictive?s?|démo)\)/gi, ''), detail: etat !== r.nom ? etat : null, plaque: val(r, 'immatriculation'), monde: g.position, hauteur: 3.4, id: r.id, categorie: 'vehicules', lod: niveau === 'critique' ? Infinity : niveau ? 320 : 140,
             badge: niveau, description: etat });
         }
         continue;

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { once } from 'node:events';
 import { gzipSync } from 'node:zlib';
-import { adressePrivee, appeler, ErreurSortante, lireTexteBorne, messageDuService, recuperateurProtege, verifierUrl } from './sortant.ts';
+import { adressePrivee, appeler, conseilDuService, ErreurSortante, lireTexteBorne, messageDuService, recuperateurProtege, verifierUrl } from './sortant.ts';
 
 async function serveur(gerer: Parameters<typeof createServer>[1]): Promise<{ s: Server; port: number; requetes: () => number }> {
   let n = 0;
@@ -164,7 +164,38 @@ test('erreur d’un service : sa phrase à lui est rendue, pas avalée (le refus
     await avecLocal(async () => {
       await assert.rejects(
         appeler(recuperateurProtege, new URL(`http://127.0.0.1:${port}/`)),
-        (e: unknown) => e instanceof ErreurSortante && e.statut === 403 && /Accès refusé/.test(e.message) && /Enable it by visiting/.test(e.message),
+        // « Accès refusé » a cédé la place au conseil français (voir l'essai suivant) ; la phrase du service suit
+        (e: unknown) => e instanceof ErreurSortante && e.statut === 403 && /Le service répond/.test(e.message) && /Enable it by visiting/.test(e.message),
+      );
+    });
+  } finally { fermer(srv); }
+});
+
+test('refus connus : une phrase française qui dit quoi faire, et celle du service juste après', async () => {
+  // les deux vus en vrai le 17 novembre 2026, sur l'agenda et le courrier
+  const google = 'Gmail API has not been used in project 248151361514 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/gmail.googleapis.com/overview?project=248151361514 then retry.';
+  assert.match(conseilDuService(google) ?? '', /n’est pas activée dans votre projet Google Cloud/);
+  const microsoft = 'The mailbox is either inactive, soft-deleted, or is hosted on-premise.';
+  assert.match(conseilDuService(microsoft) ?? '', /n’a pas de boîte en ligne/);
+  assert.match(conseilDuService("Resource not found for the segment 'me'.") ?? '', /sans utilisateur/);
+  assert.match(conseilDuService('Token has been expired or revoked.') ?? '', /reconnectez le compte/);
+  // ce qu'on ne sait pas expliquer n'est pas commenté : on n'invente pas de cause
+  assert.equal(conseilDuService('Something went terribly wrong'), null);
+  assert.equal(conseilDuService(null), null);
+
+  // de bout en bout : notre phrase générique cède la place au conseil, l'originale suit avec son adresse
+  const { s: srv, port } = await serveur((_q, rep) => {
+    rep.writeHead(403, { 'content-type': 'application/json' });
+    rep.end(JSON.stringify({ error: { code: 403, message: google } }));
+  });
+  try {
+    await avecLocal(async () => {
+      await assert.rejects(
+        appeler(recuperateurProtege, new URL(`http://127.0.0.1:${port}/`)),
+        (e: unknown) => e instanceof ErreurSortante
+          && /n’est pas activée dans votre projet Google Cloud/.test(e.message)
+          && /Enable it by visiting/.test(e.message)
+          && !/vérifiez le jeton et ses droits/.test(e.message),
       );
     });
   } finally { fermer(srv); }

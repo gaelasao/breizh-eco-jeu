@@ -4203,7 +4203,8 @@ function rendreAssistant() {
 function resultatAssistant(ton, texte, { alerte = false, detail = null, actions = null } = {}) {
   return h('div', { class: 'bz-resultat', 'data-ton': ton === 'attente' ? 'info' : ton, role: alerte ? 'alert' : null, tabindex: alerte ? '-1' : null },
     ton === 'attente' ? icone('clock') : iconeEtat(ton, { decoratif: true }),
-    h('div', {}, h('strong', { texte }), detail ? h('span', { texte: detail }) : null, actions));
+    // le détail porte souvent l'adresse à ouvrir que le service a donnée : cliquable, pas à recopier à la main
+    h('div', {}, h('strong', { texte }), detail ? h('span', {}, ...texteAvecLiens(String(detail))) : null, actions));
 }
 const boutonRetour = (vers, libelle = 'Retour') => h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => allerEtape(vers) }, icone('arrow-left'), libelle);
 const boutonPrincipal = (libelle, faire, { occupe = false, enCours = libelle } = {}) => h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'assistant-principal', 'aria-busy': occupe ? 'true' : null, onclick: () => { if (!occupe) faire(); } },

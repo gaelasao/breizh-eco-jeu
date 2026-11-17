@@ -7,7 +7,11 @@
 
 /** Ordre de priorité du placement : la plus petite valeur est placée d'abord (et n'est donc jamais masquée). */
 export const PRIORITE = Object.freeze({ focus: 0, critique: 1, selection: 2, alerte: 3, principal: 4, entite: 5, secondaire: 6 });
-export const MAX_ETIQUETTES = Object.freeze({ ordinateur: 40, telephone: 24 });
+/* Combien d'étiquettes au plus, en même temps. C'était 40 sur un ordinateur : à l'échelle de la ville, une dizaine
+   de phrases se posaient sur les bâtiments et le décor devenait illisible. Le placement trie par priorité (focus,
+   critique, sélection, alerte, puis le reste) : baisser ce plafond retire donc les MOINS importantes, jamais une
+   alerte critique. Le reste se retrouve en pastille de quartier (« Clients +12 ») ou en s'approchant. */
+export const MAX_ETIQUETTES = Object.freeze({ ordinateur: 12, telephone: 7 });
 export const MARGE = 4;            // px entre deux boîtes d'étiquettes
 export const ZONE_TACTILE = 44;    // px : au toucher, deux zones de toucher ne se recouvrent jamais
 export const HYSTERESIS_MS = 200;  // une étiquette masquée ne réapparaît qu'après 200 ms libre (pas de clignotement)
