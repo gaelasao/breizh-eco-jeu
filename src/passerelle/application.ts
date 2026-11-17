@@ -21,7 +21,7 @@ import { Enquetes, type EtatEnquetes } from './enquetes.ts';
 import { Justificatifs, type EtatJustificatifs } from './justificatifs.ts';
 import { LienNexus, type EtatLienNexus } from './lien-nexus.ts';
 import { Miroir, type EtatMiroir } from './miroir.ts';
-import { ErreurApi, Monde, SYSTEME, type EtatMonde, type Exemple, type OptionsMonde } from './monde.ts';
+import { ErreurApi, Monde, SYSTEME, UNIVERS_DISPONIBLES, type EtatMonde, type Exemple, type OptionsMonde } from './monde.ts';
 import { recuperateurProtege, type Recuperateur } from './sortant.ts';
 import { chiffrerAvecPhrase, CONSERVATION_JOURS, creerChiffreur, dechiffrerAvecPhrase, Stockage, type Chiffreur, type SauvegardeAuto } from './stockage.ts';
 import { RelaisOAuth } from './oauth-relais.ts';
@@ -612,7 +612,11 @@ export class Application {
     if (!identifiant) throw new ErreurApi(400, 'identifiant_invalide', 'Identifiant : votre e-mail ou un prénom (lettres, chiffres, . _ - @).');
     const pb = problemeMotDePasse(x.motDePasse, identifiant);
     if (pb) throw new ErreurApi(400, 'mot_de_passe_faible', pb);
-    const profil = this.monde.initialiser({ nom, entreprise, depart, exemple: x.exemple === 'eti' ? 'eti' : 'pme' });
+    // métier et effectif, demandés une seule fois : ils décident de ce qui s'affiche ensuite, et de son nom
+    const univers = typeof x.univers === 'string' && (UNIVERS_DISPONIBLES as readonly string[]).includes(x.univers) ? x.univers : 'generique';
+    const n = Number(x.effectif);
+    const effectif = Number.isInteger(n) && n > 0 && n <= 100_000 ? n : undefined;
+    const profil = this.monde.initialiser({ nom, entreprise, depart, exemple: x.exemple === 'eti' ? 'eti' : 'pme', univers, effectif });
     const r = await this.comptes.installer(identifiant, x.motDePasse, profil.id);
     return { compte: r.compte, profil, codeSecours: r.codeSecours };
   }

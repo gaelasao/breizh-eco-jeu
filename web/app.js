@@ -445,7 +445,7 @@ const tempsInstallation = (temps) => {
 
 async function rendreInstallation(s) {
   await chargerEntree();
-  const S = { temps: 'vous', mode: 'installer', nom: '', entreprise: '', identifiant: '', motDePasse: '', confirmation: '', depart: s.existant?.reels ? 'garder' : 'vide', exemple: 'pme', erreurs: {}, erreur: null, envoi: false };
+  const S = { temps: 'vous', mode: 'installer', nom: '', entreprise: '', identifiant: '', motDePasse: '', confirmation: '', depart: s.existant?.reels ? 'garder' : 'vide', exemple: 'pme', univers: 'generique', effectif: '', erreurs: {}, erreur: null, envoi: false };
   const R = { fichier: null, registre: null, phrase: '', erreur: null, envoi: false };
   // en ligne : le lien d'installation (code à usage unique du serveur) est vérifié avant d'afficher le formulaire
   let lienInvalide = null;
@@ -454,6 +454,15 @@ async function rendreInstallation(s) {
   }
   const peut = s.surPlace || (s.installationADistance && CODE_INSTALLATION !== null);
   const code = () => (CODE_INSTALLATION && !s.surPlace ? { 'x-lb-installation': CODE_INSTALLATION } : {});
+/* Le métier, demandé une seule fois au premier lancement : il choisit l'univers, donc le vocabulaire et ce qui
+   s'affiche. Avant, l'installation partait toujours sur « generique » et montrait tout à tout le monde — du stock
+   à un consultant, des chantiers à un commerçant. Se change ensuite dans Réglages › Mon entreprise. */
+const METIERS = [
+  { id: 'btp', titre: 'Bâtiment, travaux, artisanat', texte: 'Chantiers, engins, échéances de matériel.' },
+  { id: 'commerce', titre: 'Vente de produits', texte: 'Magasins, produits, stock.' },
+  { id: 'services', titre: 'Services, conseil, indépendant', texte: 'Missions et suivi client, sans gestion de stock.' },
+  { id: 'generique', titre: 'Autre, ou je verrai plus tard', texte: 'Tout reste affiché ; à régler quand vous voudrez.' },
+];
   const departs = ENTREE.departs(s.existant);
   const libelleEntreprise = () => (S.depart === 'vide' ? 'Nom de l’entreprise' : 'Nom de l’entreprise (facultatif)');
   const continuer = (e) => {
@@ -482,7 +491,7 @@ async function rendreInstallation(s) {
     S.erreur = null;
     rendre();
     try {
-      const res = await api('POST', '/installation', { nom: S.nom, entreprise: S.entreprise, identifiant: S.identifiant, motDePasse: S.motDePasse, depart: S.depart, exemple: S.exemple }, code());
+      const res = await api('POST', '/installation', { nom: S.nom, entreprise: S.entreprise, identifiant: S.identifiant, motDePasse: S.motDePasse, depart: S.depart, exemple: S.exemple, univers: S.univers, effectif: S.effectif }, code());
       // parti de l'exemple : le nom saisi ici n'est pas encore celui de la carte ; on le garde pour le proposer au
       // moment de « Remplacer l'exemple par mon entreprise » (sur cet appareil, comme les autres préférences)
       ecrireLocal(NOM_SOUHAITE, S.depart === 'exemple' ? S.entreprise.trim().slice(0, 120) : '');
@@ -517,6 +526,12 @@ async function rendreInstallation(s) {
     champEntree({ id: 'champ-nom', libelle: 'Votre nom', autocomplete: 'name', maxlength: '80', enterkeyhint: 'next', valeur: S.nom, erreur: S.erreurs.nom, oninput: (v) => (S.nom = v) }),
     champEntree({ id: 'champ-entreprise', libelle: libelleEntreprise(), autocomplete: 'organization', maxlength: '120', enterkeyhint: 'next', valeur: S.entreprise, erreur: S.erreurs.entreprise, oninput: (v) => (S.entreprise = v) }),
     champEntree({ id: 'champ-identifiant', libelle: 'Identifiant de connexion', aide: 'Il sert à vous connecter. Votre e-mail convient très bien.', autocomplete: 'username', inputmode: 'email', autocapitalize: 'none', spellcheck: 'false', maxlength: '120', enterkeyhint: 'next', valeur: S.identifiant, erreur: S.erreurs.identifiant, oninput: (v) => (S.identifiant = v) }),
+    h('fieldset', {}, h('legend', { texte: 'Vous faites quoi ?' }),
+      h('p', { class: 'bz-champ__aide', texte: 'Living Business prend le vocabulaire de votre métier et n’affiche que ce qui vous sert. Tout se change ensuite dans Réglages, et rien n’est définitif.' }),
+      h('div', { class: 'bz-grille-choix' }, METIERS.map((m) => h('label', { class: 'bz-choix' },
+        h('input', { type: 'radio', name: 'univers', value: m.id, checked: S.univers === m.id, onchange: () => { S.univers = m.id; } }),
+        h('span', { class: 'bz-choix__texte' }, h('span', { class: 'bz-choix__titre', texte: m.titre }), h('span', { class: 'bz-choix__detail', texte: m.texte }))))),
+      champEntree({ id: 'champ-effectif', libelle: 'Combien de personnes ?', aide: 'Vous compris. Cela décide de ce qui s’affiche : seul, on ne vous parle pas d’équipe.', inputmode: 'numeric', maxlength: '6', valeur: S.effectif, oninput: (v) => (S.effectif = v.replace(/\D+/g, '')) })),
     h('fieldset', {}, h('legend', { texte: 'Pour commencer' }),
       h('div', { class: 'bz-grille-choix bz-grille-choix--grand' }, departs.map((d) => h('label', { class: 'bz-choix bz-choix--illustre' },
         h('input', { type: 'radio', name: 'depart', value: d.id, checked: S.depart === d.id, onchange: () => {

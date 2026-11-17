@@ -1,0 +1,14 @@
+{
+  "id": "services",
+  "nom": "Services",
+  "version": 1,
+  "herite": "generique",
+  "types": [
+    { "id": "projet", "libelle": "Mission", "pluriel": "Missions", "genre": "f" },
+    { "id": "commande_client", "libelle": "Prestation vendue", "pluriel": "Prestations vendues", "genre": "f" },
+    { "id": "article", "masque": true },
+    { "id": "entrepot", "masque": true },
+    { "id": "atelier", "masque": true },
+    { "id": "boutique", "masque": true }
+  ]
+}

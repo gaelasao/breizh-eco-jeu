@@ -55,7 +55,7 @@ export class ErreurApi extends Error {
   }
 }
 
-export const UNIVERS_DISPONIBLES = ['generique', 'btp', 'commerce'] as const;
+export const UNIVERS_DISPONIBLES = ['generique', 'btp', 'commerce', 'services'] as const;
 
 interface ActionEnregistree {
   cmd: CommandeAction;
@@ -1400,7 +1400,16 @@ export class Monde {
    * - `garder` : on garde les données déjà présentes.
    * Renvoie le profil du propriétaire (tous les droits).
    */
-  initialiser(d: { nom: string; entreprise: string; depart: 'vide' | 'exemple' | 'garder'; exemple?: Exemple | undefined }): Profil {
+  /**
+   * Premier lancement. `univers` : le métier choisi sur l'écran d'installation — il décide du vocabulaire et de ce
+   * qui s'affiche (« Chantier » dans le bâtiment, « Mission » en services, pas de stock pour qui n'en tient pas).
+   * Il partait toujours sur « generique », donc tout était montré à tout le monde ; il se change ensuite dans
+   * Réglages. `effectif` : le nombre de personnes, posé une fois pour ne pas avoir à le deviner.
+   */
+  initialiser(d: { nom: string; entreprise: string; depart: 'vide' | 'exemple' | 'garder'; exemple?: Exemple | undefined; univers?: string | undefined; effectif?: number | undefined }): Profil {
+    // avant toute création d'objet : ce sont les types de CET univers qui valideront ce qui suit
+    const choisi = d.univers ? this.#catalogue.get(d.univers) : undefined;
+    if (choisi) this.#univers = choisi;
     const tout = { types: 'tous', lieux: 'tous', rolesTiers: 'tous', departements: 'tous', peutPreparer: true, peutApprouver: true, voitScore: true, peutAdministrer: true } as const;
     let proprietaire: Profil;
     if (d.depart === 'exemple') {
@@ -1429,9 +1438,13 @@ export class Monde {
         });
       }
     }
+    if (typeof d.effectif === 'number') {
+      const org = [...this.#reel.objets.values()].find((o) => o.famille === 'organisation');
+      if (org) org.champs = { ...org.champs, effectif: d.effectif };
+    }
     this.#quetes = new Map();
     this.#recalculerQuetes();
-    this.#tracer(proprietaire, this.#reel, 'installation', null, `${d.depart} — ${d.entreprise}`);
+    this.#tracer(proprietaire, this.#reel, 'installation', null, `${d.depart} — ${d.entreprise} — ${this.#univers.id}`);
     return proprietaire;
   }
 
