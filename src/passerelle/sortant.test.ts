@@ -136,6 +136,7 @@ test('erreur d’un service : sa phrase à lui est rendue, pas avalée (le refus
   const google = JSON.stringify({ error: { code: 403, status: 'PERMISSION_DENIED', message: 'Google Calendar API has not been used in project 42 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=42 then retry.' } });
   assert.match(messageDuService(google) ?? '', /^Google Calendar API has not been used in project 42/);
   assert.match(messageDuService(google) ?? '', /console\.developers\.google\.com/, 'le lien à cliquer survit');
+  assert.match(messageDuService(google) ?? '', /then retry\.$/, 'et la phrase va jusqu’au bout');
   assert.equal(messageDuService(JSON.stringify({ error: { code: 'ResourceNotFound', message: "Resource not found for the segment 'me'." } })), "Resource not found for the segment 'me'.");
   // autres formes rencontrées
   assert.equal(messageDuService(JSON.stringify({ message: 'Table introuvable' })), 'Table introuvable');
@@ -147,7 +148,13 @@ test('erreur d’un service : sa phrase à lui est rendue, pas avalée (le refus
   assert.equal(messageDuService(JSON.stringify({ error: { code: 403 } })), null);
   // texte d'un tiers : borné et sans caractères de commande, il est affiché tel quel par le jeu
   const long = messageDuService(JSON.stringify({ message: `a\u0000b\n\nc ${'x'.repeat(500)}` })) ?? '';
-  assert.ok(long.length <= 240, `borné (${long.length})`);
+  assert.ok(long.length <= 401, `borné (${long.length})`);
+  // une phrase trop longue est coupée ENTRE DEUX MOTS : une adresse tronquée au milieu ne se recopie pas
+  const phrase = messageDuService(JSON.stringify({ message: `${'mot '.repeat(150)}fin` })) ?? '';
+  assert.ok(phrase.length <= 401, `borné (${phrase.length})`);
+  assert.match(phrase, /mot…$/, 'coupé entre deux mots');
+  // un seul mot démesuré : il faut bien couper quelque part, et les points de suspension le disent
+  assert.match(messageDuService(JSON.stringify({ message: 'y'.repeat(900) })) ?? '', /^y{400}…$/);
   assert.doesNotMatch(long, /[\p{Cc}]/u, 'aucun caractère de commande');
   assert.match(long, /^a b c /);
 

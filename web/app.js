@@ -1027,6 +1027,28 @@ const messageEnLigne = (ton, texte, detail = null) => (texte ? encadre(ton, text
 const badgeExemple = () => h('span', { class: 'bz-badge' }, icone('flask-conical', { taille: 'sm' }), 'Exemple');
 
 /** Lien externe (nouvel onglet) avec son icône : jamais la flèche Unicode « ↗ ». */
+/**
+ * Un texte dont les adresses https deviennent cliquables, le reste restant du texte.
+ *
+ * Le message d'erreur d'un service contient souvent l'adresse qui dénoue la situation — Google écrit « Enable it by
+ * visiting https://console… then retry ». Écrite en texte mort, elle oblige à la recopier à la main, caractère par
+ * caractère, depuis un paragraphe d'aide. Rien n'est interprété ici : le texte reste des nœuds de texte, et seules
+ * les adresses https (jamais http) deviennent des liens, en nouvel onglet et sans accès à la page d'origine.
+ */
+function texteAvecLiens(t) {
+  const sortie = [];
+  const re = /https:\/\/[^\s<>"')\]]+/g;
+  let i = 0;
+  for (let m; (m = re.exec(t)); ) {
+    if (m.index > i) sortie.push(h('span', { texte: t.slice(i, m.index) }));
+    const href = m[0].replace(/[.,;:!?»…]+$/, ''); // la ponctuation de la phrase n'appartient pas à l'adresse
+    sortie.push(h('a', { href, target: '_blank', rel: 'noopener noreferrer', texte: href }));
+    i = m.index + href.length;
+  }
+  if (i < t.length) sortie.push(h('span', { texte: t.slice(i) }));
+  return sortie.length ? sortie : [h('span', { texte: t })];
+}
+
 const lienExterne = (href, texte, classe = 'bz-bouton bz-bouton--secondaire') => h('a', { class: classe, href, target: '_blank', rel: 'noopener noreferrer' }, h('span', { texte }), icone('external-link', { taille: 'sm' }), h('span', { class: 'bz-visuellement-cache', texte: ' (nouvel onglet)' }));
 
 async function rendreApplication() {
@@ -7534,7 +7556,9 @@ function champOutil(C, ch, { apres = null } = {}) {
   else saisie = h('input', { id, class: 'bz-champ__saisie', type: ch.secret ? 'password' : 'text', autocomplete: 'off', spellcheck: 'false', placeholder: ch.exemple ?? '', value: C.config[ch.id] ?? '',
     'data-brut': ch.exemple ? '' : null, 'aria-describedby': decrit, 'aria-required': ch.obligatoire ? 'true' : null, 'aria-invalid': invalide, oninput: (e) => (C.config[ch.id] = e.target.value), onchange: () => apres?.() });
   return h('div', { class: `bz-champ${large ? ' bz-champ--large' : ''}` },
-    h('label', { class: 'bz-champ__libelle', for: id, texte: ch.libelle }), aide ? h('span', { class: 'bz-champ__aide', id: `${id}-aide`, texte: aide }) : null, saisie,
+    h('label', { class: 'bz-champ__libelle', for: id, texte: ch.libelle }),
+    // l'aide porte parfois l'adresse à ouvrir que le service a donnée : elle doit être cliquable, pas à recopier
+    aide ? h('span', { class: 'bz-champ__aide', id: `${id}-aide` }, ...texteAvecLiens(aide)) : null, saisie,
     erreur ? h('p', { class: 'bz-champ__erreur', id: `${id}-erreur` }, icone('circle-alert', { taille: 'sm' }), h('span', { texte: erreur })) : null);
 }
 /* Connecter n'est pas importer : les réglages se séparent en deux. Ceux qui servent à ATTEINDRE le compte (adresse,

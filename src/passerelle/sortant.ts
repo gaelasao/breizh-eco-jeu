@@ -270,6 +270,9 @@ export class CorpsBrut {
  * Formes rencontrées : { error: { message } } (Google, Microsoft Graph), { message } (REST), { error_description }
  * (OAuth), { errors: [ { message } ] } (Airtable, GraphQL).
  */
+/** Assez long pour que la phrase de Google tienne entière, adresse comprise. */
+const LONGUEUR_MESSAGE = 400;
+
 export function messageDuService(brut: string): string | null {
   if (!brut) return null;
   let donnees: unknown;
@@ -288,7 +291,11 @@ export function messageDuService(brut: string): string | null {
   const m = dans(donnees);
   if (!m) return null;
   const propre = m.replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim();
-  return propre ? propre.slice(0, 240) : null;
+  if (!propre) return null;
+  if (propre.length <= LONGUEUR_MESSAGE) return propre;
+  // couper sur un espace : « Enable it by visiting <adresse> then retry. If you enabl » laissait une adresse tronquée
+  const espace = propre.lastIndexOf(' ', LONGUEUR_MESSAGE);
+  return `${propre.slice(0, espace > LONGUEUR_MESSAGE - 80 ? espace : LONGUEUR_MESSAGE)}…`;
 }
 
 export async function appeler(
