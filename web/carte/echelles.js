@@ -5,7 +5,7 @@
    écrans : c'est une seule course de caméra, de 6 à 4 800 unités, où ce qu'on voit change par fondus.
 
      6 → 360     la ville (ce qui existait avant : 1 unité = 1 mètre)
-     380 → 900   la carte du pays se referme sur la ville, par un anneau qui se resserre
+     380 → 900   la carte du pays se referme sur la ville : elle prend place au ras du rivage, puis balaie le plateau
      470 → 1 250 les communes où l'entreprise a quelque chose, une par une
      1 100 → 2 600  les départements, les communes y sont regroupées
      2 400 → 4 800  les régions, les départements y sont regroupés
@@ -31,8 +31,32 @@ export const DISTANCES = Object.freeze({
   max: 4800,
 });
 
-/** Rayon du trou laissé à la ville dans la carte, au moment où la carte apparaît (le plateau tient dans 119 unités). */
-export const TROU = Object.freeze({ clair: 128, plein: 190 });
+/**
+ * Forme du trou que la carte laisse à la ville : le plateau lui-même, coins arrondis. Les mesures sont celles de
+ * PLATEAU dans scene.js (192 × 142 unités, centré en (0, 1)) ; carte-echelles.test.ts vérifie qu'elles ne divergent pas.
+ * Le trou était un cercle de 128 unités, plus large que le plateau (119 unités jusqu'à son coin) : entre le bord du
+ * plateau et ce cercle il n'y avait NI ville NI carte, et l'on voyait le ciel au travers — avec, découpée dedans, la
+ * silhouette rectangulaire du plateau. Le trou suit donc le rivage, et la carte est pleine juste au large.
+ */
+export const FORME_TROU = Object.freeze({ centre: [0, 1], demi: [96, 71], rayon: 30 });
+
+/**
+ * Le trou, en distance SIGNÉE au bord du plateau : négative à l'intérieur, positive au large.
+ * `clair` : plus profond que cela sous le bord, la ville se voit telle quelle. `plein` : plus haut que cela au-dessus
+ * du bord, la carte est pleine. Au départ les deux encadrent le rivage — jamais de vide entre la ville et la carte —
+ * puis ils descendent ensemble sous le plateau jusqu'à le recouvrir.
+ */
+export const TROU = Object.freeze({ clair: -34, plein: 6 });
+
+/**
+ * Distance signée d'un point au bord du plateau (rectangle à coins arrondis), négative à l'intérieur.
+ * Le shader de la carte (scene.js) calcule exactement la même chose, en GLSL ; cette copie sert au pointeur.
+ */
+export function distancePlateau(x, z, f = FORME_TROU) {
+  const qx = Math.abs(x - f.centre[0]) - f.demi[0] + f.rayon;
+  const qz = Math.abs(z - f.centre[1]) - f.demi[1] + f.rayon;
+  return Math.min(Math.max(qx, qz), 0) + Math.hypot(Math.max(qx, 0), Math.max(qz, 0)) - f.rayon;
+}
 
 /** Angle polaire : la ville se visite de biais (79°), une carte se lit d'au-dessus (36°). */
 export const POLAIRE = Object.freeze({ ville: 1.38, carte: 0.62 });
@@ -65,16 +89,20 @@ export function nomEchelle(nom, region = null) {
 }
 
 /**
- * Opacité de la carte du pays, et rayons du trou qu'elle laisse à la ville, à cette distance.
- * `opacite` : la carte se révèle d'abord tout entière, très doucement, autour du plateau.
- * `clair` et `plein` : à l'intérieur du rayon clair, la ville se voit telle quelle ; au-delà du rayon plein, la carte
- * est pleine. Les deux se resserrent jusqu'à zéro : l'anneau balaie la ville de l'extérieur vers le centre.
+ * Opacité de la carte du pays, et bords du trou qu'elle laisse à la ville, à cette distance.
+ * `opacite` : la carte prend sa place vite, au ras du rivage — tant qu'elle est translucide, le ciel se voit autour du
+ * plateau et le rectangle se découpe dedans ; c'est ce qu'il fallait supprimer.
+ * `clair` et `plein` : distances signées au bord du plateau (voir TROU). L'anneau part du rivage et balaie la ville
+ * vers son centre, jusqu'à passer dessous.
  */
 export function carte(distance) {
   const D = DISTANCES;
-  const opacite = lisse(D.carteDes, D.carteDes + 130, distance);
-  const fermeture = lisse(D.carteDes + 130, D.carteSeule, distance);
-  return { opacite, clair: TROU.clair * (1 - fermeture), plein: TROU.plein * (1 - fermeture) };
+  const opacite = lisse(D.carteDes, D.carteDes + 50, distance);
+  const fermeture = lisse(D.carteDes + 50, D.carteSeule, distance);
+  // jusqu'où descendre pour passer sous le point le plus intérieur du plateau (son centre), avec de la marge
+  const fond = Math.min(...FORME_TROU.demi) + 40;
+  const vers = (depart, arrivee) => depart + fermeture * (arrivee - depart);
+  return { opacite, clair: vers(TROU.clair, -fond), plein: vers(TROU.plein, -fond + 30) };
 }
 
 /** La ville vaut-elle encore la peine d'être calculée ? (au-delà, la carte la recouvre entièrement) */

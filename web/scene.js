@@ -21,7 +21,7 @@ import { FAMILLES_PERSONNALISABLES, estPersonnalisee, ordonner } from '/carte/pe
 import { CADENCE, palierInferieur, profil, qualiteInitiale, surveillance, vieAmbiante } from '/carte/qualite.js';
 import { CLAIR, DEPART as DEPART_METEO, coeurDuPassage, effets as effetsMeteo, etatMeteo } from '/carte/meteo.js';
 import { ALLEGE, ATLAS_ENSEIGNES, COUCHES_CUITES, MASQUE, NB_MASQUES, NOMS_COUCHES, details, echelleMur, estMobilier, masqueCalque, mursBaisses, orientationMur, placeEnseigne, rvb, uvEnseigne } from '/carte/lots.js';
-import { DISTANCES, bornes, brume, carte as fonduCarte, detailGroupe, echelle as echelleDe, manque, nomEchelle, opaciteTraces, phraseGroupe, planLointain, polaireMax, regrouper, villeVisible, volVers } from '/carte/echelles.js';
+import { DISTANCES, FORME_TROU, bornes, brume, carte as fonduCarte, detailGroupe, distancePlateau, echelle as echelleDe, manque, nomEchelle, opaciteTraces, phraseGroupe, planLointain, polaireMax, regrouper, villeVisible, volVers } from '/carte/echelles.js';
 import { ancreDe, boiteDe, dansEntite, decoderCodesPostaux, decoderContours, departementDuCode, pointDe, projection } from '/carte/geographie.js';
 import { DEPARTEMENTS, GRILLE as GRILLE_GEO, REGION_DU_DEPARTEMENT, REGIONS } from '/carte/contours.js';
 import { CODES_POSTAUX } from '/carte/communes.js';
@@ -3871,7 +3871,14 @@ void main() {
   const repairesPays = new THREE.Group(); // repères posés d'après les données (refaits à chaque mise à jour)
   groupePays.add(repairesPays);
   /** Opacité d'ensemble, et rayons du trou laissé à la ville — lus par tous les matériaux de la carte. */
-  const uPays = { uOpacite: { value: 0 }, uTrou: { value: new THREE.Vector2(0, 0) }, uCentre: { value: new THREE.Vector2(VUE.cible.x, VUE.cible.z) } };
+  const uPays = {
+    uOpacite: { value: 0 },
+    uTrou: { value: new THREE.Vector2(0, 0) },
+    // le trou épouse le plateau, pas la cible de la caméra : c'est le rivage qu'il faut suivre, pas le regard
+    uCentre: { value: new THREE.Vector2(FORME_TROU.centre[0], FORME_TROU.centre[1]) },
+    uDemi: { value: new THREE.Vector2(FORME_TROU.demi[0], FORME_TROU.demi[1]) },
+    uRayon: { value: FORME_TROU.rayon },
+  };
   /**
    * Matériau de la carte du pays : il suit l'heure comme le reste de la scène, et son alpha est rongé par le trou de
    * la ville. `depthTest` à faux : la carte est plate et ordonnée à la main (renderOrder), et rien du port ne peut
@@ -3888,7 +3895,10 @@ void main() {
     m.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, uPays);
       sh.vertexShader = `varying vec2 vSolPays;\n${sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vSolPays = (modelMatrix * vec4(transformed, 1.0)).xz;')}`;
-      sh.fragmentShader = `uniform float uOpacite;\nuniform vec2 uTrou;\nuniform vec2 uCentre;\nvarying vec2 vSolPays;\n${sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.a *= uOpacite * smoothstep(uTrou.x, uTrou.y, distance(vSolPays, uCentre));')}`;
+      /* Distance signée au bord du plateau (rectangle à coins arrondis), négative à l'intérieur — le même calcul que
+         distancePlateau() d'echelles.js. Un cercle laissait, entre le bord du plateau et lui, une bande sans ville ni
+         carte : on y voyait le ciel, et le plateau s'y découpait en rectangle. */
+      sh.fragmentShader = `uniform float uOpacite;\nuniform vec2 uTrou;\nuniform vec2 uCentre;\nuniform vec2 uDemi;\nuniform float uRayon;\nvarying vec2 vSolPays;\n${sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  vec2 qPlateau = abs(vSolPays - uCentre) - uDemi + uRayon;\n  float dPlateau = min(max(qPlateau.x, qPlateau.y), 0.0) + length(max(qPlateau, 0.0)) - uRayon;\n  diffuseColor.a *= uOpacite * smoothstep(uTrou.x, uTrou.y, dPlateau);')}`;
     };
     m.customProgramCacheKey = () => `pays-${m.type}-${ordre}`;
     return m;
@@ -4226,7 +4236,7 @@ void main() {
     raycaster.setFromCamera(souris, camera);
     if (!raycaster.ray.intersectPlane(plan, pointSol)) return null;
     // un clic dans le trou laissé à la ville revient à cliquer dans la ville
-    if (Math.hypot(pointSol.x - VUE.cible.x, pointSol.z - VUE.cible.z) < uPays.uTrou.value.y) return null;
+    if (distancePlateau(pointSol.x, pointSol.z) < uPays.uTrou.value.y) return null;
     const lon = P0.lon(pointSol.x - posePays.x);
     const lat = P0.lat(pointSol.z - posePays.z);
     const parRegion = opaciteTraces(controles.distance).regions > 0.6;

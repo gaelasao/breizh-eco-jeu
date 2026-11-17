@@ -33,6 +33,8 @@ type Groupe = { cle: string; niveau: string; nombre: number; roles: [string, num
 type Distances = { min: number; ville: number; carteDes: number; carteSeule: number; communesDes: number; communesJusqua: number; departementsDes: number; departementsJusqua: number; regionsDes: number; max: number };
 type Echelles = {
   DISTANCES: Distances; TROU: { clair: number; plein: number }; POLAIRE: { ville: number; carte: number };
+  FORME_TROU: { centre: [number, number]; demi: [number, number]; rayon: number };
+  distancePlateau: (x: number, z: number) => number;
   lisse: (a: number, b: number, x: number) => number;
   echelle: (d: number) => string;
   nomEchelle: (nom: string, region?: string | null) => string;
@@ -90,16 +92,23 @@ test('échelles : la carte se referme sur la ville par un anneau, jamais par un 
   const D = E.DISTANCES;
   assert.equal(E.carte(D.carteDes - 1).opacite, 0, 'dans la ville, pas un pixel de carte');
   assert.equal(E.carte(D.carteDes + 200).opacite, 1, 'la carte est pleine bien avant d’avoir recouvert la ville');
-  // le trou laissé à la ville couvre d'abord tout le plateau (demi-diagonale : 119 unités), puis se resserre à zéro
-  assert.ok(E.carte(D.carteDes + 130).clair >= 119, 'au départ, le plateau entier est dans le clair du trou');
-  assert.ok(E.carte(D.carteDes + 130).plein > E.carte(D.carteDes + 130).clair, 'un bord doux, pas une arête');
+  /* Le trou suit le rivage du plateau, il ne l'englobe pas. Avant, c'était un cercle de 128 unités alors que le
+     plateau tient dans 119 : entre les deux il n'y avait ni ville ni carte, on voyait le ciel, et le plateau s'y
+     découpait en rectangle. `clair` et `plein` sont donc des distances SIGNÉES au bord du plateau. */
+  const debut = E.carte(D.carteDes + 50);
+  assert.ok(debut.plein > 0 && debut.plein < 20, 'au départ, la carte est pleine juste au large : aucun vide autour du plateau');
+  assert.ok(debut.clair < 0, 'et le rivage est déjà entamé : le fondu enjambe le bord au lieu de l’exposer');
+  assert.ok(debut.plein > debut.clair, 'un bord doux, pas une arête');
   let avant = Infinity;
-  for (let d = D.carteDes + 130; d <= D.carteSeule; d += 20) {
+  for (let d = D.carteDes + 50; d <= D.carteSeule; d += 20) {
     const t = E.carte(d);
     assert.ok(t.plein <= avant + 1e-9, `l’anneau ne fait que se resserrer (${d})`);
+    assert.ok(t.plein > t.clair, `le bord reste doux (${d})`);
     avant = t.plein;
   }
-  assert.ok(E.carte(D.carteSeule).plein < 0.001, 'à la fin, plus de trou : la carte recouvre tout');
+  // à la fin, le trou est passé sous le point le plus intérieur du plateau : la carte recouvre tout
+  const creux = E.distancePlateau(E.FORME_TROU.centre[0], E.FORME_TROU.centre[1]);
+  assert.ok(E.carte(D.carteSeule).plein < creux, 'à la fin, plus de trou : la carte recouvre tout');
   // et c'est seulement là que la ville cesse d'être calculée
   assert.equal(E.villeVisible(D.carteSeule - 1), true);
   assert.equal(E.villeVisible(D.carteSeule), false);
@@ -312,4 +321,26 @@ test('échelles : fichiers servis, poids tenu, et ce que la scène en fait', () 
   assert.match(scene, /m\.depthTest = false/);
   // le nom de la région ne sort jamais d'un texte écrit à la main : il vient du découpage administratif
   assert.doesNotMatch(scene, /'Bretagne'/, 'aucune région écrite en dur dans la scène');
+});
+
+test('le trou de la carte épouse le plateau de la ville, et la scène calcule la même forme que le module pur', async () => {
+  const E = await charger<Echelles>('web/carte/echelles.js');
+  const scene = lire('web/scene.js');
+  // le plateau, source de vérité de la géométrie de la ville
+  const m = /const PLATEAU = \{ x0: (-?\d+), x1: (-?\d+), z0: (-?\d+), zCote: (-?\d+), z1: (-?\d+) \};/.exec(scene);
+  assert.ok(m, 'PLATEAU introuvable dans scene.js');
+  const [x0, x1, z0, , z1] = m.slice(1).map(Number) as [number, number, number, number, number];
+  assert.deepEqual(E.FORME_TROU.centre, [(x0 + x1) / 2, (z0 + z1) / 2], 'le trou doit être centré sur le plateau');
+  assert.deepEqual(E.FORME_TROU.demi, [(x1 - x0) / 2, (z1 - z0) / 2], 'et faire exactement sa taille');
+  // dedans négatif, dehors positif, zéro sur le bord : sans quoi le fondu se poserait au mauvais endroit
+  assert.ok(E.distancePlateau((x0 + x1) / 2, (z0 + z1) / 2) < -50, 'le centre du plateau est loin dedans');
+  assert.ok(Math.abs(E.distancePlateau(x1, (z0 + z1) / 2)) < 1, 'le bord vaut zéro');
+  assert.ok(E.distancePlateau(x1 + 60, (z0 + z1) / 2) > 50, 'le large est positif');
+  // les coins sont arrondis : un carré se verrait, et c'est tout le problème
+  assert.ok(E.FORME_TROU.rayon > 10, 'des coins arrondis, jamais un angle droit');
+  assert.ok(E.distancePlateau(x1, z1) > E.distancePlateau(x1, (z0 + z1) / 2) + 5, 'le coin est rentré par rapport au bord');
+  // la scène applique bien cette forme, pas un rayon : le shader et le pointeur doivent s'accorder
+  assert.match(scene, /float dPlateau = min\(max\(qPlateau\.x, qPlateau\.y\), 0\.0\) \+ length\(max\(qPlateau, 0\.0\)\) - uRayon;/, 'le shader calcule la distance au rectangle arrondi');
+  assert.match(scene, /distancePlateau\(pointSol\.x, pointSol\.z\) < uPays\.uTrou\.value\.y/, 'le pointeur utilise la même forme');
+  assert.doesNotMatch(scene, /smoothstep\(uTrou\.x, uTrou\.y, distance\(vSolPays, uCentre\)\)/, 'plus de trou circulaire');
 });
