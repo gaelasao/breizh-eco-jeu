@@ -1034,10 +1034,11 @@ test('ce qu’on écrit au robot : seule la conversation branchée est écoutée
   // le même message n'est pas traité deux fois, même après un redémarrage (la position de lecture est gardée)
   recus.length = 0;
   await a.passer();
-  assert.deepEqual(recus, []);
+  // `deepEqual(recus, [])` ramènerait le type de `recus` à celui du tableau vide : on compte, on ne compare pas
+  assert.equal(recus.length, 0);
   const relu = new Alertes({ ...x.src, surMessage: async (t) => { recus.push(t); return ''; } }, chiffreurEphemere(), { fetch: x.f, etat: a.instantane() });
   await relu.passer();
-  assert.deepEqual(recus, [], 'la position de lecture survit au redémarrage');
+  assert.equal(recus.length, 0, 'la position de lecture survit au redémarrage');
 });
 
 test('ce qu’on écrit au robot : sans crochet posé, rien n’est lu (le canal reste à sens unique)', async () => {
