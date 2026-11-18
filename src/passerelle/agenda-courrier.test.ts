@@ -426,3 +426,67 @@ test('reconnecter le même outil ne crée pas une deuxième carte tant que rien 
   assert.notEqual(c.id, a.id, 'deux comptes du même outil restent possibles');
   assert.equal(app.synchro.lister(p).filter((x: { source: string }) => x.source === 'gmail').length, 2);
 });
+
+test('de bout en bout : une boîte Gmail branchée fait vraiment arriver du courrier dans l’écran', async () => {
+  /* Vu en vrai le 18 novembre 2026 : boîte branchée, relue, « aucun message n'en est encore arrivé ». Aucun essai ne
+     couvrait le chemin complet — lire chez Gmail, poser l'association, créer les fiches — et c'est là que ça cassait.
+     L'association est celle que le jeu pose pour un outil à cible fixe (`web/connecter.js`, COLONNES_FIXES). */
+  const { f } = simuler((a) => {
+    if (a.url.pathname.endsWith('/messages')) return json({ messages: [{ id: 'aa11' }, { id: 'bb22' }] });
+    const id = a.url.pathname.split('/').pop();
+    return json({
+      id, labelIds: id === 'aa11' ? ['INBOX', 'UNREAD'] : ['INBOX'], internalDate: '1763635200000',
+      payload: { headers: [
+        { name: 'From', value: id === 'aa11' ? 'Kerlann Bois <kerlann@exemple.fr>' : 'promo@exemple.fr' },
+        { name: 'Subject', value: id === 'aa11' ? 'Relance facture 2026-114 : URGENT' : 'Notre newsletter du mois' },
+      ] },
+    });
+  });
+  const app = await Application.creer({ exemple: 'pme', fetch: f });
+  const p = app.monde.profil('dirigeante');
+  assert.ok(p);
+  const avant = app.monde.objetsReels().filter((o) => o.type === 'courrier').length;
+  const c = app.synchro.connecter(p, { source: 'gmail', config: { jeton: JETON, combien: 'messages50' } });
+  app.synchro.modifier(p, c.id, {
+    typeObjet: 'courrier', roles: [], sens: 'lecture', intervalleS: 300, actif: true,
+    mapping: { objet: '__nom', expediteur: 'expediteur', resume: 'resume', bac: 'bac', urgence: 'urgence', recu_le: 'recu_le', action: 'action', statut: 'statut', lien: 'lien' },
+  });
+  await app.synchro.synchroniser(c.id, p);
+  const courriers = app.monde.objetsReels().filter((o) => o.type === 'courrier');
+  assert.equal(courriers.length - avant, 2, 'les deux messages sont arrivés');
+  const relance = courriers.find((o) => o.nom.includes('Relance facture'));
+  assert.ok(relance, courriers.map((o) => o.nom).join(' | '));
+  const champ = (id: string) => relance.champs[id];
+  assert.equal(champ('expediteur'), 'Kerlann Bois');
+  assert.equal(champ('statut'), 'à traiter', 'non lu chez Gmail : à traiter ici');
+  assert.equal(champ('bac'), 'paiements', 'une relance de facture est une affaire de paiement');
+  assert.equal(champ('urgence'), 'haute', '« URGENT » dans l’objet');
+  /* LA DATE EST LA CAUSE DU BOGUE : un champ « date » du jeu tient un jour, ou un jour et une heure à la minute.
+     Gmail donne des millisecondes ; l'ISO complet (« …T10:40:00.000Z ») était refusé ligne après ligne, sans bruit. */
+  assert.match(String(champ('recu_le')), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, 'à la minute, fuseau de l’entreprise');
+  // et le branchement ne dit pas « tout va bien » en n'ayant rien rapporté
+  const vue = app.synchro.lister(p).find((x: { id: string }) => x.id === c.id) as { liens: number; statut: string };
+  assert.equal(vue.statut, 'ok');
+  assert.equal(vue.liens, 2, 'deux fiches liées : le branchement sait ce qu’il a fait entrer');
+});
+
+test('une lecture dont toutes les lignes sont refusées ne s’affiche pas « ok »', async () => {
+  /* L'autre moitié du même bogue : Gmail répondait, le branchement passait au vert, et l'écran restait vide. La
+     raison existait (« n'est pas une date ») mais ne sortait jamais de l'historique. Elle sort maintenant. */
+  const { f } = simuler((a) => {
+    if (a.url.pathname.endsWith('/messages')) return json({ messages: [{ id: 'aa11' }] });
+    return json({ id: 'aa11', labelIds: ['INBOX'], internalDate: 'pas-une-date',
+      payload: { headers: [{ name: 'From', value: 'Kerlann' }, { name: 'Subject', value: 'Bonjour' }] } });
+  });
+  const app = await Application.creer({ exemple: 'pme', fetch: f });
+  const p = app.monde.profil('dirigeante');
+  assert.ok(p);
+  const c = app.synchro.connecter(p, { source: 'gmail', config: { jeton: JETON } });
+  // une correspondance qui envoie l'objet du message dans le champ « date » : toutes les lignes seront refusées
+  app.synchro.modifier(p, c.id, { typeObjet: 'courrier', roles: [], sens: 'lecture', intervalleS: 300, actif: true,
+    mapping: { expediteur: '__nom', objet: 'recu_le' } });
+  await app.synchro.synchroniser(c.id, p);
+  const vue = app.synchro.lister(p).find((x: { id: string }) => x.id === c.id) as { statut: string; message: string | null };
+  assert.equal(vue.statut, 'erreur', 'rien n’est entré : ce n’est pas « ok »');
+  assert.match(String(vue.message), /refusée/, 'la raison se lit, au lieu de rester dans l’historique');
+});

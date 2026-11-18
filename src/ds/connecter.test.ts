@@ -239,12 +239,28 @@ test('Microsoft : le compte professionnel est dit AVANT le clic, et les refus de
   // est donc dit pour eux aussi, avant le clic
   assert.match(app, /votre agenda, votre courrier Outlook professionnel/, 'l’avertissement couvre tout ce que le compte ouvre');
   assert.match(app, /const microsoft = C\.compte\?\.id === 'microsoft' \|\| \['excel365', 'dynamics365', 'businesscentral'\]\.includes\(s\?\.id\)/);
-  assert.match(app, /!connecte && microsoft \? AVERTISSEMENT_MICROSOFT : null/, 'montré avant le clic, pas après le refus');
+  assert.match(app, /!connecte && microsoft \? avertissementMicrosoft\(C\) : null/, 'montré avant le clic, pas après le refus');
+  // devant une boîte mail ou un agenda, l'avertissement se réduit à ce qui concerne : trois phrases sur OneDrive et
+  // SharePoint cachent ce qu'il y a à faire. La ligne du compte professionnel, elle, reste dans les deux cas.
+  assert.match(app, /L’adresse de votre entreprise, celle qui ouvre Microsoft 365\. Un compte personnel/, 'version courte hors Excel');
+  assert.match(app, /\['excel365', 'dynamics365', 'businesscentral'\]\.includes\(C\?\.contenu\?\.source \?\? C\?\.s\?\.id \?\? ''\) \|\| !C\?\.contenu/);
   const relais = lire('src/passerelle/oauth-relais.ts');
   assert.match(relais, /export function conseilMicrosoft\(texte: string\): string \| null/);
   for (const code of ['AADSTS500208', 'AADSTS50020', 'AADSTS65001', 'AADSTS53003', 'AADSTS700016', 'AADSTS650057']) assert.ok(relais.includes(code), code);
   assert.match(relais, /learn\.microsoft\.com/, 'la documentation officielle est citée dans le code');
   assert.doesNotMatch(app, /AADSTS/, 'aucun code technique à l’écran');
+});
+
+test('« Se connecter avec… » est dans le pied : l’action de l’étape ne descend jamais sous la ligne de flottaison', () => {
+  /* Vu en vrai le 18 novembre 2026, Microsoft : l'avertissement du compte professionnel poussait le bouton hors de
+     l'écran, et le pied ne montrait qu'un « Retour ». « Rien ne se passe » — à raison : il n'y avait rien à faire
+     à l'endroit où l'on regarde. Le pied est le seul endroit où l'action d'une étape a le droit d'être. */
+  const app = lire('web/app.js');
+  const pied = app.slice(app.indexOf('function piedConnexion(C)'), app.indexOf('function versRecuperer(C)'));
+  assert.match(pied, /Se connecter avec \$\{nomOutilDe\(C\)\}/, 'le pied porte le « Se connecter avec… »');
+  assert.match(pied, /onclick: \(\) => seConnecterOutil\(C\)/, 'appelé par le clic lui-même : sinon le navigateur bloque l’onglet');
+  const corps = app.slice(app.indexOf('function corpsConnexion(C)'), app.indexOf('function piedConnexion(C)'));
+  assert.doesNotMatch(corps, /seConnecterOutil\(C\) \}, icone\('log-in'\)/, 'une action, un endroit : plus de bouton dans le corps');
 });
 
 test('recommandations : 3 par réponse, tirées du catalogue réel, disponibles, « 1 clic » d’abord', () => {

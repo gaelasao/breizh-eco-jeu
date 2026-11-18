@@ -5798,7 +5798,10 @@ async function rendreCourrier() {
   const videBranchee = () => h('div', { class: 'bz-vide' },
     h('h2', { class: 'bz-vide__titre', texte: 'Aucun courrier pour le moment.' }),
     h('p', { class: 'bz-vide__texte', texte: branchee.statut === 'erreur'
-      ? `Votre boîte ${branchee.nom} est branchée, mais la dernière lecture a échoué.`
+      // lue sans encombre et pourtant vide : ce n'est pas la lecture qui a échoué, ce sont les messages qui ont été refusés à l'entrée
+      ? /refus/.test(String(branchee.message ?? ''))
+        ? `Votre boîte ${branchee.nom} a bien été lue, mais aucun message n’a pu entrer.`
+        : `Votre boîte ${branchee.nom} est branchée, mais la dernière lecture a échoué.`
       : branchee.derniereSynchro
         ? `Votre boîte ${branchee.nom} est branchée et relue, mais aucun message n’en est encore arrivé.`
         : `Votre boîte ${branchee.nom} est branchée. La première lecture n’a pas encore eu lieu.` }),
@@ -8075,8 +8078,17 @@ const SANS_UN_CLIC = Object.freeze({
   },
 });
 
-const AVERTISSEMENT_MICROSOFT = resultatAssistant('attention', 'Il vous faut un compte Microsoft 365 professionnel.', {
-  detail: 'L’adresse de votre entreprise, celle qui ouvre Microsoft 365 (OneDrive Entreprise, SharePoint, votre agenda, votre courrier Outlook professionnel). Un compte personnel (Outlook.com, Hotmail, Live) est refusé par Microsoft dès la page de connexion : Microsoft n’ouvre pas Excel aux classeurs d’un OneDrive personnel. Vos fichiers sont sur un compte personnel ? Importez-les en fichier, section « Sans rien connecter ».',
+/**
+ * LE COMPTE PROFESSIONNEL, DIT AVANT LE CLIC — mais pas de la même longueur pour tout le monde. Le relais passe par
+ * le point d'entrée `organizations` de Microsoft : un compte personnel est refusé dès la page de connexion, quel que
+ * soit l'outil. Il faut donc le dire partout. En revanche, trois phrases sur OneDrive et SharePoint devant quelqu'un
+ * qui branche sa boîte mail, c'est un mur de texte qui cache ce qu'il y a à faire : on ne garde alors que la ligne
+ * qui le concerne.
+ */
+const avertissementMicrosoft = (C) => resultatAssistant('attention', 'Il vous faut un compte Microsoft 365 professionnel.', {
+  detail: ['excel365', 'dynamics365', 'businesscentral'].includes(C?.contenu?.source ?? C?.s?.id ?? '') || !C?.contenu
+    ? 'L’adresse de votre entreprise, celle qui ouvre Microsoft 365 (OneDrive Entreprise, SharePoint, votre agenda, votre courrier Outlook professionnel). Un compte personnel (Outlook.com, Hotmail, Live) est refusé par Microsoft dès la page de connexion : Microsoft n’ouvre pas Excel aux classeurs d’un OneDrive personnel. Vos fichiers sont sur un compte personnel ? Importez-les en fichier, section « Sans rien connecter ».'
+    : 'L’adresse de votre entreprise, celle qui ouvre Microsoft 365. Un compte personnel (Outlook.com, Hotmail, Live) est refusé par Microsoft dès la page de connexion.',
 });
 /**
  * Agenda, boîte de réception : « dans les deux sens » se choisit AVANT la connexion, parce que c'est lui qui décide
@@ -8115,7 +8127,7 @@ function corpsConnexion(C) {
   const nomOutil = nomOutilDe(C);
   const microsoft = C.compte?.id === 'microsoft' || ['excel365', 'dynamics365', 'businesscentral'].includes(s?.id);
   // un compte à plusieurs logiciels : on choisit d'abord lequel, puis on se connecte
-  if (C.compte && !C.s) return [...choixContenu(C), microsoft ? AVERTISSEMENT_MICROSOFT : null];
+  if (C.compte && !C.s) return [...choixContenu(C), microsoft ? avertissementMicrosoft(C) : null];
   if (C.mode === 'oauth' && s.oauth) {
     const connecte = C.oauth?.statut === 'connecte';
     const param = s.oauth.champ ? s.champs.find((ch) => ch.id === s.oauth.champ) : null;
@@ -8123,11 +8135,11 @@ function corpsConnexion(C) {
       C.compte && C.compte.contenus.filter((x) => x.disponible).length > 1 && !connecte
         ? h('p', {}, h('strong', { texte: C.contenu?.libelle ?? '' }), ' dans votre compte ', h('span', { texte: `${C.compte.nom}. ` }),
           h('button', { type: 'button', class: 'bz-bouton bz-bouton--lien', onclick: () => { nettoyerOutil(C); C.s = null; C.contenu = null; C.ferme = false; majOutil(C); } }, 'Changer')) : null,
-      !connecte && microsoft ? AVERTISSEMENT_MICROSOFT : null,
+      !connecte && microsoft ? avertissementMicrosoft(C) : null,
       param && !connecte ? h('div', { class: 'bz-grille-champs' }, champOutil(C, param)) : null,
       !connecte ? choixSensAvantConnexion(C) : null,
+      // le bouton « Se connecter avec… » est dans le pied, toujours visible : ici, seulement ce qu'il va se passer
       !C.oauth ? h('div', { class: 'bz-pile' },
-        h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal bz-bouton--lg', cle: 'outil-oauth', onclick: () => seConnecterOutil(C) }, icone('log-in'), `Se connecter avec ${nomOutil}`)),
         h('p', { class: 'bz-t-petit', texte: `Une page ${nomOutil} s’ouvre dans un nouvel onglet : connectez-vous avec votre compte et acceptez. Votre mot de passe reste chez ${nomOutil}, aucune clé à copier. ${C.droits === 'ecriture' ? `Living Business demandera le droit de lire ET d’écrire, parce que vous l’avez choisi ci-dessus.` : 'Living Business ne demande que le droit de LIRE : rien ne sera modifié chez ' + nomOutil + '.'} Rien ne sera importé tant que vous ne l’aurez pas choisi.` }),
         infoRelais(nomOutil))
         : !connecte ? h('div', { role: 'status' }, resultatAssistant('attente', C.oauth.statut === 'ouverture' ? `Ouverture de la page ${nomOutil}…` : 'Connectez-vous dans l’onglet qui vient de s’ouvrir.', {
@@ -8163,7 +8175,7 @@ function corpsConnexion(C) {
       : h('div', { class: 'bz-pile bz-pile--serre' },
         h('p', { texte: `La connexion en un clic à ${s.nom} arrive. En attendant, deux chemins : une clé à créer dans ${s.nom} (la marche à suivre est juste en dessous), ou un fichier exporté de ${s.nom}. Dans les deux cas, se connecter n’importe rien : vous choisirez ensuite ce que vous voulez récupérer.` }),
         h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', cle: 'outil-vers-fichier', onclick: () => importerFichierALaPlace() }, icone('file-spreadsheet'), 'Importer un fichier à la place'))),
-    microsoft ? AVERTISSEMENT_MICROSOFT : null,
+    microsoft ? avertissementMicrosoft(C) : null,
     s.avance ? h('ol', { class: 'bz-consignes' }, s.etapes.map((e) => h('li', { texte: e })))
       // la marche à suivre est repliée quand elle s'adresse à un informaticien ; ouverte quand c'est LE chemin
       : h('details', { class: 'bz-repli', open: Boolean(sansClic) },
@@ -8197,6 +8209,14 @@ function importerFichierALaPlace() {
 function piedConnexion(C) {
   const A = E.assistant;
   if (C.compte && !C.s) return null;
+  /* UNE ACTION, UN ENDROIT. « Se connecter avec… » vivait au milieu du corps. Pour Microsoft, l'avertissement du
+     compte professionnel le poussait sous la ligne de flottaison : l'écran ne montrait plus qu'un « Retour », et
+     il n'y avait rien à faire. Vu en vrai le 18 novembre 2026 : « je vais dans mes connexions pour Microsoft, rien
+     ne se passe ». L'action de l'étape est désormais là où sont toutes les autres, et elle ne bouge plus.
+     Le clic appelle `seConnecterOutil` DIRECTEMENT : c'est ce qui autorise le navigateur à ouvrir l'onglet. */
+  if (C.mode === 'oauth' && C.s.oauth && !C.oauth) {
+    return h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'outil-oauth', onclick: () => seConnecterOutil(C) }, icone('log-in'), `Se connecter avec ${nomOutilDe(C)}`);
+  }
   const pret = C.mode === 'cle' || !C.s.oauth || C.oauth?.statut === 'connecte';
   if (!pret) return null;
   return boutonPrincipal('Continuer', () => versRecuperer(C), { occupe: A.envoi, enCours: 'Vérification…' });

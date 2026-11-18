@@ -1055,17 +1055,24 @@ export class Synchro {
     if (this.#enCours.has(c.id)) return this.#vue(c);
     this.#enCours.add(c.id);
     try {
+      let bilan: { crees: number; maj: number; rejets: number; raison: string } | null = null;
       if (c.sens !== 'ecriture' && ADAPTATEURS[c.source].lecture === 'appel') {
         const a = ADAPTATEURS[c.source];
         // précision de l'adaptateur (ex. lequel des tableaux d'une base Notion est lu) : notée dans l'historique du branchement
         const avis: string[] = [];
         const enregistrements = await this.#avecSecret(c.config, this.#secret(c), { ...this.#contexte(c), avis: (texte) => { avis.push(texte); } }, (cfg, s, ctx) => a.lire(cfg, s, this.#f, ctx));
         const r = this.#appliquer(c, enregistrements);
+        bilan = { crees: r.crees, maj: r.maj, rejets: r.totalRejets, raison: r.rejets[0]?.erreurs[0] ?? 'ligne refusée' };
         this.#noter(c, 'entrant', r.crees, r.maj, r.totalRejets, `${enregistrements.length} lu(s)${r.totalRejets ? ` · ${r.rejets[0]?.erreurs[0] ?? ''}` : ''}${avis.length ? ` · ${avis.at(-1)}` : ''}`);
       }
       if (c.sens !== 'lecture') await this.#pousser(c);
-      c.statut = 'ok';
-      c.message = null;
+      /* CE QUI NE SE VOIT PAS N'EXISTE PAS. L'outil a répondu, donc la synchronisation a « marché » — et pourtant rien
+         n'est entré : chaque ligne a été refusée (une date que le champ ne sait pas tenir, un choix hors liste). Le
+         branchement s'affichait vert, l'écran restait vide, et personne ne pouvait savoir pourquoi. Une lecture dont
+         TOUTES les lignes sont refusées est une erreur ; quelques-unes refusées se disent quand même, sans alarmer. */
+      const refus = bilan?.rejets ? `${pluriel(bilan.rejets, 'ligne refusée', 'lignes refusées')} : ${bilan.raison}` : null;
+      c.statut = bilan && bilan.rejets && !bilan.crees && !bilan.maj ? 'erreur' : 'ok';
+      c.message = refus;
     } catch (e) {
       c.statut = 'erreur';
       c.message = e instanceof ErreurSortante || e instanceof ErreurApi ? e.message : 'Synchronisation impossible.';

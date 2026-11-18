@@ -76,7 +76,8 @@ const lienOutil = (x: unknown, hotes: readonly string[]): string => {
  * « 2026-11-20 » pour une journée entière. Une date illisible devient vide : le jeu n'invente jamais une valeur.
  */
 export function dateJeu(iso: unknown, journee = false): string {
-  const t = typeof iso === 'string' && iso.length <= 60 ? Date.parse(iso) : Number.NaN;
+  // un instant peut arriver en millisecondes (Gmail donne `internalDate`) : c'est la même date, écrite autrement
+  const t = typeof iso === 'number' ? iso : typeof iso === 'string' && iso.length <= 60 ? Date.parse(iso) : Number.NaN;
   if (!Number.isFinite(t)) return '';
   if (journee) return new Date(t).toISOString().slice(0, 10);
   const d = new Date(t);

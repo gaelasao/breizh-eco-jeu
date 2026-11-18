@@ -25,7 +25,7 @@
  *   POST /me/messages/{id}/move (destinationId, nom de dossier connu `archive`).
  */
 import type { Adaptateur, Enregistrement, ValeurSortante } from './sources.ts';
-import { pageSuivante } from './sources-agenda.ts';
+import { dateJeu, pageSuivante } from './sources-agenda.ts';
 import { appeler, ErreurSortante, type Recuperateur } from './sortant.ts';
 import { ACTION_DU_BAC, bacDe, urgenceDe } from './tri-courrier.ts';
 
@@ -55,11 +55,19 @@ const jeton = (secret: string | null, nom: 'Google' | 'Microsoft'): string => {
 };
 const bearer = (secret: string | null, nom: 'Google' | 'Microsoft') => ({ authorization: `Bearer ${jeton(secret, nom)}` });
 
-/** Date d'un message telle que le jeu la garde (ISO 8601) ; vide si elle est illisible. */
+/**
+ * Date d'un message telle que le jeu la garde : « 2026-11-20T10:40 », à la minute et dans le fuseau de l'entreprise,
+ * comme pour un rendez-vous. Vide si elle est illisible.
+ *
+ * POURQUOI PAS L'ISO COMPLET. Un champ « date » du jeu tient un jour, ou un jour et une heure à la minute — c'est
+ * tout ce que `convertir()` accepte, et c'est ce qui se lit à l'écran. Un instant complet (« …T10:40:00.000Z ») était
+ * refusé ligne après ligne : la boîte était branchée, relue, sans erreur visible, et vide. Un connecteur qui écrit
+ * une valeur que le champ ne sait pas tenir ne rate pas une ligne, il rate tout.
+ */
 export function dateRecu(x: unknown): string {
-  const t = typeof x === 'string' && x.length <= 60 ? Date.parse(x) : typeof x === 'number' ? x : Number.NaN;
-  const n = typeof x === 'string' && /^\d{10,16}$/.test(x) ? Number(x) : t;
-  return Number.isFinite(n) ? new Date(n).toISOString() : '';
+  // Gmail donne des millisecondes (`internalDate`), Microsoft une date ISO : les deux mènent au même instant
+  const brut = typeof x === 'string' && /^\d{10,16}$/.test(x.trim()) ? Number(x.trim()) : x;
+  return dateJeu(brut);
 }
 
 /**
