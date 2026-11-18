@@ -5871,7 +5871,10 @@ async function rendreCourrier() {
 
   // les boîtes que cette entreprise peut brancher et n'a pas encore branchées (un compte en attente de choix compte
   // pour non branché : il n'amène aucun message tant que personne n'a dit ce qu'il voulait)
-  const aBrancher = boites.filter((b) => !(E.branchementsCourrier ?? []).some((c) => c.source === b.id && !c.aChoisir));
+  // tant que la liste des branchements n'est pas revenue, on ne propose RIEN : proposer de brancher une boîte déjà
+  // branchée, même un instant, c'est exactement le genre de petit mensonge d'écran qu'on passe son temps à corriger
+  const aBrancher = Array.isArray(E.branchementsCourrier)
+    ? boites.filter((b) => !E.branchementsCourrier.some((c) => c.source === b.id && !c.aChoisir)) : [];
   const filtre = C.bac !== 'tous' || C.pour !== 'tous' || C.recherche.trim();
   remplir($('#page'), h('div', { class: 'bz-ecran bz-courrier' },
     h('div', { class: 'bz-liste__tete' },

@@ -327,7 +327,8 @@ test('écrans vides : deux lignes (ce qui manque, ce que l’écran montrera) et
   assert.equal(app.match(/boutonAjouter\('bz-bouton--secondaire'\)\) : null\)/g)?.length, 1, 'un seul « Ajouter un courrier » secondaire');
   /* Une boîte qui reste à brancher se propose depuis l'écran Courrier MÊME QUAND il est plein : sinon le seul
      chemin pour en brancher une deuxième (Outlook à côté de Gmail) disparaît dès que le premier message arrive. */
-  assert.match(app, /const aBrancher = boites\.filter\(\(b\) => !\(E\.branchementsCourrier \?\? \[\]\)\.some\(\(c\) => c\.source === b\.id && !c\.aChoisir\)\)/);
+  // et tant que la liste des branchements n'est pas revenue, on ne propose rien : jamais « brancher » ce qui l'est déjà
+  assert.match(app, /const aBrancher = Array\.isArray\(E\.branchementsCourrier\)\s*\n\s*\? boites\.filter\(\(b\) => !E\.branchementsCourrier\.some\(\(c\) => c\.source === b\.id && !c\.aChoisir\)\) : \[\];/);
   assert.match(app, /aBrancher\.map\(\(b\) => h\('button'[^)]*cle: `courrier-brancher-\$\{b\.id\}`/, '« Brancher… » reste atteignable');
   assert.match(app, /videRubrique\('satisfaction', \{/);
   assert.match(app, /colonnes\.every\(\(\[, , l\]\) => !l\.length\) \? videRubrique\('pipeline', \{ action: boutonConnecter\(\) \}\)/);
