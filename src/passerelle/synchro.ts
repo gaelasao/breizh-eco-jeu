@@ -993,17 +993,18 @@ export class Synchro {
    * On part de la FICHE, pas du branchement : à l'écran, on répond à un courrier, on ne choisit pas un connecteur.
    * Le branchement qui l'a fait entrer se retrouve par ses liens, comme pour l'effacement.
    */
-  async brouillonPourObjet(p: Profil, objId: string, texte: unknown): Promise<{ lien: string; outil: string }> {
+  async brouillonPourObjet(p: Profil, objId: string, texte: unknown, envoyer = false): Promise<{ lien: string; outil: string; envoye: boolean }> {
     this.#admin(p);
     for (const c of this.#connecteurs.values()) {
       const externeId = Object.entries(c.liens).find(([, o]) => o === objId)?.[0];
       if (!externeId) continue;
       const a = ADAPTATEURS[c.source];
-      if (!a.brouillon) throw new ErreurApi(409, 'brouillon_impossible', `${c.nom} ne sait pas préparer de réponse.`);
+      const faire = envoyer ? a.envoyer : a.brouillon;
+      if (!faire) throw new ErreurApi(409, 'reponse_impossible', `${c.nom} ne sait pas ${envoyer ? 'envoyer de réponse' : 'préparer de réponse'}.`);
       // un branchement en lecture seule n'a pas demandé le droit d'écrire : il ne l'exercera pas en douce
-      if (c.sens === 'lecture') throw new ErreurApi(409, 'lecture_seule', `${c.nom} est branché en lecture seule : repassez-le en « dans les deux sens » pour préparer des réponses.`);
-      const r = await this.#avecSecret(c.config, this.#secret(c), this.#contexte(c), (cfg, secret) => a.brouillon!(cfg, secret, externeId, String(texte ?? ''), this.#f));
-      return { ...r, outil: c.nom };
+      if (c.sens === 'lecture') throw new ErreurApi(409, 'lecture_seule', `${c.nom} est branché en lecture seule : repassez-le en « dans les deux sens » pour répondre depuis ici.`);
+      const r = await this.#avecSecret(c.config, this.#secret(c), this.#contexte(c), (cfg, secret) => faire.call(a, cfg, secret, externeId, String(texte ?? ''), this.#f));
+      return { ...r, outil: c.nom, envoye: envoyer };
     }
     throw new ErreurApi(404, 'courrier_sans_outil', 'Ce courrier ne vient pas d’une boîte branchée : répondez depuis votre messagerie.');
   }

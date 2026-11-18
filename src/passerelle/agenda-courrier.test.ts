@@ -558,3 +558,43 @@ test('brouillon Outlook : Microsoft prépare la réponse, le jeu n’écrit que 
   assert.ok(!appels.some((a) => /send/i.test(a.url.pathname)), 'RIEN n’est envoyé');
   assert.match(r.lien, /outlook\.office\.com/);
 });
+
+test('envoyer : même message que le brouillon, et il part vraiment', async () => {
+  /* Brouillon et envoi passent par la MÊME fabrique : si les deux divergeaient, on enverrait un jour autre chose
+     que ce qui a été relu. L’essai compare les deux octet par octet. */
+  const simulerGmail = () => simuler((a) => {
+    if (a.url.pathname.endsWith('/messages/aa11')) return json({ id: 'aa11', threadId: '19a2f8c1b0',
+      payload: { headers: [{ name: 'From', value: 'Kerlann <kerlann@exemple.fr>' }, { name: 'Subject', value: 'Facture F-041' }, { name: 'Message-ID', value: '<abc@exemple.fr>' }] } });
+    if (a.url.pathname.endsWith('/drafts')) return json({ id: '19a2f8c1cc' });
+    if (a.url.pathname.endsWith('/messages/send')) return json({ id: '19a2f8c1ee' });
+    return json({});
+  });
+  const b = simulerGmail();
+  await gmail.brouillon!({}, 'jeton', 'aa11', 'Bonjour, c’est noté.', b.f);
+  const e = simulerGmail();
+  const r = await gmail.envoyer!({}, 'jeton', 'aa11', 'Bonjour, c’est noté.', e.f);
+  const msgBrouillon = (b.appels.find((a) => a.url.pathname.endsWith('/drafts'))?.corps as { message: unknown }).message;
+  const msgEnvoi = e.appels.find((a) => a.url.pathname.endsWith('/messages/send'))?.corps;
+  assert.deepEqual(msgEnvoi, msgBrouillon, 'on envoie exactement ce qu’on aurait préparé');
+  assert.match(r.lien, /#sent\/19a2f8c1ee/);
+  // et l’envoi ne passe PAS par les brouillons : c’est un envoi, pas un dépôt
+  assert.ok(!e.appels.some((a) => a.url.pathname.endsWith('/drafts')));
+});
+
+test('envoyer chez Outlook : le brouillon part, et un droit manquant se dit en français', async () => {
+  const faire = (statutSend: number) => simuler((a) => {
+    if (a.url.pathname.endsWith('/createReply')) return json({ id: 'AAbb11', webLink: 'https://outlook.office.com/mail/deeplink/AAbb11' });
+    if (a.url.pathname.endsWith('/send')) return statutSend === 200 ? new Response(null, { status: 202 }) : json({ error: { message: 'Access denied' } }, statutSend);
+    return json({});
+  });
+  const ok = faire(200);
+  await outlook.envoyer!({}, 'jeton', 'AAaa22', 'Bien reçu.', ok.f);
+  const envoi = ok.appels.find((a) => a.url.pathname.endsWith('/send'));
+  assert.ok(envoi && envoi.methode === 'POST', 'le brouillon créé est envoyé');
+  assert.ok(ok.appels.some((a) => a.methode === 'PATCH'), 'le texte est écrit avant l’envoi');
+  /* Une boîte branchée avant que Mail.Send soit demandé : Microsoft refuse. Ce n’est pas une panne, c’est un droit
+     qui manque — et la réponse est déjà en brouillon. L’erreur doit dire les deux, et quoi faire. */
+  const refus = faire(403);
+  await assert.rejects(outlook.envoyer!({}, 'jeton', 'AAaa22', 'Bien reçu.', refus.f),
+    (e: unknown) => { const m = String((e as Error).message); return /gardée en brouillon/.test(m) && /Se reconnecter/.test(m); });
+});

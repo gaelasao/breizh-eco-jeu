@@ -154,6 +154,40 @@ const corpsReponse = (t: unknown): string => {
   return v.slice(0, MAX_BROUILLON);
 };
 
+/**
+ * LA RÉPONSE, FABRIQUÉE UNE SEULE FOIS. Brouillon et envoi partent du même message : même fil, même objet, même
+ * destinataire. S'ils divergeaient, on relâcherait un jour un envoi différent de ce qui a été relu — et c'est
+ * précisément ce qu'il ne faut pas.
+ *
+ * L'adresse du destinataire et le fil sont relus CHEZ GOOGLE au moment d'écrire, à partir de l'identifiant du
+ * message : la fiche de courrier ne garde qu'un nom, et l'adresse ne fait que passer.
+ */
+async function reponseGmail(secret: string | null, externeId: string, texteReponse: string, f: Recuperateur) {
+  if (!ID_GMAIL.test(externeId)) throw new ErreurSortante('Ce courrier ne vient pas de Gmail.');
+  const corps = corpsReponse(texteReponse);
+  const entetes = bearer(secret, 'Google');
+  const d = new URL(`${GMAIL}/messages/${encodeURIComponent(externeId)}`);
+  d.searchParams.set('format', 'metadata');
+  for (const h of ENTETES_GMAIL) d.searchParams.append('metadataHeaders', h);
+  const { donnees } = await appeler(f, d, { entetes });
+  const x = estObj(donnees) ? donnees : {};
+  const de = enteteGmail(x.payload, 'From');
+  if (!de) throw new ErreurSortante('Gmail n’a pas rendu l’expéditeur de ce message : réponse impossible.');
+  const messageId = enteteGmail(x.payload, 'Message-ID');
+  const brut = [
+    entete('To', de),
+    entete('Subject', objetReponse(enteteGmail(x.payload, 'Subject'))),
+    ...(messageId ? [entete('In-Reply-To', messageId), entete('References', messageId)] : []),
+    'Content-Type: text/plain; charset=UTF-8',
+    'MIME-Version: 1.0',
+    '',
+    corps,
+  ].join('\r\n');
+  const message: Record<string, unknown> = { raw: base64url(brut) };
+  if (typeof x.threadId === 'string' && ID_GMAIL.test(x.threadId)) message.threadId = x.threadId;
+  return { entetes, message };
+}
+
 /** Adresse web vérifiée (bouton « Ouvrir dans… ») ; vide si elle ne mène pas à l'outil attendu. */
 function lienOutil(x: unknown, hotes: readonly string[]): string {
   if (typeof x !== 'string' || x.length > 2000) return '';
@@ -267,36 +301,43 @@ export const gmail: Adaptateur = {
    * 18 novembre 2026). Rien n'est envoyé : `drafts.create` dépose, `drafts.send` enverrait, et il n'est pas appelé.
    */
   async brouillon(cfg, secret, externeId, texteReponse, f) {
-    if (!ID_GMAIL.test(externeId)) throw new ErreurSortante('Ce courrier ne vient pas de Gmail.');
-    const corps = corpsReponse(texteReponse);
-    const entetes = bearer(secret, 'Google');
-    // l'adresse et le fil sont relus maintenant, chez Google : ils ne sont gardés nulle part ici
-    const d = new URL(`${GMAIL}/messages/${encodeURIComponent(externeId)}`);
-    d.searchParams.set('format', 'metadata');
-    for (const h of ENTETES_GMAIL) d.searchParams.append('metadataHeaders', h);
-    const { donnees } = await appeler(f, d, { entetes });
-    const x = estObj(donnees) ? donnees : {};
-    const de = enteteGmail(x.payload, 'From');
-    if (!de) throw new ErreurSortante('Gmail n’a pas rendu l’expéditeur de ce message : brouillon impossible.');
-    const messageId = enteteGmail(x.payload, 'Message-ID');
-    const brut = [
-      entete('To', de),
-      entete('Subject', objetReponse(enteteGmail(x.payload, 'Subject'))),
-      ...(messageId ? [entete('In-Reply-To', messageId), entete('References', messageId)] : []),
-      'Content-Type: text/plain; charset=UTF-8',
-      'MIME-Version: 1.0',
-      '',
-      corps,
-    ].join('\r\n');
-    const message: Record<string, unknown> = { raw: base64url(brut) };
-    if (typeof x.threadId === 'string' && ID_GMAIL.test(x.threadId)) message.threadId = x.threadId;
+    const { entetes, message } = await reponseGmail(secret, externeId, texteReponse, f);
     const { donnees: cree } = await appeler(f, new URL(`${GMAIL}/drafts`), { methode: 'POST', entetes, corps: { message } });
     const id = estObj(cree) && typeof cree.id === 'string' ? cree.id : '';
     return { lien: id && ID_GMAIL.test(id) ? `https://mail.google.com/mail/u/0/#drafts?compose=${encodeURIComponent(id)}` : 'https://mail.google.com/mail/u/0/#drafts' };
   },
+  /**
+   * ENVOYER, pour de bon. Le message est fabriqué exactement comme le brouillon — même fonction, même fil, même
+   * destinataire relu chez Google — et part par `users.messages.send`, que `gmail.modify` autorise déjà
+   * (documentation lue le 18 novembre 2026). Aucun droit nouveau à demander chez Google : c'est l'écran, et lui
+   * seul, qui fait la différence entre préparer et envoyer. Il demande confirmation avant.
+   */
+  async envoyer(cfg, secret, externeId, texteReponse, f) {
+    const { entetes, message } = await reponseGmail(secret, externeId, texteReponse, f);
+    const { donnees: parti } = await appeler(f, new URL(`${GMAIL}/messages/send`), { methode: 'POST', entetes, corps: message });
+    const id = estObj(parti) && typeof parti.id === 'string' && ID_GMAIL.test(parti.id) ? parti.id : '';
+    return { lien: id ? `https://mail.google.com/mail/u/0/#sent/${encodeURIComponent(id)}` : 'https://mail.google.com/mail/u/0/#sent' };
+  },
 };
 
 // ---------------------------------------------------------------- boîte Outlook (Microsoft 365)
+
+/**
+ * LA RÉPONSE OUTLOOK, FABRIQUÉE UNE SEULE FOIS, brouillon et envoi confondus. `createReply` laisse Microsoft
+ * préparer le fil, le destinataire et l'objet : l'adresse ne passe donc jamais par ici. Il ne reste qu'à écrire.
+ */
+async function reponseOutlook(secret: string | null, externeId: string, texteReponse: string, f: Recuperateur) {
+  if (!ID_GRAPH.test(externeId)) throw new ErreurSortante('Ce courrier ne vient pas d’Outlook.');
+  const corps = corpsReponse(texteReponse);
+  const entetes = bearer(secret, 'Microsoft');
+  const { donnees } = await appeler(f, new URL(`${GRAPH}/me/messages/${encodeURIComponent(externeId)}/createReply`), { methode: 'POST', entetes, corps: {} });
+  const d = estObj(donnees) ? donnees : {};
+  const id = typeof d.id === 'string' && ID_GRAPH.test(d.id) ? d.id : '';
+  if (!id) throw new ErreurSortante('Outlook n’a pas rendu le brouillon qu’il vient de créer.');
+  await appeler(f, new URL(`${GRAPH}/me/messages/${encodeURIComponent(id)}`), { methode: 'PATCH', entetes, corps: { body: { contentType: 'Text', content: corps } } });
+  return { id, lien: lienOutil(d.webLink, ['outlook.office365.com', 'outlook.office.com', 'outlook.com']) };
+}
+
 
 const ID_GRAPH = /^[A-Za-z0-9_=\-/+%.]{1,1800}$/;
 
@@ -359,15 +400,29 @@ export const outlook: Adaptateur = {
    * enverrait. Le brouillon attend dans Outlook que la personne le relise.
    */
   async brouillon(cfg, secret, externeId, texteReponse, f) {
-    if (!ID_GRAPH.test(externeId)) throw new ErreurSortante('Ce courrier ne vient pas d’Outlook.');
-    const corps = corpsReponse(texteReponse);
+    const { lien } = await reponseOutlook(secret, externeId, texteReponse, f);
+    return { lien: lien || 'https://outlook.office.com/mail/drafts' };
+  },
+  /**
+   * ENVOYER, pour de bon. Le brouillon est fabriqué exactement comme ci-dessus, puis envoyé par
+   * `POST /me/messages/{id}/send`, qui n'envoie qu'un brouillon existant et le range dans « Éléments envoyés »
+   * (documentation lue le 18 novembre 2026). Ce dernier appel demande `Mail.Send`, que `Mail.ReadWrite` ne couvre
+   * pas : une boîte branchée avant que ce droit soit demandé échoue ici, et il faut la rebrancher. Le message
+   * reste alors en brouillon chez Outlook — rien n'est perdu, et c'est ce que dit l'erreur.
+   */
+  async envoyer(cfg, secret, externeId, texteReponse, f) {
+    const { id, lien } = await reponseOutlook(secret, externeId, texteReponse, f);
     const entetes = bearer(secret, 'Microsoft');
-    const { donnees } = await appeler(f, new URL(`${GRAPH}/me/messages/${encodeURIComponent(externeId)}/createReply`), { methode: 'POST', entetes, corps: {} });
-    const d = estObj(donnees) ? donnees : {};
-    const id = typeof d.id === 'string' && ID_GRAPH.test(d.id) ? d.id : '';
-    if (!id) throw new ErreurSortante('Outlook n’a pas rendu le brouillon qu’il vient de créer.');
-    await appeler(f, new URL(`${GRAPH}/me/messages/${encodeURIComponent(id)}`), { methode: 'PATCH', entetes, corps: { body: { contentType: 'Text', content: corps } } });
-    return { lien: lienOutil(d.webLink, ['outlook.office365.com', 'outlook.office.com', 'outlook.com']) || 'https://outlook.office.com/mail/drafts' };
+    try {
+      await appeler(f, new URL(`${GRAPH}/me/messages/${encodeURIComponent(id)}/send`), { methode: 'POST', entetes, corps: {} });
+    } catch (e) {
+      const statut = e instanceof ErreurSortante ? e.statut : 0;
+      if (statut === 401 || statut === 403) {
+        throw new ErreurSortante('Microsoft refuse l’envoi : cette boîte n’a pas le droit d’envoyer. Votre réponse est gardée en brouillon dans Outlook — rien n’est perdu, vous pouvez l’envoyer de là. Pour envoyer d’ici : rebranchez la boîte (Réglages → Outils branchés → « Se reconnecter »), en acceptant l’envoi. Si le refus revient, c’est que ce droit n’est pas encore ouvert sur votre Breizhcosystem.', statut);
+      }
+      throw e;
+    }
+    return { lien: lien || 'https://outlook.office.com/mail/sentitems' };
   },
 };
 

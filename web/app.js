@@ -5668,29 +5668,41 @@ async function repondreCourrier(o, l) {
   const zone = h('textarea', { id: 'courrier-reponse', class: 'bz-champ__saisie', rows: '7', maxlength: '10000',
     placeholder: 'Bonjour,\n\n', 'aria-describedby': 'courrier-reponse-aide' });
   const erreur = h('p', { class: 'bz-champ__erreur', role: 'alert', hidden: true });
-  const envoyer = h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal' }, icone('reply'), `Préparer dans ${nomOutil}`);
+  /* DEUX BOUTONS, ET L'ORDRE N'EST PAS INNOCENT. « Préparer le brouillon » est l'action principale : se tromper
+     coûte alors un brouillon à jeter. « Envoyer » est à côté, en second, et passe par une confirmation qui dit
+     à qui le message part et qu'on ne le rattrape pas. Un message envoyé par erreur, lui, ne se défait pas. */
+  const preparer = h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal' }, icone('reply'), 'Préparer le brouillon');
+  const partir = h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire' }, icone('send'), 'Envoyer…');
   const d = fenetre({ titre: `Répondre à ${l.expediteur}`, taille: 'md', corps: [
     h('p', { class: 'bz-t-petit bz-texte-2', texte: `Objet : ${l.objet}` }),
     h('div', { class: 'bz-champ' },
       h('label', { class: 'bz-champ__libelle', for: 'courrier-reponse', texte: 'Votre réponse' }), zone,
       h('p', { class: 'bz-t-petit bz-texte-2', id: 'courrier-reponse-aide',
-        texte: `Le brouillon est déposé dans ${nomOutil}, dans le fil de ce message. RIEN n’est envoyé : vous le relisez et vous l’envoyez vous-même.` })),
+        texte: `Le brouillon est déposé dans ${nomOutil}, dans le fil de ce message : vous le relisez et vous l’envoyez vous-même. « Envoyer » l’envoie d’ici, après confirmation.` })),
     erreur,
-  ], pied: [h('button', { type: 'button', 'data-ferme': 'non', class: 'bz-bouton bz-bouton--secondaire' }, 'Annuler'), envoyer] });
-  envoyer.onclick = async () => {
+  ], pied: [h('button', { type: 'button', 'data-ferme': 'non', class: 'bz-bouton bz-bouton--secondaire' }, 'Annuler'), partir, preparer] });
+  const faire = async (envoi) => {
     const texte = zone.value.trim();
-    if (!texte) { erreur.hidden = false; erreur.textContent = 'Écrivez votre réponse avant de préparer le brouillon.'; zone.focus(); return; }
-    envoyer.setAttribute('aria-busy', 'true');
+    if (!texte) { erreur.hidden = false; erreur.textContent = 'Écrivez votre réponse avant de continuer.'; zone.focus(); return; }
+    if (envoi && !(await confirmerDialogue({
+      titre: `Envoyer à ${l.expediteur} ?`, danger: true, confirmer: 'Envoyer', annuler: 'Revenir au texte',
+      texte: `Le message part tout de suite depuis votre boîte ${nomOutil}, en réponse à « ${l.objet} ». Un message envoyé ne se rattrape pas. Pour le relire avant, choisissez plutôt « Préparer le brouillon ».`,
+    }))) return;
+    const bouton = envoi ? partir : preparer;
+    bouton.setAttribute('aria-busy', 'true');
+    erreur.hidden = true;
     try {
-      const r = await api('POST', `/courrier/${encodeURIComponent(o.id)}/brouillon`, { texte });
+      const r = await api('POST', `/courrier/${encodeURIComponent(o.id)}/${envoi ? 'envoi' : 'brouillon'}`, envoi ? { texte, confirme: true } : { texte });
       d.close();
-      informer(`Brouillon prêt dans ${r.outil}. Rien n’a été envoyé.`, 'ok',
-        r.lien ? { libelle: 'Ouvrir le brouillon', faire: () => window.open(r.lien, '_blank', 'noopener') } : null);
+      informer(envoi ? `Réponse envoyée à ${l.expediteur} depuis ${r.outil}.` : `Brouillon prêt dans ${r.outil}. Rien n’a été envoyé.`, 'ok',
+        r.lien ? { libelle: envoi ? 'Voir le message envoyé' : 'Ouvrir le brouillon', faire: () => window.open(r.lien, '_blank', 'noopener') } : null);
     } catch (e) {
       if (!e.session) { erreur.hidden = false; erreur.textContent = e.message; }
-      envoyer.removeAttribute('aria-busy');
+      bouton.removeAttribute('aria-busy');
     }
   };
+  preparer.onclick = () => faire(false);
+  partir.onclick = () => faire(true);
 }
 
 /** Balayage d'une ligne au toucher (2.5.7 : toujours doublé du menu « ⋯ ») : « Traité » à droite, « Déléguer » à gauche. */
@@ -8200,7 +8212,11 @@ function corpsConnexion(C) {
         h('p', { class: 'bz-t-petit', texte: `Une page ${nomOutil} s’ouvre dans un nouvel onglet : connectez-vous avec votre compte et acceptez. Votre mot de passe reste chez ${nomOutil}, aucune clé à copier. ${C.droits === 'ecriture' ? `Living Business demandera le droit de lire ET d’écrire, parce que vous l’avez choisi ci-dessus.` : 'Living Business ne demande que le droit de LIRE : rien ne sera modifié chez ' + nomOutil + '.'} Rien ne sera importé tant que vous ne l’aurez pas choisi.` }),
         infoRelais(nomOutil))
         : !connecte ? h('div', { role: 'status' }, resultatAssistant('attente', C.oauth.statut === 'ouverture' ? `Ouverture de la page ${nomOutil}…` : 'Connectez-vous dans l’onglet qui vient de s’ouvrir.', {
-          detail: C.oauth.verification ? 'Avant d’accepter, Breizhcosystem vous montre le code de la demande : il doit être identique à celui-ci. Sinon, refusez : quelqu’un d’autre a lancé cette connexion. Cette fenêtre se met à jour toute seule ensuite.' : 'Cette fenêtre se met à jour toute seule dès que vous avez accepté.',
+          /* Si l'outil affiche une erreur sur SA page, le jeu ne la voit jamais : rien ne lui revient, et cette
+             fenêtre attendrait dix minutes sans rien dire. On dit donc d'avance quoi faire — relancer d'ici, et
+             surtout ne pas recharger la page de l'outil : une demande de connexion ne sert qu'une fois, et la
+             recharger en refait une avec des paramètres déjà consommés, que l'outil refuse. */
+          detail: `${C.oauth.verification ? 'Avant d’accepter, Breizhcosystem vous montre le code de la demande : il doit être identique à celui-ci. Sinon, refusez : quelqu’un d’autre a lancé cette connexion. Cette fenêtre se met à jour toute seule ensuite.' : 'Cette fenêtre se met à jour toute seule dès que vous avez accepté.'} Si ${nomOutil} affiche une erreur au lieu de la connexion, revenez ici et relancez : la page de ${nomOutil} ne sert qu’une fois, la recharger ne marche jamais.`,
           actions: h('div', { class: 'bz-pile' }, C.oauth.verification ? h('p', { class: 'bz-code-secours bz-t-identifiant', 'data-brut': '', 'aria-label': `Code de la demande : ${C.oauth.verification.split('').join(' ')}`, texte: C.oauth.verification }) : null, h('div', { class: 'bz-groupe-boutons' },
             C.oauth.url ? h('a', { class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', href: C.oauth.url, target: '_blank', rel: 'noopener noreferrer' }, C.oauth.ouvert ? 'Rouvrir la page' : `Ouvrir la page ${nomOutil}`, icone('external-link', { taille: 'sm' })) : null,
             h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', onclick: () => { arreterOAuth(C); C.oauth = null; majOutil(C); } }, 'Annuler la connexion'))) }))

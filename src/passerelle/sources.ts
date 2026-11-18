@@ -85,6 +85,12 @@ export interface Adaptateur {
    * Rend l'adresse où le relire. `externeId` est le message auquel on répond.
    */
   brouillon?(cfg: Readonly<Record<string, string>>, secret: string | null, externeId: string, texte: string, f: Recuperateur): Promise<{ lien: string }>;
+  /**
+   * ENVOYER la réponse, pour de bon. Irréversible : un message parti ne se rattrape pas. L'écran demande donc
+   * confirmation, et le brouillon reste le chemin par défaut — celui-ci est l'exception qu'on choisit.
+   * Demande un droit que `brouillon` ne demande pas (chez Microsoft) : un branchement qui ne l'a pas échoue net.
+   */
+  envoyer?(cfg: Readonly<Record<string, string>>, secret: string | null, externeId: string, texte: string, f: Recuperateur): Promise<{ lien: string }>;
 }
 
 // ---------------------------------------------------------------- outils communs
