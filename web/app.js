@@ -5758,8 +5758,12 @@ async function rendreCourrier() {
   const m = E.monde;
   const C = (E.courrier ??= { bac: 'tous', pour: 'tous', traites: false, recherche: '', tri: { texte: '', resultat: null, erreur: null } });
   const objets = new Map(m.objets.filter((o) => o.type === 'courrier' && dansFiltre(o)).map((o) => [o.id, o]));
-  // écran vide : on demande l'état des branchements une fois, pour savoir si une boîte est déjà là
-  if (!objets.size && E.branchementsCourrier === undefined && m.profil.peutAdministrer) {
+  /* L'état des branchements, demandé une fois. Il ne servait qu'à l'écran VIDE (« votre boîte est branchée mais
+     rien n'est arrivé »), et la condition s'en souvenait : `!objets.size`. Puis il a servi aussi à savoir quelle
+     boîte reste à brancher — une question qui se pose surtout quand l'écran est PLEIN. Résultat, vu en vrai le
+     18 novembre 2026 : du courrier Gmail partout, Outlook jamais branché, et aucun bouton pour le brancher, parce
+     que la liste n'avait jamais été demandée. On la demande maintenant dans les deux cas. */
+  if (E.branchementsCourrier === undefined && m.profil.peutAdministrer) {
     E.branchementsCourrier = null;
     api('GET', '/synchro').then((l) => { E.branchementsCourrier = l; if (E.vue === 'courrier') rendreCourrier(); }).catch(() => { E.branchementsCourrier = []; });
   }
