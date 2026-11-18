@@ -176,7 +176,11 @@
   }
   .bz-bouton:hover { background: var(--bouton-fond-survol); }
   .bz-bouton:active { scale: 0.98; background: var(--bouton-fond-presse); }
-  .bz-bouton--principal { --bouton-fond: var(--bz-marque); --bouton-fond-survol: var(--bz-marque-survol); --bouton-fond-presse: var(--bz-marque-survol); --bouton-texte: var(--bz-sur-marque); }
+  /* L'ACTION PREND LA COULEUR VIVE. Le système avait déjà un ajonc à 0,165 de chroma — et le dépensait en
+     trophées, badges et barres d'XP, pendant que CHAQUE action portait l'iroise à 0,09, la plus terne de la
+     palette. D'où une interface où rien ne ressort : ce n'était pas un manque de couleur, c'était un mauvais
+     destinataire. Le couple accent / sur-accent est vérifié à 4,5:1 dans les deux thèmes (ds.test.ts). */
+  .bz-bouton--principal { --bouton-fond: var(--bz-accent); --bouton-fond-survol: var(--bz-accent-survol); --bouton-fond-presse: var(--bz-accent-survol); --bouton-texte: var(--bz-sur-accent); }
   .bz-bouton--secondaire { --bouton-fond: var(--bz-composant); }
   .bz-bouton--fantome { --bouton-fond: transparent; --bouton-texte: var(--bz-texte-2); }
   .bz-bouton--fantome:hover { color: var(--bz-texte); }
