@@ -320,7 +320,7 @@ test('écrans vides : deux lignes (ce qui manque, ce que l’écran montrera) et
   assert.match(app, /if \(!P\.lignes\.length\) \{\n\s+remplir\(page, h\('div', \{ class: 'bz-ecran bz-planning' \},\n\s+videRubrique\('planning', \{/);
   assert.match(app, /\}\),\n\s+rendezVousPlanning\(P\)\)\);/, 'brancher son agenda puis ne rien voir : jamais');
   assert.match(app, /cle: 'planning-moi', onclick: \(\) => ajouterMoi\(\)/, 'la première personne d’une entreprise, c’est soi');
-  assert.match(app, /!toutes\.length \? videCourrier\(\)/);
+  assert.match(app, /!toutes\.length \? \(branchee \? videBranchee\(\) : videCourrier\(\)\)/, 'boîte branchée : on dit son état au lieu de proposer de la brancher');
   assert.match(app, /const videCourrier = \(\) => videRubrique\('courrier', \{/, 'l’écran vide du courrier reste celui de la rubrique');
   assert.match(app, /peut && toutes\.length \? h\('div', \{ class: 'bz-groupe-boutons' \}, boutonAjouter\('bz-bouton--secondaire'\)\) : null\)/, 'courrier vide : le bouton n’est pas écrit deux fois');
   assert.match(app, /videRubrique\('satisfaction', \{/);

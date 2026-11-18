@@ -137,7 +137,7 @@ test('courrier : balayage au-delà du seuil seulement, doublé du menu ; dates c
   assert.match(courrier, /ne quitte jamais votre messagerie/, 'ce qui reste chez la messagerie est dit sur place');
   assert.match(courrier, /libelle: 'Rattacher à un client, une commande…'/, 'rattacher un message : ce qui donne sa valeur au reflet');
   assert.match(courrier, /Ouvrir dans \$\{l\.messagerie\.nom\}/, 'un message venu d’une boîte s’ouvre chez elle, pour le lire et y répondre');
-  assert.match(courrier, /!toutes\.length \? videCourrier\(\)/);
+  assert.match(courrier, /!toutes\.length \? \(branchee \? videBranchee\(\) : videCourrier\(\)\)/, 'boîte branchée : on dit son état au lieu de proposer de la brancher');
   assert.doesNotMatch(courrier, /Connecter mes données/, 'plus de renvoi à un catalogue pour une boîte qui ne s’y branche pas');
 });
 
@@ -384,4 +384,16 @@ test('liste blanche : les nouveaux modules sont servis, aucun chemin construit d
     assert.match(f.type, c.endsWith('.js') ? /text\/javascript/ : c.endsWith('.css') ? /text\/css/ : /text\/html/);
   }
   for (const c of ['/jeu.ts', '/../web/jeu.js', '/%2e%2e/package.json', '/JEU.js', '/web/jeu.js']) assert.equal(s.get(c), undefined, c);
+});
+
+
+test('courrier : une boîte, un bouton — Outlook n’est plus nommé sans être atteignable', () => {
+  const app = lire('web/app.js');
+  // l'écran vide nommait « Gmail ou Courrier Outlook » et menait toujours au premier de la liste
+  assert.doesNotMatch(app, /ouvrirConnecteur\(boites\[0\]\.id\)/);
+  assert.match(app, /cle: `courrier-brancher-\$\{b\.id\}`, onclick: \(\) => ouvrirConnecteur\(b\.id\)/);
+  assert.match(app, /boites\.length > 1 \? `Brancher \$\{b\.nom\}` : 'Brancher ma boîte mail'/, 'un seul choix : la phrase reste courte');
+  assert.match(app, /secondaire: boites\.length > 1 \? boutonBoite\(boites\[1\], 1\)/);
+  // la classe reste dans le bouton : l'écran vide ne porte toujours qu'un seul « principal » (§4.18)
+  assert.match(app, /bz-bouton--\$\{rang \? 'secondaire' : 'principal'\}/);
 });

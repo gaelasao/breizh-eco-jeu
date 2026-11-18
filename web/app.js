@@ -5687,6 +5687,11 @@ async function rendreCourrier() {
   const m = E.monde;
   const C = (E.courrier ??= { bac: 'tous', pour: 'tous', traites: false, recherche: '', tri: { texte: '', resultat: null, erreur: null } });
   const objets = new Map(m.objets.filter((o) => o.type === 'courrier' && dansFiltre(o)).map((o) => [o.id, o]));
+  // écran vide : on demande l'état des branchements une fois, pour savoir si une boîte est déjà là
+  if (!objets.size && E.branchementsCourrier === undefined && m.profil.peutAdministrer) {
+    E.branchementsCourrier = null;
+    api('GET', '/synchro').then((l) => { E.branchementsCourrier = l; if (E.vue === 'courrier') rendreCourrier(); }).catch(() => { E.branchementsCourrier = []; });
+  }
   const toutes = K.lignes({ objets: [...objets.values()] });
   const liste = K.boite(toutes, C);
   const ouverts = toutes.filter((l) => !l.traite);
@@ -5781,15 +5786,38 @@ async function rendreCourrier() {
           ['Pour', C.tri.resultat.destinataire ? sansDemo(C.tri.resultat.destinataire.nom) : 'À choisir'], ['Action proposée', C.tri.resultat.action]].map(([k, v]) => h('div', { class: 'bz-champ-fiche' }, h('dt', { class: 'bz-champ-fiche__libelle', texte: k }), h('dd', { class: 'bz-champ-fiche__valeur', texte: v ?? '—' })))),
         m.profil.peutAdministrer ? h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: ajouter }, icone('plus'), 'Ajouter au courrier')) : null) : null)) : null;
 
-  const boutonBoite = () => h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'courrier-brancher', onclick: () => ouvrirConnecteur(boites[0].id) },
-    icone('mail'), 'Brancher ma boîte mail');
+  /* L'écran nommait « Gmail ou Courrier Outlook » et n'avait qu'un bouton, qui menait toujours au premier : qui a
+     une boîte Outlook lisait qu'elle était possible et ne trouvait aucun moyen de la brancher. Une boîte, un
+     bouton — et quand il y en a deux, « Ajouter un courrier » reste juste en dessous, dans son propre encadré. */
+  const boutonBoite = (b, rang = 0) => h('button', { type: 'button', class: `bz-bouton bz-bouton--${rang ? 'secondaire' : 'principal'}`, cle: `courrier-brancher-${b.id}`, onclick: () => ouvrirConnecteur(b.id) },
+    icone('mail'), boites.length > 1 ? `Brancher ${b.nom}` : 'Brancher ma boîte mail');
+  /* Une boîte BRANCHÉE et aucun courrier : « Branchez votre boîte » est faux, et on rebranche en boucle sans
+     comprendre. Le jeu sait ce qu'il en est — le branchement existe, avec son état et, s'il a échoué, sa raison.
+     Il le dit ici, à l'endroit où l'on attend ses messages, plutôt que dans un écran de réglages qu'on n'ouvre pas. */
+  const branchee = (E.branchementsCourrier ?? []).find((c) => boites.some((b) => b.id === c.source));
+  const videBranchee = () => h('div', { class: 'bz-vide' },
+    h('h2', { class: 'bz-vide__titre', texte: 'Aucun courrier pour le moment.' }),
+    h('p', { class: 'bz-vide__texte', texte: branchee.statut === 'erreur'
+      ? `Votre boîte ${branchee.nom} est branchée, mais la dernière lecture a échoué.`
+      : branchee.derniereSynchro
+        ? `Votre boîte ${branchee.nom} est branchée et relue, mais aucun message n’en est encore arrivé.`
+        : `Votre boîte ${branchee.nom} est branchée. La première lecture n’a pas encore eu lieu.` }),
+    branchee.message ? h('p', { class: 'bz-t-petit bz-texte-2' }, ...texteAvecLiens(String(branchee.message))) : null,
+    h('div', { class: 'bz-groupe-boutons' },
+      h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'courrier-relire', onclick: async (e) => {
+        e.currentTarget.setAttribute('aria-busy', 'true');
+        try { await api('POST', `/synchro/${branchee.id}/maintenant`); await charger(); informer('Boîte relue.', 'ok'); } catch (err) { if (!err.session) informer(err.message, 'erreur'); }
+        rendreCourrier();
+      } }, icone('refresh-cw'), 'Relire ma boîte maintenant'),
+      h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => changerVue('reglages:outils') }, icone('settings'), 'Voir le branchement')));
   const videCourrier = () => videRubrique('courrier', {
     titre: 'Aucun courrier pour le moment.',
     texte: boites.length
       ? `Branchez votre boîte ${boites.map((b) => b.nom).join(' ou ')} : vos messages récents arrivent ici, triés par bac et par urgence. Leur texte, lui, reste dans votre messagerie.`
       : 'Recevoir vos mails tout seuls n’est pas encore possible ici. En attendant, collez un mail : Living Business propose le bac, l’urgence, la personne et l’action.',
-    action: boites.length ? boutonBoite() : peut ? boutonAjouter('bz-bouton--principal') : null,
-    secondaire: boites.length && peut ? boutonAjouter('bz-bouton--secondaire') : null,
+    action: boites.length ? boutonBoite(boites[0]) : peut ? boutonAjouter('bz-bouton--principal') : null,
+    secondaire: boites.length > 1 ? boutonBoite(boites[1], 1)
+      : boites.length && peut ? boutonAjouter('bz-bouton--secondaire') : null,
   });
 
   const filtre = C.bac !== 'tous' || C.pour !== 'tous' || C.recherche.trim();
@@ -5814,7 +5842,7 @@ async function rendreCourrier() {
         C.bac === b.id ? icone('check', { taille: 'sm' }) : null, `${b.libelle} · ${b.nb}`, b.urgents ? icone('octagon-alert', { taille: 'sm', classe: 'bz-courrier__urgent' }) : null))),
       h('li', {}, h('button', { type: 'button', class: 'bz-puce', 'aria-pressed': C.traites, onclick: () => changer('traites', !C.traites) }, icone(C.traites ? 'eye' : 'eye-off', { taille: 'sm' }), 'Afficher les traités'))) : null,
     filtreDepartements(),
-    !toutes.length ? videCourrier()
+    !toutes.length ? (branchee ? videBranchee() : videCourrier())
       : !liste.length ? (filtre
         ? blocVide({ titre: 'Aucun courrier pour ces filtres.', texte: 'Essayez d’élargir la recherche.', actions: h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { Object.assign(C, { bac: 'tous', pour: 'tous', recherche: '' }); rendreCourrier(); } }, icone('x'), 'Effacer les filtres') })
         : blocVide({ titre: 'Rien à traiter.', texte: 'Tout le courrier est traité.', actions: h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => changer('traites', true) }, icone('eye'), 'Afficher les traités') }))
