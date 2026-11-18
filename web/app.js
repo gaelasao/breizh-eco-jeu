@@ -5513,8 +5513,12 @@ let boitesPromesse = null;
 const boitesMail = () => (boitesPromesse ??= (async () => {
   try {
     E.sources ??= await api('GET', '/sources');
-    return ['gmail', 'outlook'].map((id) => (E.sources ?? []).find((s) => s.id === id)).filter((s) => s?.oauth).map((s) => ({ id: s.id, nom: s.nom }));
-  } catch { return []; }
+    const l = ['gmail', 'outlook'].map((id) => (E.sources ?? []).find((s) => s.id === id)).filter((s) => s?.oauth).map((s) => ({ id: s.id, nom: s.nom }));
+    // une liste vide est peut-être vraie (le relais n'ouvre rien), peut-être pas (il n'a pas répondu à temps). Dans le
+    // doute on ne la garde pas : sinon l'écran jure pour le restant de la session qu'aucune boîte n'est branchable.
+    if (!l.length) boitesPromesse = null;
+    return l;
+  } catch { boitesPromesse = null; return []; }
 })());
 
 /** Écrit le statut d'un courrier, optimiste et annulable ; un refus revient en arrière avec sa raison sous la ligne. */
