@@ -12,10 +12,19 @@
  * Ce qui entre : l'expéditeur, l'objet, la date, l'état (lu, non lu) et le lien pour ouvrir le message chez l'outil.
  * Le tri en bacs se fait ici, sur l'expéditeur et l'objet, avec les mots-clés de `tri-courrier.ts`.
  *
- * Ce que le jeu peut FAIRE chez l'outil (branchement « dans les deux sens ») : marquer un message comme lu, et
- * l'archiver — rien d'autre. Le jeu n'envoie aucun message et n'en supprime aucun : ni Gmail ni Outlook n'ont été
- * branchés pour ça, et la portée demandée ne le permet pas. Pour répondre, le bouton « Ouvrir dans Gmail » ou
- * « Ouvrir dans Outlook » ouvre le message chez l'outil, où la personne répond comme d'habitude.
+ * Ce que le jeu peut FAIRE chez l'outil (branchement « dans les deux sens ») : marquer un message comme lu,
+ * l'archiver, et PRÉPARER UN BROUILLON de réponse — rien d'autre.
+ *
+ * LE JEU N'ENVOIE AUCUN MESSAGE. Le brouillon est déposé dans la messagerie, dans le fil du message d'origine ; la
+ * personne l'ouvre, le relit et appuie sur Envoyer. Ce n'est pas une politesse : un logiciel qui écrirait aux
+ * clients de quelqu'un, sous son nom, sans qu'il ait lu, serait dangereux — et il suffit d'une phrase mal tournée
+ * pour le découvrir trop tard. Le brouillon laisse le dernier mot à la personne par construction.
+ * C'est aussi vrai des droits demandés : `gmail.modify` et `Mail.ReadWrite`, que le branchement « dans les deux
+ * sens » demande déjà, suffisent à déposer un brouillon. `Mail.Send`, qui enverrait, n'est jamais demandé.
+ *
+ * L'adresse du destinataire n'entre pas dans le jeu : la fiche ne garde qu'un nom, et l'adresse est relue chez
+ * l'outil au moment d'écrire le brouillon (Gmail), ou jamais vue du tout (Outlook la remplit lui-même avec
+ * `createReply`).
  *
  * Documentation lue le 13 novembre 2026 (adresses dans docs/CONNECTEURS.md) :
  * - Gmail : users.messages.list (labelIds, maxResults — `q` est INTERDIT avec la portée gmail.metadata),
@@ -27,7 +36,7 @@
 import type { Adaptateur, Enregistrement, ValeurSortante } from './sources.ts';
 import { dateJeu, pageSuivante } from './sources-agenda.ts';
 import { appeler, ErreurSortante, type Recuperateur } from './sortant.ts';
-import { ACTION_DU_BAC, bacDe, urgenceDe } from './tri-courrier.ts';
+import { ACTION_DU_BAC, bacDe, type RangementOutil, urgenceDe } from './tri-courrier.ts';
 
 type Config = Readonly<Record<string, string>>;
 
@@ -81,10 +90,22 @@ export function nomExpediteur(brut: string): string {
   return t.replace(/[<>]/g, '').slice(0, 120);
 }
 
+/**
+ * Les catégories de Gmail, telles qu'elles arrivent dans les libellés de chaque message. Google les calcule pour sa
+ * propre boîte (ce sont les onglets « Promotions », « Réseaux sociaux » et « Forums ») : rien à demander de plus,
+ * aucune permission supplémentaire, et c'est plus juste qu'une liste de mots écrite ici.
+ * Documentation : https://developers.google.com/gmail/api/guides/labels (libellés système CATEGORY_*).
+ */
+const CATEGORIES_PUB_GMAIL = ['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL', 'CATEGORY_FORUMS'];
+
+/** Ce que Gmail dit lui-même du message : publicité, ou rien. */
+export const rangementGmail = (libelles: readonly unknown[]): RangementOutil =>
+  (libelles.some((l) => typeof l === 'string' && CATEGORIES_PUB_GMAIL.includes(l)) ? 'publicite' : null);
+
 /** Une fiche de courrier à partir de ce qu'on sait : expéditeur, objet, date, lu, lien. Le tri est fait ici. */
-export function ficheCourrier(a: { id: string; expediteur: string; objet: string; recuLe: string; lu: boolean; lien: string }): Enregistrement {
+export function ficheCourrier(a: { id: string; expediteur: string; objet: string; recuLe: string; lu: boolean; lien: string; rangeParLOutil?: RangementOutil }): Enregistrement {
   const pourLeTri = `${a.expediteur} ${a.objet}`;
-  const bac = bacDe(pourLeTri);
+  const bac = bacDe(pourLeTri, a.rangeParLOutil ?? null);
   return {
     externeId: a.id,
     champs: {
@@ -101,6 +122,37 @@ export function ficheCourrier(a: { id: string; expediteur: string; objet: string
     },
   };
 }
+
+
+/**
+ * UN BROUILLON, JAMAIS UN ENVOI. Le jeu prépare la réponse chez l'outil ; c'est la personne qui la relit et appuie
+ * sur Envoyer, dans sa messagerie. Ce n'est pas une précaution de façade : un logiciel qui écrirait à la place de
+ * quelqu'un, à ses clients, sous son nom, sans qu'il ait lu, serait un logiciel dangereux. Le brouillon lui laisse
+ * le dernier mot par construction, et ne demande aucun droit de plus que ce que le branchement a déjà.
+ *
+ * L'ADRESSE DU DESTINATAIRE N'ENTRE PAS DANS LE JEU. Elle est relue chez l'outil au moment d'écrire le brouillon,
+ * à partir de l'identifiant du message, et elle reste dans l'appel : la fiche de courrier ne garde qu'un nom.
+ */
+
+/** Plié en lignes de 76 caractères comme l'exige le base64 d'un message (RFC 2045 §6.8). */
+const base64url = (t: string): string => Buffer.from(t, 'utf8').toString('base64url');
+
+/** En-tête RFC 2822 sans retour à la ligne injecté : une valeur ne peut pas en ajouter d'autres. */
+const entete = (nom: string, valeur: string): string => `${nom}: ${valeur.replace(/[\r\n]+/g, ' ').slice(0, 400)}`;
+
+/** « Re: » une seule fois, quoi qu'ait écrit l'expéditeur. */
+export function objetReponse(objet: string): string {
+  const o = texte(objet, 160);
+  return /^re\s*:/i.test(o) ? o : `Re: ${o}`;
+}
+
+/** Le texte de la réponse, borné : un brouillon n'est pas un envoi de fichier. */
+export const MAX_BROUILLON = 10_000;
+const corpsReponse = (t: unknown): string => {
+  const v = typeof t === 'string' ? t.replace(/\r\n?/g, '\n').trim() : '';
+  if (!v) throw new ErreurSortante('Écrivez votre réponse avant de préparer le brouillon.');
+  return v.slice(0, MAX_BROUILLON);
+};
 
 /** Adresse web vérifiée (bouton « Ouvrir dans… ») ; vide si elle ne mène pas à l'outil attendu. */
 function lienOutil(x: unknown, hotes: readonly string[]): string {
@@ -190,6 +242,8 @@ export const gmail: Adaptateur = {
         recuLe: dateRecu(x.internalDate) || dateRecu(enteteGmail(x.payload, 'Date')),
         lu: !libelles.includes('UNREAD'),
         lien: lienGmail(enteteGmail(x.payload, 'Message-ID')),
+        // Google a déjà rangé ce message dans un de ses onglets : on le croit plutôt que de le deviner
+        rangeParLOutil: rangementGmail(libelles),
       }));
     }
     return res;
@@ -205,6 +259,40 @@ export const gmail: Adaptateur = {
     const retirer = quoi === 'archiver' ? ['UNREAD', 'INBOX'] : ['UNREAD'];
     await appeler(f, new URL(`${GMAIL}/messages/${encodeURIComponent(externeId)}/modify`), { methode: 'POST', entetes: bearer(secret, 'Google'), corps: { removeLabelIds: retirer } });
     return externeId;
+  },
+  /**
+   * Brouillon de réponse dans Gmail, dans le fil du message d'origine (`threadId`, `In-Reply-To`, `References` :
+   * sans eux la réponse ouvrirait une conversation à part). La portée `gmail.modify`, celle que le branchement
+   * « dans les deux sens » demande déjà, suffit : `users.drafts.create` l'accepte (documentation lue le
+   * 18 novembre 2026). Rien n'est envoyé : `drafts.create` dépose, `drafts.send` enverrait, et il n'est pas appelé.
+   */
+  async brouillon(cfg, secret, externeId, texteReponse, f) {
+    if (!ID_GMAIL.test(externeId)) throw new ErreurSortante('Ce courrier ne vient pas de Gmail.');
+    const corps = corpsReponse(texteReponse);
+    const entetes = bearer(secret, 'Google');
+    // l'adresse et le fil sont relus maintenant, chez Google : ils ne sont gardés nulle part ici
+    const d = new URL(`${GMAIL}/messages/${encodeURIComponent(externeId)}`);
+    d.searchParams.set('format', 'metadata');
+    for (const h of ENTETES_GMAIL) d.searchParams.append('metadataHeaders', h);
+    const { donnees } = await appeler(f, d, { entetes });
+    const x = estObj(donnees) ? donnees : {};
+    const de = enteteGmail(x.payload, 'From');
+    if (!de) throw new ErreurSortante('Gmail n’a pas rendu l’expéditeur de ce message : brouillon impossible.');
+    const messageId = enteteGmail(x.payload, 'Message-ID');
+    const brut = [
+      entete('To', de),
+      entete('Subject', objetReponse(enteteGmail(x.payload, 'Subject'))),
+      ...(messageId ? [entete('In-Reply-To', messageId), entete('References', messageId)] : []),
+      'Content-Type: text/plain; charset=UTF-8',
+      'MIME-Version: 1.0',
+      '',
+      corps,
+    ].join('\r\n');
+    const message: Record<string, unknown> = { raw: base64url(brut) };
+    if (typeof x.threadId === 'string' && ID_GMAIL.test(x.threadId)) message.threadId = x.threadId;
+    const { donnees: cree } = await appeler(f, new URL(`${GMAIL}/drafts`), { methode: 'POST', entetes, corps: { message } });
+    const id = estObj(cree) && typeof cree.id === 'string' ? cree.id : '';
+    return { lien: id && ID_GMAIL.test(id) ? `https://mail.google.com/mail/u/0/#drafts?compose=${encodeURIComponent(id)}` : 'https://mail.google.com/mail/u/0/#drafts' };
   },
 };
 
@@ -262,6 +350,24 @@ export const outlook: Adaptateur = {
     // Un message déplacé change d'identifiant chez Microsoft ; il quitte la boîte de réception et n'est plus relu.
     if (quoi === 'archiver') await appeler(f, new URL(`${GRAPH}/me/messages/${id}/move`), { methode: 'POST', entetes, corps: { destinationId: 'archive' } });
     return externeId;
+  },
+  /**
+   * Brouillon de réponse dans Outlook. `createReply` fait le plus délicat : Microsoft prépare lui-même le
+   * brouillon dans le fil, avec le bon destinataire et le bon objet — l'adresse ne passe donc jamais par ici. Il
+   * ne reste qu'à écrire le texte. `Mail.ReadWrite`, que le branchement « dans les deux sens » demande déjà,
+   * suffit (documentation lue le 18 novembre 2026) : aucun droit nouveau, et surtout pas `Mail.Send`, qui
+   * enverrait. Le brouillon attend dans Outlook que la personne le relise.
+   */
+  async brouillon(cfg, secret, externeId, texteReponse, f) {
+    if (!ID_GRAPH.test(externeId)) throw new ErreurSortante('Ce courrier ne vient pas d’Outlook.');
+    const corps = corpsReponse(texteReponse);
+    const entetes = bearer(secret, 'Microsoft');
+    const { donnees } = await appeler(f, new URL(`${GRAPH}/me/messages/${encodeURIComponent(externeId)}/createReply`), { methode: 'POST', entetes, corps: {} });
+    const d = estObj(donnees) ? donnees : {};
+    const id = typeof d.id === 'string' && ID_GRAPH.test(d.id) ? d.id : '';
+    if (!id) throw new ErreurSortante('Outlook n’a pas rendu le brouillon qu’il vient de créer.');
+    await appeler(f, new URL(`${GRAPH}/me/messages/${encodeURIComponent(id)}`), { methode: 'PATCH', entetes, corps: { body: { contentType: 'Text', content: corps } } });
+    return { lien: lienOutil(d.webLink, ['outlook.office365.com', 'outlook.office.com', 'outlook.com']) || 'https://outlook.office.com/mail/drafts' };
   },
 };
 

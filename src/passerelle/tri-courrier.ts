@@ -28,16 +28,39 @@ const REGLES: readonly (readonly [Bac, RegExp])[] = [
 
 const URGENT = /urgent|immediat|aujourdhui|miseendemeure|dernierrappel|bloque|annul/;
 
-/** Bac proposé pour un texte (expéditeur + objet, et le corps quand on l'a). « autre » si rien ne ressort. */
-export function bacDe(texte: string): Bac {
+/**
+ * CE QUE L'OUTIL DIT LUI-MÊME DU MESSAGE. Gmail range déjà le courrier en catégories (`CATEGORY_PROMOTIONS`,
+ * `CATEGORY_SOCIAL`, `CATEGORY_FORUMS`) et le dit dans les libellés de chaque message : c'est son jugement sur son
+ * propre courrier, gratuit, et meilleur que n'importe quelle liste de mots-clés écrite ici. On le prend.
+ *
+ * Microsoft n'a pas d'équivalent : `inferenceClassification` ne dit que « prioritaire » ou « autre », ce qui n'est
+ * pas la même chose — la réponse d'un client tombe régulièrement dans « autre ». L'utiliser pour éteindre une
+ * urgence reviendrait à cacher un message qui compte. Pour Outlook, les mots-clés restent seuls.
+ */
+export type RangementOutil = 'publicite' | null;
+
+/**
+ * Bac proposé pour un texte (expéditeur + objet, et le corps quand on l'a). « autre » si rien ne ressort.
+ * Ce que l'outil a déjà rangé en publicité l'emporte sur les mots-clés : une promotion qui parle de « facture »
+ * reste une promotion, et n'a rien à faire dans le bac des paiements.
+ */
+export function bacDe(texte: string, rangeParLOutil: RangementOutil = null): Bac {
+  if (rangeParLOutil === 'publicite') return 'publicité';
   const t = normaliser(texte ?? '');
   return REGLES.find(([, r]) => r.test(t))?.[0] ?? 'autre';
 }
 
-/** Urgence proposée : haute si le texte le dit, basse pour la publicité, normale sinon. */
+/**
+ * Urgence proposée : basse pour la publicité, haute si le texte le dit, normale sinon.
+ *
+ * L'ORDRE EST TOUT. Il était inversé, et c'était visible à l'œil nu : « vous allez vouloir l'utiliser
+ * IMMÉDIATEMENT » et « Black Week : AUJOURD'HUI en magasin » arrivaient en rouge, en haut de la liste. Les mots qui
+ * déclenchent l'urgence sont exactement ceux du marketing : `immediat`, `aujourdhui`, `dernierrappel`. Une
+ * publicité n'est donc jamais urgente, quoi qu'elle écrive — c'est même à ça qu'on la reconnaît.
+ */
 export function urgenceDe(texte: string, bac: Bac): 'haute' | 'normale' | 'basse' {
-  if (URGENT.test(normaliser(texte ?? ''))) return 'haute';
-  return bac === 'publicité' ? 'basse' : 'normale';
+  if (bac === 'publicité') return 'basse';
+  return URGENT.test(normaliser(texte ?? '')) ? 'haute' : 'normale';
 }
 
 /** Poste de la personne à qui ce bac revient d'ordinaire (cherché dans les postes des employés). */

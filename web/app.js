@@ -4297,8 +4297,11 @@ async function chargerCatalogue() {
   if (!A) return;
   A.erreurCatalogue = null;
   try {
-    const [sources, connecteurs] = await Promise.all([E.sources ? Promise.resolve(E.sources) : api('GET', '/sources'), api('GET', '/connecteurs')]);
+    // les branchements déjà en place : ils servent à dire « vous avez déjà ça » avant d'en créer un deuxième.
+    // Un échec ici ne fait rien échouer : on perd l'avertissement, pas le branchement en cours.
+    const [sources, connecteurs, branchements] = await Promise.all([E.sources ? Promise.resolve(E.sources) : api('GET', '/sources'), api('GET', '/connecteurs'), api('GET', '/synchro').catch(() => E.branchements ?? [])]);
     E.sources = sources;
+    E.branchements = branchements;
     A.connecteurs = connecteurs;
   } catch (e) {
     if (e.session) return;
@@ -5652,6 +5655,44 @@ async function tacheDepuisCourrier(o) {
   rendreFiche();
 }
 
+/**
+ * PRÉPARER UNE RÉPONSE : le jeu écrit le brouillon chez la messagerie, il ne l'envoie pas. C'est la personne qui
+ * l'ouvre, le relit et appuie sur Envoyer — et c'est volontaire : un logiciel qui écrit à vos clients sous votre
+ * nom sans que vous ayez lu n'est pas un service, c'est un risque. Le bouton le dit, et la fenêtre le redit.
+ *
+ * Le texte du message d'origine n'est pas dans le jeu (il ne descend jamais de la messagerie) : on répond donc à
+ * partir de l'expéditeur et de l'objet, qui sont là, et le brouillon se relit en entier chez l'outil.
+ */
+async function repondreCourrier(o, l) {
+  const nomOutil = l.messagerie?.nom ?? 'votre messagerie';
+  const zone = h('textarea', { id: 'courrier-reponse', class: 'bz-champ__saisie', rows: '7', maxlength: '10000',
+    placeholder: 'Bonjour,\n\n', 'aria-describedby': 'courrier-reponse-aide' });
+  const erreur = h('p', { class: 'bz-champ__erreur', role: 'alert', hidden: true });
+  const envoyer = h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal' }, icone('reply'), `Préparer dans ${nomOutil}`);
+  const d = fenetre({ titre: `Répondre à ${l.expediteur}`, taille: 'md', corps: [
+    h('p', { class: 'bz-t-petit bz-texte-2', texte: `Objet : ${l.objet}` }),
+    h('div', { class: 'bz-champ' },
+      h('label', { class: 'bz-champ__libelle', for: 'courrier-reponse', texte: 'Votre réponse' }), zone,
+      h('p', { class: 'bz-t-petit bz-texte-2', id: 'courrier-reponse-aide',
+        texte: `Le brouillon est déposé dans ${nomOutil}, dans le fil de ce message. RIEN n’est envoyé : vous le relisez et vous l’envoyez vous-même.` })),
+    erreur,
+  ], pied: [h('button', { type: 'button', 'data-ferme': 'non', class: 'bz-bouton bz-bouton--secondaire' }, 'Annuler'), envoyer] });
+  envoyer.onclick = async () => {
+    const texte = zone.value.trim();
+    if (!texte) { erreur.hidden = false; erreur.textContent = 'Écrivez votre réponse avant de préparer le brouillon.'; zone.focus(); return; }
+    envoyer.setAttribute('aria-busy', 'true');
+    try {
+      const r = await api('POST', `/courrier/${encodeURIComponent(o.id)}/brouillon`, { texte });
+      d.close();
+      informer(`Brouillon prêt dans ${r.outil}. Rien n’a été envoyé.`, 'ok',
+        r.lien ? { libelle: 'Ouvrir le brouillon', faire: () => window.open(r.lien, '_blank', 'noopener') } : null);
+    } catch (e) {
+      if (!e.session) { erreur.hidden = false; erreur.textContent = e.message; }
+      envoyer.removeAttribute('aria-busy');
+    }
+  };
+}
+
 /** Balayage d'une ligne au toucher (2.5.7 : toujours doublé du menu « ⋯ ») : « Traité » à droite, « Déléguer » à gauche. */
 function balayageCourrier(ligneEl, contenu, o, l) {
   let x0 = null;
@@ -5734,6 +5775,7 @@ async function rendreCourrier() {
           icone(l.traite ? 'rotate-ccw' : 'check', { taille: 'sm' }), h('span', { class: 'bz-courrier__libelle-action', texte: l.traite ? 'À traiter' : 'Traité' })) : null,
         menuActions({ id: `menu-courrier-${idDom(l.id)}`, libelle: `Actions pour le courrier de ${l.expediteur}`, items: [
           peut ? { libelle: l.traite ? 'Remettre à traiter' : 'Marquer comme traité', icone: l.traite ? 'rotate-ccw' : 'check', faire: () => statutCourrier(o, !l.traite) } : null,
+          peut && l.messagerie ? { libelle: 'Préparer une réponse…', icone: 'reply', faire: () => repondreCourrier(o, l) } : null,
           peut ? { libelle: 'Déléguer à…', icone: 'forward', faire: () => deleguerCourrier(o) } : null,
           peut ? { libelle: 'Rattacher à un client, une commande…', icone: 'link', faire: () => rattacherCourrier(o) } : null,
           peut ? { libelle: 'Créer une tâche', icone: 'list-checks', faire: () => tacheDepuisCourrier(o) } : null,
@@ -5827,12 +5869,20 @@ async function rendreCourrier() {
       : boites.length && peut ? boutonAjouter('bz-bouton--secondaire') : null,
   });
 
+  // les boîtes que cette entreprise peut brancher et n'a pas encore branchées (un compte en attente de choix compte
+  // pour non branché : il n'amène aucun message tant que personne n'a dit ce qu'il voulait)
+  const aBrancher = boites.filter((b) => !(E.branchementsCourrier ?? []).some((c) => c.source === b.id && !c.aChoisir));
   const filtre = C.bac !== 'tous' || C.pour !== 'tous' || C.recherche.trim();
   remplir($('#page'), h('div', { class: 'bz-ecran bz-courrier' },
     h('div', { class: 'bz-liste__tete' },
       h('p', { class: 'bz-liste__compte bz-t-petit bz-texte-2' }, ouverts.length ? pluriel(ouverts.length, 'courrier à traiter', 'courriers à traiter') : 'Rien à traiter', toutes.some((l) => l.exemple) ? badgeExemple() : null),
-      // boîte vide : le bouton est dans l'écran vide, plus bas (une seule action principale, jamais deux fois la même)
-      peut && toutes.length ? h('div', { class: 'bz-groupe-boutons' }, boutonAjouter('bz-bouton--secondaire')) : null),
+      /* boîte vide : le bouton est dans l'écran vide, plus bas (une seule action principale, jamais deux fois la même).
+         Une fois du courrier arrivé, cet écran vide disparaît — et avec lui le SEUL endroit d'où l'on pouvait
+         brancher une boîte. Vu en vrai le 18 novembre 2026 : « j'ai pas la possibilité de mettre d'autres boîtes de
+         réception, comme Outlook ». Une boîte qui reste à brancher se propose donc ici, à côté du reste. */
+      peut && toutes.length ? h('div', { class: 'bz-groupe-boutons' },
+        aBrancher.map((b) => h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', cle: `courrier-brancher-${b.id}`, onclick: () => ouvrirConnecteur(b.id) }, icone('mail'), `Brancher ${b.nom}`)),
+        boutonAjouter('bz-bouton--secondaire')) : null),
     toutes.length ? h('div', { class: 'bz-liste__outils' },
       h('label', { class: 'bz-recherche bz-liste__recherche' }, icone('filter'), h('span', { class: 'bz-visuellement-cache', texte: 'Filtrer le courrier' }),
         h('input', { class: 'bz-champ__saisie', type: 'search', id: 'recherche-courrier', enterkeyhint: 'search', autocomplete: 'off', placeholder: estTelephone() ? 'Filtrer…' : 'Filtrer : expéditeur, objet…', value: C.recherche, oninput: (e) => changer('recherche', e.target.value) })),
@@ -8325,6 +8375,28 @@ function tableauApercu(a) {
     h('ul', { class: 'bz-liste-simple bz-t-petit', role: 'list', 'aria-label': 'Premières lignes lues' },
       lignes.map((l) => h('li', { 'data-brut': '', texte: colonnes.map((c) => valeur(l[c])).filter(Boolean).join(' · ') }))));
 }
+/**
+ * DÉJÀ BRANCHÉ ? Vu en vrai le 18 novembre 2026 : deux branchements « Google · Les 50 derniers messages », deux
+ * « Google · mon agenda », et 90 courriers à l'écran pour 45 messages. Rien ne l'avait dit, ni pendant, ni après.
+ *
+ * On PRÉVIENT, on n'interdit pas : deux comptes du même outil sont légitimes (deux boîtes, deux agendas), et le jeu
+ * ne sait pas toujours distinguer les comptes. La personne, elle, le sait. On lui dit donc ce qu'elle a déjà et ce
+ * qui arrivera si c'est le même compte — chaque ligne en double — et elle tranche.
+ */
+function dejaBranche(C) {
+  const cible = C?.cible?.type;
+  if (!cible || !C?.s?.id) return [];
+  return (E.branchements ?? []).filter((c) => c.source === C.s.id && c.typeObjet === cible && c.id !== C.cree?.id && !c.aChoisir);
+}
+function avertissementDoublon(C) {
+  const autres = dejaBranche(C);
+  if (!autres.length) return null;
+  const quoi = (C.contenu?.libelle ?? C.s.nom).toLowerCase();
+  return resultatAssistant('attention', `${quoi} est déjà branché ici.`, {
+    detail: `${autres.map((c) => c.nom).join(' · ')}. Si c'est le même compte, chaque élément arrivera une deuxième fois sur votre carte. Si c'est un autre compte, continuez.`,
+    actions: h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: () => { fermerAssistant(); changerVue('reglages:outils'); } }, icone('settings'), 'Voir ce qui est déjà branché')),
+  });
+}
 function corpsRecuperer(C) {
   const nomOutil = nomOutilDe(C);
   const listes = listesRecuperer(C);
@@ -8334,6 +8406,7 @@ function corpsRecuperer(C) {
   const relire = () => { if (C.signatureApercu === signatureRecuperation(C)) return; C.apercu = null; majOutil(C); chargerApercu(C); };
   return [
     resultatAssistant('ok', `Connecté à ${nomOutil}. Rien n’a encore été importé.`, { detail: 'Choisissez ce que vous voulez récupérer : rien n’entrera dans Living Business avant que vous ne validiez.' }),
+    avertissementDoublon(C),
     C.s.lecture === 'reception'
       ? h('p', { texte: 'Ce branchement reçoit les données que votre scénario lui envoie : il n’y a rien à choisir ici. Indiquez seulement à quoi elles correspondent dans Living Business.' })
       : listes.length ? h('div', { class: 'bz-grille-champs' }, listes.map((ch) => champOutil(C, ch, { apres: relire })))
