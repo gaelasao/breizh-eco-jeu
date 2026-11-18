@@ -278,8 +278,10 @@ export class CorpsBrut {
 const CONSEILS: readonly (readonly [RegExp, string])[] = [
   [/has not been used in project|is disabled\b/i,
     'Cette API n’est pas activée dans votre projet Google Cloud : ouvrez l’adresse ci-dessous, cliquez « Activer », attendez une minute, puis réessayez.'],
+  /* Dire ce qui ne va pas ne suffit pas : il faut dire où l'on va le corriger. Ce refus-là ne vient ni du jeu ni
+     d'un réglage à cocher, mais d'une licence absente — personne ne peut le deviner depuis un écran du jeu. */
   [/mailbox is either inactive, soft-deleted, or is hosted on-premise/i,
-    'Ce compte Microsoft n’a pas de boîte en ligne. L’agenda et le courrier Microsoft 365 demandent une licence qui en fournit une : un compte personnel, ou une boîte hébergée dans vos murs, ne convient pas.'],
+    'Ce compte Microsoft n’a pas de boîte en ligne : l’agenda et le courrier Microsoft 365 demandent une licence qui en fournit une (Microsoft 365 Business Basic ou au-dessus). Attribuez-la à ce compte dans l’administration Microsoft 365, puis réessayez — la boîte peut mettre jusqu’à 24 h à apparaître. Un compte personnel, un invité d’un autre annuaire, ou une boîte hébergée dans vos murs ne conviendront pas. Le reste du compte, lui, marche sans boîte : un classeur Excel sur OneDrive, par exemple.'],
   [/Resource not found for the segment 'me'/i,
     'La connexion s’est faite sans utilisateur : refaites « Se connecter avec… » en choisissant bien votre compte.'],
   [/invalid_grant|Token has been expired or revoked/i,

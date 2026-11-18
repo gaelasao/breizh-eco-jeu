@@ -322,7 +322,19 @@ test('écrans vides : deux lignes (ce qui manque, ce que l’écran montrera) et
   assert.match(app, /cle: 'planning-moi', onclick: \(\) => ajouterMoi\(\)/, 'la première personne d’une entreprise, c’est soi');
   assert.match(app, /!toutes\.length \? \(branchee \? videBranchee\(\) : videCourrier\(\)\)/, 'boîte branchée : on dit son état au lieu de proposer de la brancher');
   assert.match(app, /const videCourrier = \(\) => videRubrique\('courrier', \{/, 'l’écran vide du courrier reste celui de la rubrique');
-  assert.match(app, /peut && toutes\.length \? h\('div', \{ class: 'bz-groupe-boutons' \}, boutonAjouter\('bz-bouton--secondaire'\)\) : null\)/, 'courrier vide : le bouton n’est pas écrit deux fois');
+  // le groupe d'actions du haut n'existe QUE s'il y a du courrier : sinon l'écran vide porte déjà le même bouton
+  assert.match(app, /peut && toutes\.length \? h\('div', \{ class: 'bz-groupe-boutons' \},/, 'courrier vide : le bouton n’est pas écrit deux fois');
+  assert.equal(app.match(/boutonAjouter\('bz-bouton--secondaire'\)\) : null\)/g)?.length, 1, 'un seul « Ajouter un courrier » secondaire');
+  /* Une boîte qui reste à brancher se propose depuis l'écran Courrier MÊME QUAND il est plein : sinon le seul
+     chemin pour en brancher une deuxième (Outlook à côté de Gmail) disparaît dès que le premier message arrive. */
+  // et tant que la liste des branchements n'est pas revenue, on ne propose rien : jamais « brancher » ce qui l'est déjà
+  assert.match(app, /const aBrancher = Array\.isArray\(E\.branchementsCourrier\)\s*\n\s*\? boites\.filter\(\(b\) => !E\.branchementsCourrier\.some\(\(c\) => c\.source === b\.id && !c\.aChoisir\)\) : \[\];/);
+  assert.match(app, /aBrancher\.map\(\(b\) => h\('button'[^)]*cle: `courrier-brancher-\$\{b\.id\}`/, '« Brancher… » reste atteignable');
+  /* Et la liste des branchements se demande QUELLE QUE SOIT la quantité de courrier. Elle ne servait qu'à l'écran
+     vide, et la condition gardait `!objets.size` : avec du courrier plein l'écran, elle n'arrivait jamais, et le
+     bouton « Brancher Outlook » ne pouvait pas s'afficher — la question se pose pourtant surtout là. */
+  assert.match(app, /if \(E\.branchementsCourrier === undefined && m\.profil\.peutAdministrer\) \{/, 'demandée aussi quand l’écran est plein');
+  assert.doesNotMatch(app, /!objets\.size && E\.branchementsCourrier === undefined/);
   assert.match(app, /videRubrique\('satisfaction', \{/);
   assert.match(app, /colonnes\.every\(\(\[, , l\]\) => !l\.length\) \? videRubrique\('pipeline', \{ action: boutonConnecter\(\) \}\)/);
   assert.match(app, /videRubrique\(null, \{ titre: 'Votre carte est vide pour le moment\.'/);

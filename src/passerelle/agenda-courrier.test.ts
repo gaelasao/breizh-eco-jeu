@@ -490,3 +490,111 @@ test('une lecture dont toutes les lignes sont refusées ne s’affiche pas « ok
   assert.equal(vue.statut, 'erreur', 'rien n’est entré : ce n’est pas « ok »');
   assert.match(String(vue.message), /refusée/, 'la raison se lit, au lieu de rester dans l’historique');
 });
+
+test('la publicité n’est jamais urgente, et Gmail dit lui-même laquelle en est', async () => {
+  /* Vu en vrai le 18 novembre 2026, en haut de la liste et en rouge : « J’ai testé un nouvel outil IA, et vous allez
+     vouloir l’utiliser IMMÉDIATEMENT ! » et « Black Week : AUJOURD’HUI en magasin ! ». Les mots qui déclenchaient
+     l’urgence sont ceux du marketing. Et Google rangeait déjà ces deux messages dans son onglet Promotions : le
+     connecteur lisait ce libellé et le jetait. */
+  const { f } = simuler((a) => {
+    if (a.url.pathname.endsWith('/messages')) return json({ messages: [{ id: 'aa11' }, { id: 'bb22' }] });
+    const id = a.url.pathname.split('/').pop();
+    return json({
+      id, internalDate: '1763635200000',
+      labelIds: id === 'aa11' ? ['INBOX', 'UNREAD', 'CATEGORY_PROMOTIONS'] : ['INBOX', 'UNREAD'],
+      payload: { headers: [
+        { name: 'From', value: id === 'aa11' ? 'JULES <promo@exemple.fr>' : 'Kerlann <k@exemple.fr>' },
+        { name: 'Subject', value: id === 'aa11' ? 'Black Week : aujourd’hui en magasin !' : 'Facture F-041 : URGENT' },
+      ] },
+    });
+  });
+  const lus = await gmail.lire({ combien: 'messages25' }, 'jeton', f);
+  const pub = lus.find((r) => r.externeId === 'aa11');
+  assert.equal(pub?.champs.bac, 'publicité', 'rangée par Google dans Promotions');
+  assert.equal(pub?.champs.urgence, 'basse', '« aujourd’hui » dans une promotion n’est pas une urgence');
+  // et le vrai courrier garde son urgence : on n’a pas éteint le signal, on a retiré le bruit
+  const vrai = lus.find((r) => r.externeId === 'bb22');
+  assert.equal(vrai?.champs.bac, 'paiements');
+  assert.equal(vrai?.champs.urgence, 'haute');
+});
+
+test('brouillon de réponse : préparé chez l’outil, jamais envoyé', async () => {
+  /* Le jeu n’écrit pas à la place de quelqu’un. Il dépose un brouillon ; la personne le relit et l’envoie. Cet essai
+     vérifie que c’est bien ce qui part sur le réseau : `drafts` et pas `send`, le fil d’origine conservé, et
+     l’adresse du destinataire relue chez Google au lieu d’être gardée dans la fiche. */
+  const { f, appels } = simuler((a) => {
+    if (a.url.pathname.endsWith('/messages/aa11')) return json({ id: 'aa11', threadId: '19a2f8c1b0',
+      payload: { headers: [{ name: 'From', value: 'Kerlann <kerlann@exemple.fr>' }, { name: 'Subject', value: 'Facture F-041' }, { name: 'Message-ID', value: '<abc@exemple.fr>' }] } });
+    if (a.url.pathname.endsWith('/drafts')) return json({ id: '19a2f8c1cc' });
+    return json({});
+  });
+  const r = await gmail.brouillon!({}, 'jeton', 'aa11', 'Bonjour, je vous envoie le détail demain.', f);
+  const envoi = appels.find((a) => a.url.pathname.endsWith('/drafts'));
+  assert.ok(envoi, 'un brouillon est créé');
+  assert.equal(envoi?.methode, 'POST');
+  assert.ok(!appels.some((a) => /\/send$/.test(a.url.pathname)), 'RIEN n’est envoyé');
+  const msg = (envoi?.corps as { message: { raw: string; threadId: string } }).message;
+  assert.equal(msg.threadId, '19a2f8c1b0', 'la réponse reste dans le fil, et n’ouvre pas une conversation à part');
+  const brut = Buffer.from(msg.raw, 'base64url').toString('utf8');
+  assert.match(brut, /^To: Kerlann <kerlann@exemple\.fr>$/m, 'adresse relue chez Google, pas gardée dans la fiche');
+  assert.match(brut, /^Subject: Re: Facture F-041$/m);
+  assert.match(brut, /^In-Reply-To: <abc@exemple\.fr>$/m);
+  assert.match(brut, /je vous envoie le détail demain/);
+  assert.match(r.lien, /^https:\/\/mail\.google\.com\/.*compose=19a2f8c1cc/, 'le lien ouvre CE brouillon');
+  // une réponse vide ne part pas : on ne dépose pas un brouillon sans texte
+  await assert.rejects(gmail.brouillon!({}, 'jeton', 'aa11', '   ', f), /Écrivez votre réponse/);
+});
+
+test('brouillon Outlook : Microsoft prépare la réponse, le jeu n’écrit que le texte', async () => {
+  const { f, appels } = simuler((a) => {
+    if (a.url.pathname.endsWith('/createReply')) return json({ id: 'AAbb11', webLink: 'https://outlook.office.com/mail/deeplink/AAbb11' });
+    return json({});
+  });
+  const r = await outlook.brouillon!({}, 'jeton', 'AAaa22', 'Bien reçu, je reviens vers vous.', f);
+  assert.ok(appels.some((a) => a.url.pathname.endsWith('/createReply') && a.methode === 'POST'), 'Microsoft prépare le brouillon');
+  const ecrit = appels.find((a) => a.methode === 'PATCH');
+  assert.deepEqual((ecrit?.corps as { body: unknown }).body, { contentType: 'Text', content: 'Bien reçu, je reviens vers vous.' });
+  // aucun envoi : ni /send, ni /sendMail. Mail.Send n'est même pas demandé par le branchement
+  assert.ok(!appels.some((a) => /send/i.test(a.url.pathname)), 'RIEN n’est envoyé');
+  assert.match(r.lien, /outlook\.office\.com/);
+});
+
+test('envoyer : même message que le brouillon, et il part vraiment', async () => {
+  /* Brouillon et envoi passent par la MÊME fabrique : si les deux divergeaient, on enverrait un jour autre chose
+     que ce qui a été relu. L’essai compare les deux octet par octet. */
+  const simulerGmail = () => simuler((a) => {
+    if (a.url.pathname.endsWith('/messages/aa11')) return json({ id: 'aa11', threadId: '19a2f8c1b0',
+      payload: { headers: [{ name: 'From', value: 'Kerlann <kerlann@exemple.fr>' }, { name: 'Subject', value: 'Facture F-041' }, { name: 'Message-ID', value: '<abc@exemple.fr>' }] } });
+    if (a.url.pathname.endsWith('/drafts')) return json({ id: '19a2f8c1cc' });
+    if (a.url.pathname.endsWith('/messages/send')) return json({ id: '19a2f8c1ee' });
+    return json({});
+  });
+  const b = simulerGmail();
+  await gmail.brouillon!({}, 'jeton', 'aa11', 'Bonjour, c’est noté.', b.f);
+  const e = simulerGmail();
+  const r = await gmail.envoyer!({}, 'jeton', 'aa11', 'Bonjour, c’est noté.', e.f);
+  const msgBrouillon = (b.appels.find((a) => a.url.pathname.endsWith('/drafts'))?.corps as { message: unknown }).message;
+  const msgEnvoi = e.appels.find((a) => a.url.pathname.endsWith('/messages/send'))?.corps;
+  assert.deepEqual(msgEnvoi, msgBrouillon, 'on envoie exactement ce qu’on aurait préparé');
+  assert.match(r.lien, /#sent\/19a2f8c1ee/);
+  // et l’envoi ne passe PAS par les brouillons : c’est un envoi, pas un dépôt
+  assert.ok(!e.appels.some((a) => a.url.pathname.endsWith('/drafts')));
+});
+
+test('envoyer chez Outlook : le brouillon part, et un droit manquant se dit en français', async () => {
+  const faire = (statutSend: number) => simuler((a) => {
+    if (a.url.pathname.endsWith('/createReply')) return json({ id: 'AAbb11', webLink: 'https://outlook.office.com/mail/deeplink/AAbb11' });
+    if (a.url.pathname.endsWith('/send')) return statutSend === 200 ? new Response(null, { status: 202 }) : json({ error: { message: 'Access denied' } }, statutSend);
+    return json({});
+  });
+  const ok = faire(200);
+  await outlook.envoyer!({}, 'jeton', 'AAaa22', 'Bien reçu.', ok.f);
+  const envoi = ok.appels.find((a) => a.url.pathname.endsWith('/send'));
+  assert.ok(envoi && envoi.methode === 'POST', 'le brouillon créé est envoyé');
+  assert.ok(ok.appels.some((a) => a.methode === 'PATCH'), 'le texte est écrit avant l’envoi');
+  /* Une boîte branchée avant que Mail.Send soit demandé : Microsoft refuse. Ce n’est pas une panne, c’est un droit
+     qui manque — et la réponse est déjà en brouillon. L’erreur doit dire les deux, et quoi faire. */
+  const refus = faire(403);
+  await assert.rejects(outlook.envoyer!({}, 'jeton', 'AAaa22', 'Bien reçu.', refus.f),
+    (e: unknown) => { const m = String((e as Error).message); return /gardée en brouillon/.test(m) && /Se reconnecter/.test(m); });
+});

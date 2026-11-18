@@ -953,6 +953,19 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
     if (methode === 'DELETE' && mx) return envoyer(res, 200, await app.synchro.supprimer(profil, decodeURIComponent(mx[1] as string)));
     mx = /^\/synchro\/([^/]+)\/maintenant$/.exec(chemin);
     if (methode === 'POST' && mx) return envoyer(res, 200, await app.synchro.synchroniser(decodeURIComponent(mx[1] as string), profil));
+    /* Brouillon de réponse à un courrier, chez l'outil d'où il vient. On part de la FICHE : à l'écran on répond à
+       un message, on ne choisit pas un branchement. Depuis l'écran seulement, jamais avec une clé d'API : écrire au
+       nom de quelqu'un demande que ce soit lui, devant son écran, et pas un script. Rien n'est envoyé. */
+    mx = /^\/courrier\/([^/]+)\/(brouillon|envoi)$/.exec(chemin);
+    if (methode === 'POST' && mx) {
+      if (cle) throw new ErreurApi(403, 'session_requise', 'Répondre à un courrier : depuis l’écran de Living Business, pas avec une clé d’API.');
+      const d = await lireCorps(req) as Record<string, unknown>;
+      /* L'envoi est irréversible : il a sa propre adresse, et la confirmation de l'écran voyage avec. Un appel qui
+         ne la porte pas prépare un brouillon — jamais l'inverse. Se tromper coûte alors un brouillon à jeter. */
+      const envoi = mx[2] === 'envoi';
+      if (envoi && d.confirme !== true) throw new ErreurApi(400, 'confirmation_requise', 'Envoi non confirmé.');
+      return envoyer(res, 200, await app.synchro.brouillonPourObjet(profil, decodeURIComponent(mx[1] as string), d.texte, envoi));
+    }
     // fichier de suivi (miroir.ts). Comme les connecteurs : il se règle depuis l'écran, jamais avec une clé d'API
     // (créer le classeur se sert d'une connexion à un outil) ; lire son état et relancer un envoi restent permis.
     if (cle && chemin.startsWith('/suivi') && !(methode === 'GET' && chemin === '/suivi') && chemin !== '/suivi/maintenant') {

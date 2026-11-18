@@ -161,6 +161,13 @@ export function conseilMicrosoft(texte: string): string | null {
     return 'Microsoft refuse l’accès demandé : l’autorisation correspondante manque côté Living Business. Signalez-le, et en attendant branchez le classeur par fichier ou avec une clé.';
   }
   if (code('AADSTS90002')) return 'Microsoft ne trouve pas l’annuaire de votre entreprise : vérifiez que vous vous connectez bien avec l’adresse de votre entreprise.';
+  /* « The request is invalid » : la demande de connexion elle-même n'est plus valable. Vu le 18 novembre 2026 sur
+     une page de connexion laissée ouverte puis rechargée — Microsoft n'accepte une demande qu'une fois, et un
+     rafraîchissement en refait une avec les mêmes paramètres, déjà consommés. Rien n'est cassé : il faut repartir
+     du jeu, c'est lui qui en fabrique une neuve. Microsoft ne dit pas cela, il dit un numéro. */
+  if (code('AADSTS10040141', 'AADSTS9002313', 'AADSTS900144') || /invalid_request/i.test(t)) {
+    return 'La demande de connexion n’était plus valable (page de Microsoft laissée ouverte trop longtemps, ou rechargée). Fermez cet onglet et relancez « Se connecter avec Microsoft » depuis Living Business : une nouvelle demande sera faite. Ne rechargez pas la page de Microsoft, elle ne sert qu’une fois.';
+  }
   return null;
 }
 

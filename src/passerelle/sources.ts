@@ -78,6 +78,19 @@ export interface Adaptateur {
   ecrire?(cfg: Readonly<Record<string, string>>, secret: string | null, externeId: string | null, valeurs: Record<string, ValeurSortante>, f: Recuperateur, ctx?: ContexteAdaptateur): Promise<string | null>;
   /** Valeurs possibles d'un champ marqué `liste`, lues dans l'outil avec le jeton (après connexion). */
   choix?(champ: string, cfg: Readonly<Record<string, string>>, secret: string | null, f: Recuperateur, ctx?: ContexteAdaptateur): Promise<Choix[]>;
+  /**
+   * ÉCRIRE UN BROUILLON DE RÉPONSE chez l'outil, et rien de plus : le message est préparé, il n'est PAS envoyé.
+   * C'est la personne qui l'ouvre, le relit et appuie sur Envoyer, dans sa messagerie. Un logiciel qui écrit au nom
+   * de quelqu'un doit lui laisser le dernier mot, et un brouillon le lui laisse par construction.
+   * Rend l'adresse où le relire. `externeId` est le message auquel on répond.
+   */
+  brouillon?(cfg: Readonly<Record<string, string>>, secret: string | null, externeId: string, texte: string, f: Recuperateur): Promise<{ lien: string }>;
+  /**
+   * ENVOYER la réponse, pour de bon. Irréversible : un message parti ne se rattrape pas. L'écran demande donc
+   * confirmation, et le brouillon reste le chemin par défaut — celui-ci est l'exception qu'on choisit.
+   * Demande un droit que `brouillon` ne demande pas (chez Microsoft) : un branchement qui ne l'a pas échoue net.
+   */
+  envoyer?(cfg: Readonly<Record<string, string>>, secret: string | null, externeId: string, texte: string, f: Recuperateur): Promise<{ lien: string }>;
 }
 
 // ---------------------------------------------------------------- outils communs

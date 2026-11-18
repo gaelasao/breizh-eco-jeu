@@ -985,6 +985,30 @@ export class Synchro {
    * plus réimporté (sinon la lecture suivante la recréerait) ; rien n'est renvoyé vers l'outil. Renvoie les outils
    * concernés (l'effacement chez eux reste à faire par l'entreprise).
    */
+  /**
+   * BROUILLON DE RÉPONSE à un courrier, chez l'outil d'où il vient. Rien n'est envoyé : le message est déposé dans
+   * les brouillons, et c'est la personne qui l'ouvre, le relit et appuie sur Envoyer. Le jeu n'écrit jamais à la
+   * place de quelqu'un.
+   *
+   * On part de la FICHE, pas du branchement : à l'écran, on répond à un courrier, on ne choisit pas un connecteur.
+   * Le branchement qui l'a fait entrer se retrouve par ses liens, comme pour l'effacement.
+   */
+  async brouillonPourObjet(p: Profil, objId: string, texte: unknown, envoyer = false): Promise<{ lien: string; outil: string; envoye: boolean }> {
+    this.#admin(p);
+    for (const c of this.#connecteurs.values()) {
+      const externeId = Object.entries(c.liens).find(([, o]) => o === objId)?.[0];
+      if (!externeId) continue;
+      const a = ADAPTATEURS[c.source];
+      const faire = envoyer ? a.envoyer : a.brouillon;
+      if (!faire) throw new ErreurApi(409, 'reponse_impossible', `${c.nom} ne sait pas ${envoyer ? 'envoyer de réponse' : 'préparer de réponse'}.`);
+      // un branchement en lecture seule n'a pas demandé le droit d'écrire : il ne l'exercera pas en douce
+      if (c.sens === 'lecture') throw new ErreurApi(409, 'lecture_seule', `${c.nom} est branché en lecture seule : repassez-le en « dans les deux sens » pour répondre depuis ici.`);
+      const r = await this.#avecSecret(c.config, this.#secret(c), this.#contexte(c), (cfg, secret) => faire.call(a, cfg, secret, externeId, String(texte ?? ''), this.#f));
+      return { ...r, outil: c.nom, envoye: envoyer };
+    }
+    throw new ErreurApi(404, 'courrier_sans_outil', 'Ce courrier ne vient pas d’une boîte branchée : répondez depuis votre messagerie.');
+  }
+
   oublierObjet(objId: string): string[] {
     const outils: string[] = [];
     for (const c of this.#connecteurs.values()) {
