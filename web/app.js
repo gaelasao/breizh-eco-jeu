@@ -6622,6 +6622,10 @@ async function rendreAlertes() {
   const carteCanal = (c) => h('li', { class: 'bz-champ' },
     h('p', { class: 'bz-t-label' }, icone(CANAUX_ALERTES.find((x) => x.id === c.canal)?.icone ?? 'bell', { taille: 'sm' }), ` ${c.nom}`),
     h('p', { class: 'bz-t-petit bz-texte-2', texte: c.resume }),
+    // Telegram va dans les deux sens : ce qu'on peut LUI écrire est dit ici, sinon personne ne l'essaiera jamais
+    c.canal === 'telegram' && c.actif ? h('p', { class: 'bz-t-petit' },
+      h('strong', { texte: 'Vous pouvez aussi lui écrire. ' }),
+      h('span', { texte: '« ? » pour savoir ce qu’il y a à faire · « rappeler Dupont lundi » devient une tâche avec sa date · « note Boulangerie : ils veulent un devis » rejoint le suivi du client. Il répond à chaque fois ce qu’il a compris, et n’écrit rien quand il n’a pas compris.' })) : null,
     h('p', { class: 'bz-t-micro bz-texte-2', texte: c.actif
       ? c.dernierEnvoi ? `En marche. Dernier message ${dateRelative(c.dernierEnvoi)}.` : 'En marche. Aucun message envoyé pour l’instant.'
       : 'En pause : rien ne part vers ce canal.' }),

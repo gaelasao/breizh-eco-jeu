@@ -422,6 +422,9 @@ src/
     sources-agenda.ts  Google Agenda et agenda Microsoft 365, dans les deux sens
     sources-caldav.ts  agenda Apple (iCloud) et tout serveur CalDAV, dans les deux sens
     meteo.ts           le vrai temps qu'il fait sur la carte (Open-Meteo, sur réglage, éteint au départ)
+    alertes.ts      Telegram, WhatsApp, webhook : prévenir au bon moment — et, pour Telegram, écouter ce qu'on
+                    lui écrit (« ? », « rappeler Dupont lundi », « note Boulangerie : … »), la phrase étant lue
+                    par le module pur core/telegram-commandes.ts et exécutée par application.ts
     sources-courrier.ts  Gmail et boîte Outlook en reflet (le texte des messages n'entre jamais dans le jeu)
     tri-courrier.ts  tri du courrier par mots-clés, sans IA : les mêmes règles pour un mail collé et pour une boîte
   core/fec.ts     lecture du FEC (totaux du plan comptable général)

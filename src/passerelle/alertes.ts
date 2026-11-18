@@ -129,6 +129,8 @@ export interface CanalEnregistre {
   dernierEnvoi: string | null;
   /** Échecs d'affilée (remis à zéro dès qu'un envoi passe). */
   echecs: number;
+  /** Telegram : identifiant du dernier message lu, pour ne pas relire deux fois ce qu'on a déjà traité. */
+  luJusqua?: number;
   prochainEssai: string | null;
   creeLe: string;
   journal: { le: string; ok: boolean; detail: string }[];
@@ -235,6 +237,12 @@ export interface SourcesAlertes {
    * calcule pas. C'est de là que vient « un devis sans réponse » — plus d'un compte de jours écrit ici.
    */
   relances?: () => readonly Relance[];
+  /**
+   * CE QU'ON ÉCRIT AU ROBOT. Ce module tient le canal ; il n'écrit JAMAIS dans le monde (c'est sa règle depuis le
+   * premier jour). Quand un message arrive de la conversation branchée, il le passe ici et renvoie la réponse que
+   * cette fonction rend. Les fiches créées, les droits, le journal : tout cela se passe de l'autre côté.
+   */
+  surMessage?: (texte: string) => Promise<string>;
 }
 
 const ID = /^al-[a-f0-9]{12}$/;
@@ -779,6 +787,48 @@ export class Alertes {
    * Une passe : regarde ce qui est nouveau, décide si ça part maintenant, envoie. Ne fait rien sans canal en marche.
    * Renvoie le nombre de messages envoyés.
    */
+  /**
+   * CE QU'ON ÉCRIT AU ROBOT, relevé à chaque passage. `getUpdates` sans webhook : une installation posée sur un
+   * ordinateur de bureau n'a pas d'adresse publique, et on ne va pas en exiger une pour lire trois phrases.
+   *
+   * CE QUI EST ÉCOUTÉ, ET RIEN D'AUTRE : les messages de LA conversation branchée. Un inconnu qui trouve le robot et
+   * lui écrit n'obtient rien — pas même une réponse qui lui apprendrait que le robot existe pour quelqu'un.
+   *
+   * La position de lecture est gardée (`luJusqua`) : un message traité ne l'est pas deux fois, même si le jeu
+   * redémarre entre-temps. Telegram efface de lui-même ce qu'on a confirmé avoir lu.
+   */
+  async #ecouter(): Promise<void> {
+    if (!this.#src.surMessage) return;
+    for (const c of this.#etat.canaux) {
+      if (c.canal !== 'telegram' || !c.actif) continue;
+      let prive: PriveTelegram;
+      try { prive = JSON.parse(this.#chiffreur.dechiffrer(c.prive)) as PriveTelegram; } catch { continue; }
+      if (!prive?.jeton || !prive.conversation) continue;
+      const r = await this.#telegramAppel(prive.jeton, 'getUpdates', {
+        limit: 20, timeout: 0, allowed_updates: ['message'], ...(c.luJusqua ? { offset: c.luJusqua + 1 } : {}),
+      });
+      if (!r.ok) return; // robot pris par un webhook, jeton révoqué… : l'envoi dira déjà pourquoi, on n'insiste pas
+      const lots = Array.isArray(r.resultat) ? r.resultat : [];
+      for (const u of lots) {
+        if (!estObj(u) || typeof u.update_id !== 'number') continue;
+        // `offset` dit déjà à Telegram de ne pas renvoyer ce qu'on a lu ; on le revérifie ici, parce qu'un message
+        // traité deux fois créerait deux fiches — et qu'on ne confie pas cette garantie à l'autre bout du fil
+        const deja = c.luJusqua !== undefined && u.update_id <= c.luJusqua;
+        c.luJusqua = Math.max(c.luJusqua ?? 0, u.update_id);
+        if (deja) continue;
+        const m = estObj(u.message) ? u.message : null;
+        const chat = m && estObj(m.chat) ? m.chat : null;
+        const texte = m && typeof m.text === 'string' ? m.text : '';
+        // la conversation branchée, et elle seule
+        if (!chat || String(chat.id) !== String(prive.conversation) || !texte.trim()) continue;
+        let reponse = '';
+        try { reponse = await this.#src.surMessage(texte); } catch (e) { reponse = e instanceof Error ? e.message : 'Je n’ai pas pu le faire.'; }
+        if (reponse) await this.#telegramAppel(prive.jeton, 'sendMessage', { chat_id: prive.conversation, text: reponse.slice(0, 4096), link_preview_options: { is_disabled: true } });
+      }
+      if (lots.length) this.#changement();
+    }
+  }
+
   async passer(): Promise<number> {
     if (this.#enCours || !this.actif()) return 0;
     this.#enCours = true;
@@ -789,6 +839,7 @@ export class Alertes {
       if (this.#etat.jour !== jour) { this.#etat.jour = jour; this.#etat.envoyes = 0; }
       await this.#releverFaits(maintenant);
       envoyes = await this.#envoyerCeQuiEstDu(maintenant, jour);
+      await this.#ecouter();
     } catch (e) {
       console.error('[alertes]', e instanceof Error ? e.message : e);
     } finally {

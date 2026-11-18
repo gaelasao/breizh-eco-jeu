@@ -1011,3 +1011,40 @@ test('supprimer un canal arrête tout de suite les envois', async () => {
   assert.equal(x.S.envois.length, 0);
   await assert.rejects(() => x.a.essai(ADMIN, canal.id), (e: unknown) => e instanceof ErreurApi && e.statut === 404);
 });
+
+// ---------------------------------------------------------------- ce qu'on écrit au robot
+
+test('ce qu’on écrit au robot : seule la conversation branchée est écoutée, et la réponse part', async () => {
+  const x = alertes();
+  const recus: string[] = [];
+  const a = new Alertes({ ...x.src, surMessage: async (t) => { recus.push(t); return `reçu : ${t}`; } }, chiffreurEphemere(), { fetch: x.f });
+  const r = await a.robotTelegram(ADMIN, { jeton: JETON });
+  await a.conversationTelegram(ADMIN, { ref: r.ref });
+  a.ajouterCanal(ADMIN, { canal: 'telegram', ref: r.ref });
+  x.S.envois.length = 0;
+  // un message de la conversation branchée, un d'ailleurs : seul le premier est écouté
+  x.S.updates = [
+    { update_id: 10, message: { chat: { id: 4242 }, text: 'rappeler Dupont lundi' } },
+    { update_id: 11, message: { chat: { id: 9999 }, text: 'bonjour ?' } },
+  ];
+  await a.passer();
+  assert.deepEqual(recus, ['rappeler Dupont lundi'], 'un inconnu n’obtient rien, pas même une réponse');
+  assert.ok(x.S.envois.some((e) => e === 'reçu : rappeler Dupont lundi'), x.S.envois.join(' | '));
+
+  // le même message n'est pas traité deux fois, même après un redémarrage (la position de lecture est gardée)
+  recus.length = 0;
+  await a.passer();
+  assert.deepEqual(recus, []);
+  const relu = new Alertes({ ...x.src, surMessage: async (t) => { recus.push(t); return ''; } }, chiffreurEphemere(), { fetch: x.f, etat: a.instantane() });
+  await relu.passer();
+  assert.deepEqual(recus, [], 'la position de lecture survit au redémarrage');
+});
+
+test('ce qu’on écrit au robot : sans crochet posé, rien n’est lu (le canal reste à sens unique)', async () => {
+  const x = alertes();
+  await brancherTelegram(x);
+  x.S.appels.length = 0;
+  x.S.updates = [{ update_id: 20, message: { chat: { id: 4242 }, text: 'tâche : test' } }];
+  await x.a.passer();
+  assert.equal(x.S.appels.filter((a) => /getUpdates/.test(a.url.pathname)).length, 0);
+});

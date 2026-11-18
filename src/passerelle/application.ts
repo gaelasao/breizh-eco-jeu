@@ -24,6 +24,8 @@ import { Miroir, type EtatMiroir } from './miroir.ts';
 import { ErreurApi, Monde, SYSTEME, UNIVERS_DISPONIBLES, type EtatMonde, type Exemple, type OptionsMonde } from './monde.ts';
 import { recuperateurProtege, type Recuperateur } from './sortant.ts';
 import { Meteo } from './meteo.ts';
+import { AIDE_TEXTE, comprendre } from '../core/telegram-commandes.ts';
+import { pluriel } from '../core/texte.ts';
 import { chiffrerAvecPhrase, CONSERVATION_JOURS, creerChiffreur, dechiffrerAvecPhrase, Stockage, type Chiffreur, type SauvegardeAuto } from './stockage.ts';
 import { RelaisOAuth } from './oauth-relais.ts';
 import { ETAT_VIDE as MAJ_VIDE, lireDerniereVersion, lireEtat as lireEtatMaj, resume as resumeMaj, type EtatMisesAJour } from './mises-a-jour.ts';
@@ -141,6 +143,13 @@ function lireAvis(x: unknown): AvisSecurite[] {
     && typeof a.par === 'string' && typeof a.parNom === 'string' && Array.isArray(a.vusPar) && a.vusPar.every((v) => typeof v === 'string')).slice(-AVIS_MAX);
 }
 
+/** Une description de situation ramenée à une ligne lisible dans une messagerie. */
+const lisible = (t: string): string => String(t ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+/** Comparaison de noms tolérante aux accents et à la casse, pour retrouver un client cité dans une phrase. */
+const sansAccentSimple = (t: string): string => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+/** « 2026-11-23 » → « 23/11 » : une date se lit d'un coup d'œil dans une messagerie. */
+const jourCourt = (iso: string): string => { const [a, m, j] = String(iso).split('-'); return a && m && j ? `${j}/${m}` : String(iso); };
+
 export class Application {
   readonly monde: Monde;
   readonly synchro: Synchro;
@@ -245,6 +254,8 @@ export class Application {
       offre: () => { const e = this.nexus.etat(); return { relie: e.relie, plan: e.droits?.plan ?? null, etatAbonnement: e.droits?.etatAbonnement ?? null }; },
       // « un devis sans réponse » vient du moteur de suivi, qui compte les jours une seule fois (core/relances.ts)
       relances: () => { try { return this.suivis.relancesPreparees(); } catch { return []; } },
+      // ce qu'on écrit au robot : `alertes.ts` tient le canal, ici on agit dans le monde et on rend la réponse
+      surMessage: (texte) => Promise.resolve(this.#repondreAuRobot(texte)),
     }, this.#chiffreur, { etat: etat?.alertes ?? null, changement, ...(f ? { fetch: f } : {}) });
     // moteur de suivi : il lit le monde et les droits déjà confirmés, écrit des rendez-vous et des tâches dans le
     // monde privé (que les connecteurs branchés emmènent ensuite), et ne dit JAMAIS à `alertes.ts` quoi faire —
@@ -288,6 +299,53 @@ export class Application {
       stockage.ecrireMaintenant();
     }
     return app;
+  }
+
+  /**
+   * CE QU'ON ÉCRIT AU ROBOT, exécuté ici — là où sont le monde et le journal. `alertes.ts` tient le canal et ne
+   * sait rien de tout cela ; il passe la phrase et envoie la réponse.
+   *
+   * Trois choses seulement (`core/telegram-commandes.ts`), et aucune devinette : une phrase qu'on ne comprend pas
+   * n'écrit rien et reçoit la liste de ce que le robot sait faire. Chaque fiche créée porte « Telegram » comme
+   * source et passe au journal sous le nom du canal : on sait toujours d'où elle vient.
+   */
+  #repondreAuRobot(texte: string): string {
+    const intention = comprendre(texte, this.monde.maintenant());
+    const source = { id: 'telegram', libelle: 'Telegram' };
+    if (intention.genre === 'aide') return AIDE_TEXTE;
+    if (intention.genre === 'resume') {
+      const sits = this.monde.situationsReelles().filter((x) => x.statut === 'ouverte');
+      if (!sits.length) return 'Rien à faire pour le moment. Tout est à jour.';
+      const trois = sits.slice(0, 3).map((x) => `• ${lisible(x.description)}`);
+      return [`${pluriel(sits.length, 'chose à faire', 'choses à faire')} :`, ...trois, sits.length > 3 ? `…et ${sits.length - 3} de plus dans Living Business.` : ''].filter(Boolean).join('\n');
+    }
+    if (intention.genre === 'tache') {
+      const type = this.monde.univers.types.find((t) => t.famille === 'tache');
+      if (!type) return 'Cet univers n’a pas de tâches : je ne sais pas où la ranger.';
+      const champs: Record<string, string> = { statut: 'à faire' };
+      if (intention.quand) champs.echeance = intention.quand;
+      this.monde.creerObjetSysteme('telegram', type.id, intention.titre, champs, source);
+      return intention.quand ? `C'est noté : « ${intention.titre} », pour le ${jourCourt(intention.quand)}.` : `C'est noté : « ${intention.titre} ».`;
+    }
+    // une note : le compte rendu d'un rendez-vous, rattaché au client quand le nom écrit en désigne un seul
+    const type = this.monde.univers.types.find((t) => t.id === 'rendez_vous') ?? this.monde.univers.types.find((t) => t.famille === 'evenement');
+    if (!type) return 'Cet univers n’a pas de rendez-vous : je ne sais pas où ranger cette note.';
+    const cherche = intention.qui ? sansAccentSimple(intention.qui) : '';
+    const vus = cherche.length >= 3
+      ? this.monde.objetsReels().filter((o) => o.famille === 'tiers' && sansAccentSimple(o.nom).includes(cherche))
+      : [];
+    const client = vus.length === 1 ? vus[0] : null;
+    const jour = this.monde.maintenant();
+    const champs: Record<string, string> = {
+      debut: `${jour.getFullYear()}-${String(jour.getMonth() + 1).padStart(2, '0')}-${String(jour.getDate()).padStart(2, '0')}`,
+      compte_rendu: intention.texte, etat: 'confirmé',
+    };
+    if (client) champs.avec = client.id;
+    const nom = intention.qui ? `Point — ${intention.qui}` : 'Note';
+    this.monde.creerObjetSysteme('telegram', type.id, nom, champs, source);
+    if (client) return `C'est rangé dans le suivi de ${client.nom}.`;
+    if (intention.qui && vus.length > 1) return `Plusieurs fiches portent « ${intention.qui} » : la note est enregistrée sans client, à rattacher dans Living Business.`;
+    return intention.qui ? `Je n'ai pas trouvé « ${intention.qui} » : la note est enregistrée, à rattacher dans Living Business.` : 'C\'est noté.';
   }
 
   instantane(): EtatApplication {
