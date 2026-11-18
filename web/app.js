@@ -4499,12 +4499,26 @@ const boutonPrincipal = (libelle, faire, { occupe = false, enCours = libelle } =
  * Pour les autres outils, sans aperçu il n'y a pas de colonnes à associer : brancher n'importerait rien. La sortie
  * est alors de fermer en gardant la connexion, qui attend dans « Outils branchés ».
  */
+/**
+ * Une cause que le temps ne lèvera pas : ce n'est pas un service qui tousse, c'est le compte qui ne peut pas
+ * répondre. Réessayer n'y fera rien, attendre non plus ; il faut aller changer quelque chose ailleurs.
+ */
+const causeDurable = (erreur) => /pas de boîte en ligne/.test(String(erreur ?? ''));
+
 function sortieApercuRate(A, C) {
   if (!C?.erreurApercu || C.chargeApercu) return null;
   const fixe = cibleFixeDe(C) ? CONNECTER.mappingFixe(C.s?.id) : null;
   if (fixe) {
-    // sans aperçu, aucune colonne n'a été lue : on pose celle que l'aperçu aurait proposée, puisqu'on la connaît
-    return boutonPrincipal('Brancher quand même', () => { C.malgreErreur = true; C.mapping = { ...fixe }; activerOutil(C); }, { occupe: A.envoi, enCours: 'Branchement…' });
+    /* « BRANCHER QUAND MÊME » N'EST PAS TOUJOURS LE BON PARI. Il vaut pour une cause qui se lève toute seule ou d'un
+       clic ailleurs (une API à rallumer) : le branchement attend, et le jour venu les fiches arrivent sans rien
+       refaire. Il ne vaut PLUS quand le compte ne peut structurellement pas répondre — une boîte Microsoft qui
+       n'existe pas faute de licence. Vu en vrai le 18 novembre 2026 : l'écran disait « ce compte n'a pas de boîte
+       en ligne » ET offrait « Brancher quand même » en gros bouton plein. On fabriquait un branchement qui
+       échouerait tous les quarts d'heure, pour toujours. Il reste possible — une licence s'achète — mais en
+       second, et c'est le texte de l'erreur qui porte ce qu'il y a vraiment à faire. */
+    const brancher = (classe) => h('button', { type: 'button', class: `bz-bouton ${classe}`, cle: 'assistant-principal', 'aria-busy': A.envoi ? 'true' : null,
+      onclick: () => { if (!A.envoi) { C.malgreErreur = true; C.mapping = { ...fixe }; activerOutil(C); } } }, A.envoi ? icone('loader-circle') : null, A.envoi ? 'Branchement…' : 'Brancher quand même');
+    return brancher(causeDurable(C.erreurApercu) ? 'bz-bouton--secondaire' : 'bz-bouton--principal');
   }
   if (!C.cree) return null;
   return h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', cle: 'assistant-garder', onclick: () => { fermerAssistant(); changerVue('reglages:outils'); } },

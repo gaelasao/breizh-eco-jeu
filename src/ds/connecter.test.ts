@@ -263,6 +263,20 @@ test('« Se connecter avec… » est dans le pied : l’action de l’étape ne 
   assert.doesNotMatch(corps, /seConnecterOutil\(C\) \}, icone\('log-in'\)/, 'une action, un endroit : plus de bouton dans le corps');
 });
 
+test('« Brancher quand même » recule quand le compte ne peut pas répondre', () => {
+  /* Vu en vrai le 18 novembre 2026 : « Ce compte Microsoft n'a pas de boîte en ligne », et juste dessous, en gros
+     bouton plein, « Brancher quand même ». On proposait de fabriquer un branchement qui échouerait tous les quarts
+     d'heure, pour toujours. Le pari vaut pour une API à rallumer, pas pour une boîte qui n'existe pas : il reste
+     offert — une licence s'achète — mais en second, et l'erreur porte ce qu'il y a vraiment à faire. */
+  const app = lire('web/app.js');
+  assert.match(app, /const causeDurable = \(erreur\) => \/pas de boîte en ligne\/\.test\(String\(erreur \?\? ''\)\)/);
+  assert.match(app, /brancher\(causeDurable\(C\.erreurApercu\) \? 'bz-bouton--secondaire' : 'bz-bouton--principal'\)/);
+  // et le refus de Microsoft dit où aller le corriger, pas seulement qu'il refuse
+  const sortant = lire('src/passerelle/sortant.ts');
+  assert.match(sortant, /Microsoft 365 Business Basic ou au-dessus/);
+  assert.match(sortant, /jusqu’à 24\u00a0h à apparaître|jusqu’à 24 h à apparaître/, 'le délai de création de la boîte est dit');
+});
+
 test('recommandations : 3 par réponse, tirées du catalogue réel, disponibles, « 1 clic » d’abord', () => {
   const sans = M.catalogue(sourcesReelles(), CONNECTEURS);
   const avec = M.catalogue(sourcesReelles(['excel365', 'hubspot', 'sheets', 'pipedrive', 'sellsy']), CONNECTEURS);
