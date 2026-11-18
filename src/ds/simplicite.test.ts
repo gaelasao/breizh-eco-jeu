@@ -316,7 +316,10 @@ test('écrans vides : deux lignes (ce qui manque, ce que l’écran montrera) et
   assert.doesNotMatch(liste, /!tous\.length \? h\('div', \{ class: 'bz-vide' \}/, 'un seul écran vide initial');
   assert.match(liste, /videRubrique\(rubriqueDeVue\(vue\), \{/);
   // planning, courrier, satisfaction, pipeline, liste des lieux : même écran vide
-  assert.match(app, /if \(!P\.lignes\.length\) \{\n\s+remplir\(page, h\('div', \{ class: 'bz-ecran bz-planning' \}, videRubrique\('planning', \{/);
+  // planning sans personne : l'écran vide de la rubrique, et dessous les rendez-vous de l'agenda branché, s'il y en a
+  assert.match(app, /if \(!P\.lignes\.length\) \{\n\s+remplir\(page, h\('div', \{ class: 'bz-ecran bz-planning' \},\n\s+videRubrique\('planning', \{/);
+  assert.match(app, /\}\),\n\s+rendezVousPlanning\(P\)\)\);/, 'brancher son agenda puis ne rien voir : jamais');
+  assert.match(app, /cle: 'planning-moi', onclick: \(\) => ajouterMoi\(\)/, 'la première personne d’une entreprise, c’est soi');
   assert.match(app, /!toutes\.length \? videCourrier\(\)/);
   assert.match(app, /const videCourrier = \(\) => videRubrique\('courrier', \{/, 'l’écran vide du courrier reste celui de la rubrique');
   assert.match(app, /peut && toutes\.length \? h\('div', \{ class: 'bz-groupe-boutons' \}, boutonAjouter\('bz-bouton--secondaire'\)\) : null\)/, 'courrier vide : le bouton n’est pas écrit deux fois');

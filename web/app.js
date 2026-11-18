@@ -1103,6 +1103,32 @@ async function rendreApplication() {
   // une fenêtre se ferme : on applique les nouveautés reçues en direct pendant qu'elle était ouverte
   new MutationObserver(() => { if (E.majEnAttente && !occupe()) rafraichirEnDirect(); }).observe($('#modale'), { childList: true });
   await charger();
+  await reprendreApresConnexion();
+}
+
+/** Trace d'un branchement commencé, pour revenir dessus après le détour par l'outil (15 minutes). */
+const CLE_RETOUR = 'lb-retour-connexion';
+const RETOUR_VALIDE_MS = 15 * 60_000;
+
+/**
+ * Retour d'un « Se connecter avec… » : on rouvre le branchement commencé au lieu de laisser la personne sur la
+ * carte. Si la connexion a abouti, elle attend qu'on choisisse quoi récupérer : on reprend là. Sinon, on rouvre
+ * simplement l'outil dans l'assistant. La trace est effacée dans tous les cas : une seule reprise.
+ */
+async function reprendreApresConnexion() {
+  let trace = null;
+  try { trace = JSON.parse(lireLocal(CLE_RETOUR) ?? 'null'); } catch { trace = null; }
+  if (!trace?.source || !(Date.now() - Number(trace.le) < RETOUR_VALIDE_MS)) return;
+  ecrireLocal(CLE_RETOUR, '');
+  if (!E.monde?.profil.peutAdministrer || E.apercu) return;
+  try {
+    E.sources ??= await api('GET', '/sources');
+    const s = E.sources.find((x) => x.id === trace.source);
+    if (!s) return;
+    const attente = (await api('GET', '/synchro')).find((c) => c.source === trace.source && c.aChoisir);
+    if (attente) reprendreConnexion(attente, s);
+    else ouvrirConnecteur(trace.source);
+  } catch { /* hors ligne, ou plus le droit : la carte reste, on ne bloque rien */ }
 }
 
 async function charger() {
@@ -3725,8 +3751,15 @@ async function partagerSuivi(id, pour) {
 function blocRendezVous(o) {
   if (o.famille !== 'tiers' && o.famille !== 'personne') return null;
   const m = E.monde;
-  const rdv = m.objets
-    .filter((x) => x.type === 'rendez_vous' && x.champs.some((c) => (c.id === 'avec' || c.id === 'concerne') && c.lien?.id === o.id))
+  const tous = m.objets.filter((x) => x.type === 'rendez_vous');
+  const sien = (x) => x.champs.some((c) => ['avec', 'pour', 'concerne'].includes(c.id) && c.lien?.id === o.id);
+  /* Un agenda branché rend des rendez-vous sans destinataire : ce sont ceux de la personne qui l'a branché. Tant que
+     l'entreprise ne compte qu'une personne, il n'y a pas d'ambiguïté — ce sont les siens, et on le dit. Dès qu'une
+     deuxième arrive, on ne devine plus : chaque rendez-vous porte alors le nom qu'on lui a donné, ou aucun. */
+  const seule = o.famille === 'personne' && m.objets.filter((x) => x.famille === 'personne').length === 1;
+  const sansPersonne = (x) => !x.champs.some((c) => c.id === 'pour' && c.lien);
+  const rdv = tous
+    .filter((x) => sien(x) || (seule && sansPersonne(x) && x.source?.id?.startsWith('connecteur:')))
     .sort((a, b) => String(valeurDe(b, 'debut') ?? '').localeCompare(String(valeurDe(a, 'debut') ?? '')));
   // ni rendez-vous ni droit d'écrire : la fiche ne porte pas une rubrique vide qui ne mène à rien
   if (!rdv.length && !m.profil.peutPreparer) return null;
@@ -3735,6 +3768,8 @@ function blocRendezVous(o) {
     h('div', { class: 'bz-fiche__section-tete' },
       h('h3', { class: 'bz-t-titre-4', id: 'fiche-rdv', texte: 'Rendez-vous' }),
       rdv.length ? h('span', { class: 'bz-badge', texte: String(rdv.length) }) : null),
+    seule && rdv.some((x) => sansPersonne(x) && !sien(x))
+      ? h('p', { class: 'bz-t-micro bz-texte-2', texte: 'Les rendez-vous de l’agenda branché, sans nom, sont comptés comme les vôtres : vous êtes seul dans l’entreprise.' }) : null,
     rdv.length
       ? h('ol', { class: 'bz-liste-simple', role: 'list' }, rdv.slice(0, 5).map((x) => {
         const quand = String(valeurDe(x, 'debut') ?? '');
@@ -3761,10 +3796,13 @@ const chargerCompteRendu = async () => (CR ??= await import('/compte-rendu.js'))
  * Zoom ou Meet ont rendu — ou on écrit ses notes à la main. Ce qui est compris (date, participants, ce qu'il reste à
  * faire) s'affiche sous le texte, et se corrige : rien n'est enregistré sur une supposition muette.
  */
-async function ouvrirCompteRendu(client = null) {
+async function ouvrirCompteRendu(fiche = null) {
   const M = await chargerCompteRendu();
   const m = E.monde;
   const clients = m.objets.filter((x) => x.famille === 'tiers').map((x) => ({ id: x.id, nom: sansDemo(x.nom) }));
+  // depuis la fiche d'un client, le rendez-vous est AVEC lui ; depuis celle d'une personne, il est POUR elle
+  const client = fiche?.famille === 'tiers' ? fiche : null;
+  const personne = fiche?.famille === 'personne' ? fiche : null;
   const S = { texte: '', lu: M.lireCompteRendu(''), client: client?.id ?? '', cochees: new Set(), occupe: false };
   const relire = () => {
     S.lu = M.lireCompteRendu(S.texte);
@@ -3789,6 +3827,7 @@ async function ouvrirCompteRendu(client = null) {
         h('span', { class: 'bz-champ__aide', id: 'cr-aide', texte: 'Rien ne sort de cet ordinateur : le texte est lu ici, aucun service n’est appelé.' })),
       S.texte.trim() ? h('div', { class: 'bz-pile bz-pile--serre' },
         h('p', { class: 'bz-t-surtitre', texte: 'Ce qui en est tiré' }),
+        personne ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `Ce rendez-vous sera celui de ${sansDemo(personne.nom)}.` }) : null,
         h('div', { class: 'bz-grille-champs' },
           h('label', { class: 'bz-champ' },
             h('span', { class: 'bz-champ__libelle', texte: 'Date du rendez-vous' }),
@@ -3820,7 +3859,7 @@ async function ouvrirCompteRendu(client = null) {
     rendre();
     try {
       const { nom, champs } = M.rendezVousDuCompteRendu(S.lu);
-      const rv = await api('POST', '/objets', { type: 'rendez_vous', nom, roles: [], champs: { ...champs, ...(S.client ? { avec: S.client } : {}) } });
+      const rv = await api('POST', '/objets', { type: 'rendez_vous', nom, roles: [], champs: { ...champs, ...(S.client ? { avec: S.client } : {}), ...(personne ? { pour: personne.id } : {}) } });
       // sans échéance : celle du rendez-vous est déjà passée, et une tâche en retard dès sa naissance ferait une
       // fausse alerte dans « Aujourd'hui ». La date se met à la main, quand elle est connue.
       const taches = [...S.cochees].slice(0, 20).map((a) => ({ type: 'tache', nom: a, roles: [], champs: { statut: 'à faire', concerne: rv?.id ?? null } }));
@@ -4880,15 +4919,42 @@ function terrainCible(c) {
   return { adresse, tel: client ? FICHES.coordonnees(client).tel : null, client };
 }
 
+/** Une personne de l'équipe porte-t-elle déjà mon nom ? (on ne s'ajoute pas deux fois) */
+function mePlanifie() {
+  const moi = sansDemo(E.monde.profil.nom).trim().toLowerCase();
+  return E.monde.objets.some((o) => o.famille === 'personne' && sansDemo(o.nom).trim().toLowerCase() === moi);
+}
+/**
+ * « Me mettre dans l'équipe » : la première personne d'une entreprise, c'est celle qui la tient. Sans elle, le
+ * planning n'a personne à planifier, la carte n'a personne à montrer, et l'agenda qu'on vient de brancher n'a
+ * personne à qui appartenir. Un clic, le nom du profil, et le reste se complète dans la fiche.
+ */
+async function ajouterMoi() {
+  const type = E.monde.univers.types.find((t) => t.famille === 'personne');
+  if (!type) return;
+  try {
+    const o = await api('POST', '/objets', { type: type.id, nom: sansDemo(E.monde.profil.nom), roles: [], champs: {} });
+    await charger();
+    informer('Vous êtes dans l’équipe. Ouvrez votre fiche pour dire où vous travaillez.', 'ok');
+    if (o?.id) selectionner(o.id);
+  } catch (e) { if (!e.session) informer(e.message, 'erreur'); }
+}
+
 function dessinerPlanning() {
   const M = PLAN;
   const P = E.planning;
   if (!M || !P || E.vue !== 'planning') return;
   const page = $('#page');
-  // personne à planifier (§4.18) : ni grille ni outils vides — ce que le planning montrera, et une seule action
+  /* Personne à planifier (§4.18) : ni grille ni outils vides. Mais l'agenda branché, lui, se montre : brancher son
+     agenda puis trouver un écran vide parce qu'on n'a pas d'employés, c'est perdre ce qu'on vient de faire. Et la
+     première personne à mettre dans une entreprise, c'est soi : un clic, sans passer par un formulaire d'embauche. */
   if (!P.lignes.length) {
-    remplir(page, h('div', { class: 'bz-ecran bz-planning' }, videRubrique('planning', {
-      action: h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', onclick: () => allerEtapePremiersPas('equipe') }, icone('user-plus'), 'Ajouter mon équipe') })));
+    remplir(page, h('div', { class: 'bz-ecran bz-planning' },
+      videRubrique('planning', {
+        action: E.monde.profil.peutPreparer && !mePlanifie() ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'planning-moi', onclick: () => ajouterMoi() }, icone('user-plus'), 'Me mettre dans l’équipe') : null,
+        secondaire: h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => allerEtapePremiersPas('equipe') }, icone('users'), 'Ajouter mon équipe'),
+      }),
+      rendezVousPlanning(P)));
     return;
   }
   const tel = estTelephone();
@@ -7398,6 +7464,11 @@ const LIBELLE_SENS = { lecture: 'De l’outil vers Living Business', deux: 'Dans
  * Le navigateur ne reçoit jamais de jeton : seulement une référence « oauth:… » à renvoyer au jeu. Renvoie « annuler ».
  */
 function connecterOAuth(source, config, suivi, droits = 'lecture') {
+  /* On part vers l'outil, et la page de retour ramène à la racine du jeu — Breizhcosystem ne garde que l'origine de
+     l'adresse de retour, exprès : elle ne doit pas pouvoir mener ailleurs. Résultat, on revenait sur la carte, loin
+     du branchement commencé. On laisse donc une trace ici : au prochain démarrage, si elle est fraîche, l'écran
+     reprend là où on l'avait laissé. Elle ne contient qu'un nom d'outil et une heure. */
+  ecrireLocal(CLE_RETOUR, JSON.stringify({ source, le: Date.now() }));
   let fini = false;
   let id = null;
   let onglet = null;
