@@ -1978,8 +1978,18 @@ function objetsPersonnalisables() {
 function sectionCiel() {
   const actif = meteoReelleActive();
   const m = E.meteo;
+  const heure = lireLocal('lb-carte-heure') ?? 'reelle';
   return h('section', { class: 'bz-pile', 'aria-labelledby': 'titre-ciel' },
     h('h3', { id: 'titre-ciel', texte: 'Le ciel' }),
+    /* La lumière de la carte suit l'heure réelle, quel que soit le thème (§5.3) : à 10 h, il fait jour, même en
+       interface sombre. C'est voulu — mais quand l'interface est sombre, une maquette en plein midi fait un
+       rectangle éclatant au milieu de l'écran. Le réglage existait, perdu dans Réglages › Carte. Il est ici, là où
+       l'on regarde le ciel, à un clic. */
+    h('div', { class: 'bz-calques' }, Object.entries(REGLAGES_HEURE).map(([v, libelle]) => h('button', {
+      type: 'button', cle: `heure-${v}`, 'aria-pressed': heure === v,
+      onclick: () => { ecrireLocal('lb-carte-heure', v); E.scene?.regler({ heure: v }); rendreHud(); },
+    }, icone('check'), libelle))),
+    h('p', { class: 'bz-champ__aide', texte: 'Réelle : la lumière suit l’heure, de l’aube à la nuit. Suivre le thème : jour en clair, nuit en sombre — l’écran reste d’une seule pièce.' }),
     h('label', { class: 'bz-interrupteur' },
       h('input', { type: 'checkbox', role: 'switch', checked: actif, cle: 'meteo-reelle', 'aria-describedby': 'ciel-aide', onchange: (e) => reglerMeteoReelle(e.target.checked) }),
       h('span', { texte: 'Le vrai temps qu’il fait' }),
