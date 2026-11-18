@@ -4450,10 +4450,19 @@ function rendreAssistant() {
     erreursChamps ? resumeErreurs(erreursChamps, { idDe: (k) => `outil-${k}`, id: 'assistant-resume-erreurs' }) : null,
     A.erreur ? resultatAssistant('critique', A.erreur, { alerte: true }) : null,
     corps);
-  // erreur à l'envoi (§4.6) : le focus va sur le résumé, jamais sur <body>
+  /* Une erreur s'écrit EN HAUT de l'assistant. Quand elle arrive après un clic sur le bouton du bas — « Brancher »,
+     « Importer » — l'écran est déroulé tout en bas : le refus s'affiche hors de vue, et le bouton paraît ne rien
+     faire. C'est exactement ce qui s'est passé sur « Brancher courrier Gmail ». Toute erreur nouvelle est donc
+     ramenée sous les yeux, quelle que soit l'action qui l'a produite. */
+  if (A.erreur && A.erreurVue !== A.erreur) A.focusErreur = true;
+  A.erreurVue = A.erreur ?? null;
   if (A.focusErreur) {
     A.focusErreur = false;
-    requestAnimationFrame(() => ($('#assistant-resume-erreurs') ?? $('#assistant-corps .bz-resultat[role="alert"]'))?.focus());
+    requestAnimationFrame(() => {
+      const cible = $('#assistant-resume-erreurs') ?? $('#assistant-corps .bz-resultat[role="alert"]');
+      cible?.scrollIntoView({ block: 'center', behavior: mouvementReduit() ? 'auto' : 'smooth' });
+      cible?.focus();
+    });
   }
   const zonePied = $('#assistant-pied');
   remplir(zonePied, pied);
@@ -5124,6 +5133,17 @@ function inviterAgenda(P) {
   if (!E.sources) {
     api('GET', '/sources').then((s) => { E.sources = s; if (E.vue === 'planning') dessinerPlanning(); }).catch(() => undefined);
     return null;
+  }
+  /* Un agenda DÉJÀ branché et aucun rendez-vous cette semaine : « Branchez votre agenda » serait faux, et c'est
+     désagréable de se faire proposer ce qu'on vient de faire. Le jeu connaît la différence — il a des rendez-vous,
+     simplement pas dans ces six jours — alors il le dit, et renvoie là où ils sont. */
+  const aDesRendezVous = E.monde.objets.some((o) => o.type === 'rendez_vous');
+  if (aDesRendezVous) {
+    return h('section', { class: 'bz-planning__section', 'aria-labelledby': 'planning-agenda-titre' },
+      h('h2', { class: 'bz-t-titre-4', id: 'planning-agenda-titre', texte: 'Rendez-vous' }),
+      h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Aucun rendez-vous cette semaine. Votre agenda est bien branché : ceux des autres semaines sont dans la liste.' }),
+      h('div', { class: 'bz-groupe-boutons' },
+        h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', cle: 'planning-voir-rdv', onclick: () => changerVue('type:rendez_vous') }, icone('calendar-days', { taille: 'sm' }), 'Voir tous mes rendez-vous')));
   }
   const agendas = PLAN.agendasBranchables(E.sources);
   if (!agendas.length) return null;
@@ -8219,7 +8239,11 @@ async function chargerApercu(C) {
     const r = await api('POST', '/synchro/apercu', { source: C.s.id, config: C.config, typeObjet: C.cible.type, ...(C.cree ? { id: C.cree.id } : {}) });
     if (C.ferme) return;
     C.apercu = r;
-    C.mapping = { ...r.mapping };
+    /* Un outil à cible fixe rend des colonnes qui PORTENT DÉJÀ le nom des champs du jeu. L'association proposée par
+       le serveur part, elle, des en-têtes d'un fichier : « objet » n'y désigne pas un nom de fiche, et le courrier
+       Gmail repartait donc sans champ « nom » — refusé à l'enregistrement, avec un message écrit en haut d'un écran
+       déroulé tout en bas. On pose ici l'association connue, celle-là même qui sert quand la lecture échoue. */
+    C.mapping = { ...r.mapping, ...(cibleFixeDe(C) ? CONNECTER.mappingFixe(C.s.id) ?? {} : {}) };
     if (nom && C.compte) C.nom = `${C.compte.nom} · ${nom}`;
     else if (nom) C.nom = `${C.s.nom} · ${nom}`;
   } catch (e) {

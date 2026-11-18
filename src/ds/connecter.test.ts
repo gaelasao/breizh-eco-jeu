@@ -304,6 +304,15 @@ test('lecture échouée : l’assistant dit ce qui manque et garde une sortie (�
     assert.ok(Object.entries(map).every(([k, v]) => v === '__nom' || k === v), `${source} : les noms sont déjà ceux du jeu`);
   }
   assert.equal(M.mappingFixe('hubspot'), null, 'un outil sans cible fixe n’a pas d’association toute faite');
+  /* Le courrier d'une boîte branchée s'appelle « objet », pas « titre » : l'association proposée à partir d'en-têtes
+     de fichier ne lui trouvait aucun champ « nom », et « Brancher courrier Gmail » était refusé par le serveur — le
+     message s'écrivant en haut d'un écran déroulé en bas, le bouton paraissait ne rien faire. */
+  assert.equal(M.mappingFixe('gmail')?.objet, '__nom');
+  assert.equal(M.mappingFixe('outlook')?.objet, '__nom');
+  assert.match(app, /C\.mapping = \{ \.\.\.r\.mapping, \.\.\.\(cibleFixeDe\(C\) \? CONNECTER\.mappingFixe\(C\.s\.id\) \?\? \{\} : \{\}\) \};/);
+  // et une erreur qui arrive après un clic sur le bouton du bas est ramenée sous les yeux, quelle que soit l'action
+  assert.match(app, /if \(A\.erreur && A\.erreurVue !== A\.erreur\) A\.focusErreur = true;/);
+  assert.match(app, /cible\?\.scrollIntoView\(\{ block: 'center'/);
   // les autres outils n'importeraient rien sans colonnes : on garde la connexion au lieu de brancher à vide
   assert.match(app, /if \(!C\.cree\) return null;\n\s*return h\('button'[^)]*cle: 'assistant-garder'/);
   // et l'écran « C'est prêt » ne promet pas des fiches qui n'arriveront pas
