@@ -1,0 +1,16 @@
+{
+  "id": "formation",
+  "nom": "Formation",
+  "version": 1,
+  "herite": "generique",
+  "types": [
+    { "id": "projet", "libelle": "Formation", "pluriel": "Formations", "genre": "f" },
+    { "id": "commande_client", "libelle": "Session vendue", "pluriel": "Sessions vendues", "genre": "f" },
+    { "id": "site", "libelle": "Salle", "pluriel": "Salles" },
+    { "id": "article", "masque": true },
+    { "id": "entrepot", "masque": true },
+    { "id": "atelier", "masque": true },
+    { "id": "boutique", "masque": true },
+    { "id": "vehicule", "masque": true }
+  ]
+}

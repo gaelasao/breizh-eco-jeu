@@ -55,7 +55,7 @@ export class ErreurApi extends Error {
   }
 }
 
-export const UNIVERS_DISPONIBLES = ['generique', 'btp', 'commerce', 'services'] as const;
+export const UNIVERS_DISPONIBLES = ['generique', 'btp', 'commerce', 'services', 'formation'] as const;
 
 interface ActionEnregistree {
   cmd: CommandeAction;

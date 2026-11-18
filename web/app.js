@@ -462,6 +462,7 @@ const METIERS = [
   { id: 'btp', titre: 'Bâtiment, travaux, artisanat', texte: 'Chantiers, engins, échéances de matériel.' },
   { id: 'commerce', titre: 'Vente de produits', texte: 'Magasins, produits, stock.' },
   { id: 'services', titre: 'Services, conseil, indépendant', texte: 'Missions et suivi client, sans gestion de stock.' },
+  { id: 'formation', titre: 'Formation', texte: 'Formations, sessions vendues, salles. Ni stock ni véhicules.' },
   { id: 'generique', titre: 'Autre, ou je verrai plus tard', texte: 'Tout reste affiché ; à régler quand vous voudrez.' },
 ];
   const departs = ENTREE.departs(s.existant);
@@ -6006,7 +6007,15 @@ function rendreAccueil() {
         champ('accueil-effectif', 'Nombre de personnes', h('input', { id: 'accueil-effectif', class: 'bz-champ__saisie', type: 'number', inputmode: 'numeric', min: '1', max: '100000', value: F.effectif,
           oninput: (e) => { F.effectif = e.target.value; const c = Number(F.effectif) >= 50 ? 'par départements' : 'd’un seul tenant'; for (const b of document.querySelectorAll('[data-conseil]')) b.hidden = !F.effectif || b.dataset.conseil !== c; } })),
         champ('accueil-siret', 'SIRET (facultatif)', h('input', { id: 'accueil-siret', class: 'bz-champ__saisie bz-t-identifiant', type: 'text', inputmode: 'numeric', maxlength: '20', autocomplete: 'off', value: F.siret, oninput: (e) => (F.siret = e.target.value) })),
-        champ('accueil-univers', 'Vocabulaire du métier', liste('accueil-univers', m.univers.disponibles.map((u) => [u.id, u.nom]), F.univers, (e) => (F.univers = e.target.value)), { large: true, aide: 'Il adapte les mots : chantier, dossier, affaire…' })),
+        null),
+      /* « Vocabulaire du métier » dans une liste déroulante : personne ne va chercher « je suis artisan » derrière ce
+         mot-là. C'est la même question qu'à l'installation, posée dans les mêmes termes et avec les mêmes cartes —
+         et elle se repose ici autant de fois qu'on veut : un métier n'est pas un choix définitif. */
+      h('fieldset', { class: 'bz-pile bz-completer__choix' }, h('legend', { class: 'bz-t-label', texte: 'Vous faites quoi ?' }),
+        h('p', { class: 'bz-champ__aide', texte: 'Living Business prend le vocabulaire de votre métier et n’affiche que ce qui vous sert : des chantiers pour un artisan, des missions pour un consultant, des sessions pour un formateur. Rien n’est définitif.' }),
+        h('div', { class: 'bz-grille-choix' }, METIERS.filter((x) => m.univers.disponibles.some((u) => u.id === x.id)).map((x) => h('label', { class: 'bz-choix' },
+          h('input', { type: 'radio', name: 'accueil-univers', value: x.id, checked: F.univers === x.id, onchange: () => { F.univers = x.id; } }),
+          h('span', { class: 'bz-choix__texte' }, h('span', { class: 'bz-choix__titre', texte: x.titre }), h('span', { class: 'bz-choix__detail', texte: x.texte })))))),
       h('fieldset', { class: 'bz-pile bz-completer__choix' }, h('legend', { class: 'bz-t-label', texte: 'Comment voulez-vous voir votre entreprise ?' }),
         h('div', { class: 'bz-grille-choix' }, [['d’un seul tenant', 'D’un seul tenant', 'Petite ou moyenne entreprise : tout le monde dans un même ensemble, lieu par lieu.'], ['par départements', 'Par départements', 'Plus grande structure : chaque service a son plateau dans le bâtiment, avec son équipe, ses tâches, ses dossiers.']].map(([v, t, d]) =>
           h('label', { class: 'bz-choix' }, h('input', { type: 'radio', name: 'accueil-mode', value: v, checked: F.mode === v, onchange: () => { F.mode = v; } }),
