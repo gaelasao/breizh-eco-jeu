@@ -248,7 +248,11 @@ test('fenêtre étroite (1 024 px) : menu replié d’office, fiche par-dessus l
   assert.match(app, /const carteEtroite = \(\) => !matchMedia\('\(min-width: 68\.75em\)'\)\.matches \|\| \(Boolean\(E\.selection\) && !matchMedia\('\(min-width: 100em\)'\)\.matches\);/, 'fiche ouverte : la barre se resserre, sauf sur un très grand écran (F11)');
   // « Connecter mes données » ne s'y double plus du menu ni de « Pour bien démarrer » : une action, un endroit
   assert.doesNotMatch(app, /hud-connecter|herosPrincipal/);
-  assert.match(app, /\(E\.miniCarte \?\? !carteEtroite\(\)\) \? miniCarte\(\{ repliable: true \}\)/);
+  /* La mini-carte ne s'ouvre plus d'office, même au large : elle faisait le quatrième panneau posé sur la scène,
+     pour redire ce que la carte montre déjà — et elle est aussi dans Calques. La règle dégageait la barre sur
+     écran étroit ; la replier partout la dégage davantage. Qui l'ouvre la retrouve ouverte. */
+  assert.match(app, /E\.miniCarte \? miniCarte\(\{ repliable: true \}\)/);
+  assert.doesNotMatch(app, /E\.miniCarte \?\? !carteEtroite\(\)/, 'plus d’ouverture d’office sur grand écran');
   assert.match(app, /miniCarte: lireLocal\('lb-minicarte'\) === 'repliee' \? false : lireLocal\('lb-minicarte'\) === 'ouverte' \? true : null,/);
 });
 

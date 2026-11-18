@@ -1370,8 +1370,11 @@ function rendreRail() {
     h('div', { class: 'bz-rail__produit' },
       h('img', { src: '/symbole-living-business.svg', alt: replie ? MARQUE.jeu : '', width: '28', height: '28' }),
       h('span', { class: 'bz-rail__nom' }, h('strong', { texte: MARQUE.jeu }), h('span', { texte: sansDemo(m.organisation.nom) }))),
+    /* PAS D'INTERTITRES DANS LE MENU. Cinq libellés en petites capitales grises (PLANNING, PILOTAGE, RELATIONS…)
+       pour des groupes de une à quatre entrées : ils coûtaient cinq lignes et tout le bruit visuel du menu, et ne
+       rangeaient rien qu'un écart ne range mieux. Le groupe reste une vraie structure — le `aria-label` du groupe
+       le dit toujours à qui navigue au clavier ou au lecteur d'écran — mais il se voit par l'espace, pas par un mot. */
     h('ul', { class: 'bz-rail__groupes', role: 'list' }, menuMontre().map((g) => h('li', {},
-      h('span', { class: 'bz-rail__intertitre bz-t-surtitre', 'aria-hidden': 'true', texte: g.libelle }),
       h('ul', { class: 'bz-rail__groupe', role: 'list', 'aria-label': g.libelle }, g.entrees.map((e) => h('li', {}, lienNav(marquer(e), { classe: 'bz-rail__lien', infobulle: replie }))))))),
     h('div', { class: 'bz-rail__pied' },
       // « Tout afficher » : toujours au même endroit, seulement s'il reste des rubriques qui attendent leurs données
@@ -2327,7 +2330,10 @@ function rendreHudInterne() {
       h('div', { class: 'commandes-carte bz-verre', role: 'group', 'aria-label': 'Caméra' }, zoomAvant(), zoomArriere(), pivoter(), recentrer(),
         boutonCarte(document.fullscreenElement ? 'minimize' : 'maximize', document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran', document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran', pleinEcran)),
       boussole()),
-    (E.miniCarte ?? !carteEtroite()) ? miniCarte({ repliable: true }) : h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-verre hud-minicarte-ouvrir', cle: 'minicarte-ouvrir', onclick: () => basculerMiniCarte(true) }, icone('map'), 'Mini-carte'),
+    /* LA MINI-CARTE NE FLOTTE PLUS D'OFFICE. Elle s'ouvrait seule sur tout écran large, et faisait le quatrième
+       panneau posé sur la scène — alors qu'elle dit ce que la carte elle-même montre déjà, et qu'elle est aussi
+       dans le panneau Calques. Elle reste à un clic, et qui l'ouvre la retrouve ouverte : le choix est gardé. */
+    E.miniCarte ? miniCarte({ repliable: true }) : h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-verre hud-minicarte-ouvrir', cle: 'minicarte-ouvrir', onclick: () => basculerMiniCarte(true) }, icone('map'), 'Mini-carte'),
     h('div', { class: 'hud-bas' },
       visite,
       h('div', { class: 'bz-barre-carte bz-verre', role: 'toolbar', 'aria-label': 'Outils de la carte' },

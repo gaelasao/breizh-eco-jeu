@@ -532,7 +532,6 @@
   /* liste qui défile : marge intérieure rattrapée par une marge négative, pour que l'anneau de focus ne soit pas rogné */
   .bz-rail__groupes { gap: var(--bz-e-4); flex: 1 1 auto; min-block-size: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
     padding: var(--bz-e-2); margin: calc(-1 * var(--bz-e-2)); }
-  .bz-rail__intertitre { padding: 0 var(--bz-e-3) var(--bz-e-1); }
   .bz-rail__lien { position: relative; display: flex; align-items: center; gap: var(--bz-e-3); min-block-size: var(--bz-h-controle); inline-size: 100%; padding: 0 var(--bz-e-3);
     border: var(--bz-bord-2) solid transparent; border-radius: var(--bz-r-2); background: none; color: var(--bz-texte-2); text-decoration: none; text-align: start;
     font: var(--bz-g-moyen) var(--bz-t-petit)/var(--bz-i-label) var(--bz-police); cursor: pointer; }
@@ -546,7 +545,7 @@
   @media (max-width: 59.99em) { .bz-rail__replier { display: none; } }
   /* Rail replié : icônes seules, libellé dans l'infobulle (le nom accessible reste le libellé) */
   .bz-coque[data-rail="replie"] .bz-rail { padding-inline: var(--bz-e-2); align-items: stretch; }
-  .bz-coque[data-rail="replie"] .bz-rail__nom, .bz-coque[data-rail="replie"] .bz-rail__libelle, .bz-coque[data-rail="replie"] .bz-rail__intertitre,
+  .bz-coque[data-rail="replie"] .bz-rail__nom, .bz-coque[data-rail="replie"] .bz-rail__libelle,
   .bz-coque[data-rail="replie"] .bz-rail__lien > kbd {
     position: absolute; inline-size: 1px; block-size: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
   .bz-coque[data-rail="replie"] .bz-rail__produit { justify-content: center; padding: 0; }
