@@ -121,6 +121,20 @@ export const CIBLE_FIXE = Object.freeze({
 });
 export const cibleFixe = (sourceId) => CIBLE_FIXE[sourceId] ?? null;
 
+/**
+ * Colonnes rendues par ces outils-là. Leurs noms SONT déjà ceux du jeu — c'est précisément ce qui fait qu'il n'y a
+ * rien à associer. Les écrire ici sert le jour où la lecture échoue (une API éteinte, une boîte absente) : on peut
+ * brancher quand même, avec l'association que l'aperçu aurait proposée, au lieu de rester bloqué devant un écran
+ * sans issue. Le branchement relit tout seul, et les fiches arrivent quand la cause est levée.
+ */
+const COLONNES_FIXES = Object.freeze({
+  rendez_vous: { titre: '__nom', debut: 'debut', fin: 'fin', lieu: 'lieu', etat: 'etat', lien: 'lien' },
+  tache: { titre: '__nom', echeance: 'echeance', statut: 'statut', lien: 'lien' },
+  courrier: { objet: '__nom', expediteur: 'expediteur', resume: 'resume', bac: 'bac', urgence: 'urgence', recu_le: 'recu_le', action: 'action', statut: 'statut', lien: 'lien' },
+});
+/** Association à poser sans aperçu, pour un outil dont la cible est fixe ; `null` pour les autres. */
+export const mappingFixe = (sourceId) => COLONNES_FIXES[CIBLE_FIXE[sourceId] ?? ''] ?? null;
+
 /** Outils où « dans les deux sens » se choisit AVANT la connexion : la portée demandée en dépend. */
 export const SENS_AVANT_CONNEXION = Object.freeze({
   agendagoogle: { lecture: 'Lire mes rendez-vous', deux: 'Lire mes rendez-vous, et ajouter dans l’agenda ceux que je crée ici' },

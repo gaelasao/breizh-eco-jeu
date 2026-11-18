@@ -28,6 +28,7 @@ type Module = {
   famillesPresentes: (cat: Entree[]) => Array<{ id: string }>;
   cibleProbable: (nom: string, cibles: ReadonlyArray<{ libelle: string }>) => { libelle: string } | null;
   cibleFixe: (id: string) => string | null;
+  mappingFixe: (id: string) => Record<string, string> | null;
   sensAvantConnexion: (id: string) => { lecture: string; deux: string } | null;
   parcoursDe: (x: Partial<Entree> | null) => string;
   progression: (p: string, e: string) => { index: number; total: number; libelle: string; texte: string };
@@ -282,6 +283,34 @@ test('filtre : famille, recherche sans accents, contenu d’un compte, état vid
   assert.ok(M.filtrer(cat, { recherche: 'dynamics' })['un-clic'].some((x) => x.id === 'microsoft'));
   const rien = M.filtrer(cat, { recherche: 'zzzz introuvable' });
   assert.deepEqual([rien['un-clic'].length, rien.cle.length, rien.fichier.length, rien.total], [0, 0, 0, 0]);
+});
+
+test('lecture échouée : l’assistant dit ce qui manque et garde une sortie (§4.21)', () => {
+  const app = lire('web/app.js');
+  // la connexion a réussi, la lecture a échoué : l'écran ne se tait plus, et le pied ne garde plus « Retour » seul
+  assert.match(app, /resultatAssistant\('critique', `Impossible de lire dans \$\{nomOutil\}\.`/);
+  assert.match(app, /texte: C\.cree \? 'Votre connexion est enregistrée : elle n’est pas perdue/, 'ce qui est déjà acquis est dit');
+  assert.match(app, /function sortieApercuRate\(A, C\) \{/);
+  assert.match(app, /: sortieApercuRate\(A, A\.outil\)\]\];/, 'la sortie est au pied, avec les autres actions');
+  // un agenda, une boîte, une liste de tâches n'ont pas de colonnes à associer : brancher sans aperçu est sans risque
+  assert.match(app, /const fixe = cibleFixeDe\(C\) \? CONNECTER\.mappingFixe\(C\.s\?\.id\) : null;/);
+  assert.match(app, /C\.mapping = \{ \.\.\.fixe \}; activerOutil\(C\);/, 'l’association connue remplace l’aperçu manquant');
+  // et cette association est celle que l'aperçu aurait proposée : le nom vient du titre, le reste porte déjà son nom
+  const fixes: ReadonlyArray<[string, string]> = [['agendagoogle', 'rendez_vous'], ['tachesmicrosoft', 'tache'], ['outlook', 'courrier']];
+  for (const [source, cible] of fixes) {
+    assert.equal(M.cibleFixe(source), cible);
+    const map = M.mappingFixe(source) ?? {};
+    assert.ok(Object.values(map).includes('__nom'), `${source} : un champ donne le nom`);
+    assert.ok(Object.entries(map).every(([k, v]) => v === '__nom' || k === v), `${source} : les noms sont déjà ceux du jeu`);
+  }
+  assert.equal(M.mappingFixe('hubspot'), null, 'un outil sans cible fixe n’a pas d’association toute faite');
+  // les autres outils n'importeraient rien sans colonnes : on garde la connexion au lieu de brancher à vide
+  assert.match(app, /if \(!C\.cree\) return null;\n\s*return h\('button'[^)]*cle: 'assistant-garder'/);
+  // et l'écran « C'est prêt » ne promet pas des fiches qui n'arriveront pas
+  assert.match(app, /C\.malgreErreur\n\s*\/\/ branché alors que la lecture échouait/);
+  assert.match(app, /est branché, mais la lecture échoue encore\./);
+  // et l'écran de fin n'envoie pas « voir sur la carte » : rien n'y est arrivé
+  assert.match(app, /A\.outil\?\.malgreErreur\n\s*\? \[boutonPrincipal\('Voir mes logiciels connectés'/);
 });
 
 test('« Outlook » mène au compte Microsoft, qui dit pourquoi — et seulement si le courrier est ouvert', () => {

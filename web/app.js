@@ -4347,6 +4347,27 @@ const boutonRetour = (vers, libelle = 'Retour') => h('button', { type: 'button',
 const boutonPrincipal = (libelle, faire, { occupe = false, enCours = libelle } = {}) => h('button', { type: 'button', class: 'bz-bouton bz-bouton--principal', cle: 'assistant-principal', 'aria-busy': occupe ? 'true' : null, onclick: () => { if (!occupe) faire(); } },
   occupe ? icone('loader-circle') : null, occupe ? enCours : libelle);
 
+/**
+ * SORTIE QUAND LA LECTURE A ÉCHOUÉ (§4.21). Un agenda, une boîte, une liste de tâches n'ont aucune colonne à
+ * associer : leurs noms de champs sont déjà ceux du jeu. Brancher sans aperçu est donc sans risque, et c'est ce
+ * qu'il faut faire — le branchement relit tout seul, et le jour où la cause est levée (une API rallumée, une licence
+ * ajoutée), les rendez-vous arrivent sans que personne ait rien à refaire.
+ *
+ * Pour les autres outils, sans aperçu il n'y a pas de colonnes à associer : brancher n'importerait rien. La sortie
+ * est alors de fermer en gardant la connexion, qui attend dans « Outils branchés ».
+ */
+function sortieApercuRate(A, C) {
+  if (!C?.erreurApercu || C.chargeApercu) return null;
+  const fixe = cibleFixeDe(C) ? CONNECTER.mappingFixe(C.s?.id) : null;
+  if (fixe) {
+    // sans aperçu, aucune colonne n'a été lue : on pose celle que l'aperçu aurait proposée, puisqu'on la connaît
+    return boutonPrincipal('Brancher quand même', () => { C.malgreErreur = true; C.mapping = { ...fixe }; activerOutil(C); }, { occupe: A.envoi, enCours: 'Branchement…' });
+  }
+  if (!C.cree) return null;
+  return h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', cle: 'assistant-garder', onclick: () => { fermerAssistant(); changerVue('reglages:outils'); } },
+    icone('pause'), 'Garder la connexion pour plus tard');
+}
+
 function contenuAssistant(A) {
   if (A.etape === 'choisir') return [corpsChoisir(A), []];
   if (A.etape === 'contenu') return [corpsContenu(A), [boutonRetour('choisir'), boutonPrincipal('Continuer', () => {
@@ -4359,10 +4380,11 @@ function contenuAssistant(A) {
   // Le bouton branche donc tout de suite, au lieu de mener à un écran où il n'y aurait rien à faire.
   if (A.etape === 'recuperer' && A.outil && cibleFixeDe(A.outil)) {
     return [corpsRecuperer(A.outil), [boutonRetour('connexion'),
-      A.outil.apercu ? boutonPrincipal(`Brancher ${(A.outil.contenu?.libelle ?? A.outil.s?.nom ?? '').toLowerCase()}`, () => activerOutil(A.outil), { occupe: A.envoi, enCours: 'Branchement…' }) : null]];
+      A.outil.apercu ? boutonPrincipal(`Brancher ${(A.outil.contenu?.libelle ?? A.outil.s?.nom ?? '').toLowerCase()}`, () => activerOutil(A.outil), { occupe: A.envoi, enCours: 'Branchement…' })
+        : sortieApercuRate(A, A.outil)]];
   }
   if (A.etape === 'recuperer') return [corpsRecuperer(A.outil), [boutonRetour('connexion'),
-    A.outil?.apercu ? boutonPrincipal('Continuer', () => allerEtape('colonnes')) : null]];
+    A.outil?.apercu ? boutonPrincipal('Continuer', () => allerEtape('colonnes')) : sortieApercuRate(A, A.outil)]];
   if (A.etape === 'colonnes' && A.parcours === 'outil') return [corpsColonnesOutil(A.outil), [boutonRetour('recuperer'),
     boutonPrincipal(`Importer ${pluriel(A.outil?.apercu?.enregistrements ?? 0, 'fiche', 'fiches')} dans Living Business`, () => activerOutil(A.outil), { occupe: A.envoi, enCours: 'Import…' })]];
   if (A.etape === 'colonnes') return [corpsColonnes(A), [boutonRetour('fichier'), boutonPrincipal(`Importer ${pluriel(A.analyse?.lignes ?? 0, 'ligne', 'lignes')}`, confirmer, { occupe: A.envoi, enCours: 'Import…' })]];
@@ -4372,9 +4394,11 @@ function contenuAssistant(A) {
   if (A.parcours === 'fec') return [corpsPretFec(A), [
     h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => fermerAssistant() }, 'Fermer'),
     boutonPrincipal('Voir ma santé financière', () => { fermerAssistant(); changerVue('sante'); })]];
-  if (A.parcours === 'outil') return [corpsPretOutil(A.outil), [
-    h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { fermerAssistant(); changerVue('reglages:outils'); } }, 'Voir mes logiciels connectés'),
-    boutonPrincipal('Voir sur la carte', () => { fermerAssistant(); changerVue('carte'); })]];
+  // branché malgré une lecture en échec : rien n'est arrivé sur la carte, l'y envoyer serait se moquer du monde
+  if (A.parcours === 'outil') return [corpsPretOutil(A.outil), A.outil?.malgreErreur
+    ? [boutonPrincipal('Voir mes logiciels connectés', () => { fermerAssistant(); changerVue('reglages:outils'); })]
+    : [h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { fermerAssistant(); changerVue('reglages:outils'); } }, 'Voir mes logiciels connectés'),
+      boutonPrincipal('Voir sur la carte', () => { fermerAssistant(); changerVue('carte'); })]];
   return [corpsPret(A), [
     h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { const r = A.reponse; E.assistant = nouvelAssistant('choisir'); E.assistant.reponse = r; rendreAssistant(); chargerCatalogue(); } }, 'Importer autre chose'),
     boutonPrincipal('Voir sur la carte', () => { fermerAssistant(); changerVue('carte'); })]];
@@ -7733,7 +7757,7 @@ function champOutil(C, ch, { apres = null } = {}) {
 /* Connecter n'est pas importer : les réglages se séparent en deux. Ceux qui servent à ATTEINDRE le compte (adresse,
    clé, annuaire) restent à l'étape « Se connecter » ; ceux qui disent CE QU'ON PREND (base, table, classeur, fiches)
    passent à « Que voulez-vous récupérer ? », une fois la connexion faite et rien importé. */
-const CHAMPS_ACCES = new Set(['url', 'urlEcriture', 'urlSortante', 'boutique', 'organisation', 'domaine', 'script', 'tenant', 'client', 'clientId', 'site', 'environnement', 'identifiant', 'cle', 'base']);
+const CHAMPS_ACCES = new Set(['url', 'urlEcriture', 'urlSortante', 'boutique', 'organisation', 'domaine', 'script', 'tenant', 'client', 'clientId', 'site', 'environnement', 'identifiant', 'serveur', 'cle', 'base']);
 const estChampAcces = (ch) => Boolean(ch.secret || ch.connexion || (CHAMPS_ACCES.has(ch.id) && !ch.liste && !ch.choix));
 /** Champs d'une étape, dans le mode choisi (un clic ou clé) : `acces` pour « Se connecter », sinon « Que récupérer ? ». */
 function champsEtape(C, acces) {
@@ -8070,8 +8094,14 @@ function corpsRecuperer(C) {
     !a && !C.chargeApercu && !C.erreurApercu && C.s.lecture === 'appel'
       ? (recuperationChoisie(C) ? h('div', {}, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => chargerApercu(C) }, icone('eye'), 'Voir un aperçu')) : null) : null,
     C.chargeApercu ? h('div', { role: 'status' }, resultatAssistant('attente', `Lecture dans ${nomOutil}…`, { detail: 'Quelques lignes seulement, pour vous montrer ce que ça donne. Rien n’est enregistré.' })) : null,
-    C.erreurApercu ? resultatAssistant('critique', 'Impossible de lire ces données.', { detail: C.erreurApercu, alerte: true,
-      actions: h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', onclick: relire }, icone('refresh-cw', { taille: 'sm' }), 'Réessayer')) }) : null,
+    /* La connexion a réussi, la lecture a échoué. C'est le moment où l'assistant se taisait : plus de bouton pour
+       avancer, « Retour » pour seule issue, et la boucle. Il dit maintenant deux choses vraies — ce que le service
+       répond (souvent avec l'adresse à ouvrir, cliquable), et que la connexion est DÉJÀ enregistrée, donc rien n'est
+       à refaire. La sortie, elle, est au pied de l'écran, avec les autres : « Brancher quand même ». */
+    C.erreurApercu ? resultatAssistant('critique', `Impossible de lire dans ${nomOutil}.`, { detail: C.erreurApercu, alerte: true,
+      actions: h('div', { class: 'bz-pile bz-pile--serre' },
+        h('p', { class: 'bz-t-petit', texte: C.cree ? 'Votre connexion est enregistrée : elle n’est pas perdue, et vous n’aurez pas à la refaire.' : 'Vos réglages sont gardés : vous n’aurez pas à les ressaisir.' }),
+        h('div', { class: 'bz-groupe-boutons' }, h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', cle: 'apercu-reessayer', onclick: relire }, icone('refresh-cw', { taille: 'sm' }), 'Réessayer'))) }) : null,
     a ? [
       a.message ? resultatAssistant('info', a.message) : resultatAssistant('ok', `${pluriel(a.enregistrements, 'fiche trouvée', 'fiches trouvées')} chez ${nomOutil}.`, { detail: 'Voici les premières lignes, telles qu’elles sont aujourd’hui chez vous.' }),
       a.precision ? resultatAssistant('info', a.precision) : null,
@@ -8143,7 +8173,10 @@ function corpsPretOutil(C) {
   const c = C.cree;
   const exemple = JSON.stringify({ enregistrements: [{ id: 'CRM-001', Nom: 'Exemple SARL', Ville: 'Brest', Email: 'contact@exemple.fr' }] }, null, 2);
   return [
-    resultatAssistant('ok', `${c.nom} est connecté.`, { detail: C.s.lecture === 'appel' ? 'Première synchronisation lancée : vos fiches arrivent sur la carte.' : 'Il attend vos envois.' }),
+    C.malgreErreur
+      // branché alors que la lecture échouait : promettre des fiches qui arrivent serait faux
+      ? resultatAssistant('attention', `${c.nom} est branché, mais la lecture échoue encore.`, { detail: `${C.erreurApercu ?? ''} Le branchement réessaiera tout seul : le jour où la cause est levée, vos fiches arrivent sans rien refaire. Vous le retrouvez dans Réglages, Outils branchés.` })
+      : resultatAssistant('ok', `${c.nom} est connecté.`, { detail: C.s.lecture === 'appel' ? 'Première synchronisation lancée : vos fiches arrivent sur la carte.' : 'Il attend vos envois.' }),
     c.entree ? [
       h('h4', { class: 'bz-catalogue__intertitre', texte: 'À coller dans Make, Zapier ou n8n' }),
       h('p', { class: 'bz-t-petit', texte: 'Adresse (méthode POST)' }), blocCode(`${location.origin}${c.entree}`, 'Copier l’adresse'),
