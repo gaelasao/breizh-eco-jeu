@@ -3,6 +3,10 @@
  *
  *   node scripts/paquets.ts                 → les 4 systèmes (dist/living-business-<version>-<cible>.zip)
  *   node scripts/paquets.ts darwin-arm64    → un seul (darwin-arm64, darwin-x64, win-x64, linux-x64)
+ *   node scripts/paquets.ts linux-x64 win-x64 → plusieurs, et SHA256SUMS.txt ne porte alors QUE ces cibles. La CI
+ *     s'en sert : les runners macOS de GitHub manquent souvent, alors les paquets Mac se fabriquent dans un job à
+ *     part et les autres sur Ubuntu, et le job de publication réunit les deux SHA256SUMS.txt (pas d'option
+ *     « --plateformes » : donner ses cibles suffit, voir .github/workflows/paquets.yml).
  *   LB_NODE_MAJEUR=24 (défaut) ou LB_NODE_VERSION=v24.22.2 pour fixer la version de Node.js
  *   --nexus https://reseau.example       → adresse de Breizhcosystem préréglée dans le jeu (ou LB_NEXUS_URL=… à la fabrication)
  *   --essai                                 → essai depuis la copie de travail, dans dist/essai/ (jamais publié)

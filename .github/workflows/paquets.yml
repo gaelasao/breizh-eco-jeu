@@ -7,8 +7,30 @@
 # Chaîne : actions épinglées par empreinte de commit (Dependabot les tient à jour), dépendances installées sans
 # scripts, et la FABRICATION n'a qu'un droit de lecture : seul le job de publication, qui ne lance aucun code du
 # dépôt ni de npm, peut écrire (créer la version).
-# La fabrication tourne sur macOS : le paquet Mac est une application (applet compilée par osacompile, signature ad hoc
-# par codesign, zip par ditto) ; les paquets Windows et Linux s'y fabriquent aussi (zip, tar et unzip de macOS).
+#
+# DEUX JOBS DE FABRICATION, pas un. Les runners macOS de GitHub manquent souvent : le job reste en file et GitHub
+# l'annule au bout d'un quart d'heure sans qu'une seule étape ait tourné (v0.12.2 et v0.12.4 ; run 44308127126 du
+# 18 novembre 2026 : aucun runner, zéro étape, « cancelled »), alors qu'il prend deux minutes quand il tourne.
+# macOS n'est nécessaire QUE pour les deux paquets Mac : osacompile compile l'applet, codesign la signe, ditto fait
+# le zip. Les paquets Windows et Linux n'ont besoin que de zip, tar et unzip, présents sur Ubuntu. Séparés, ils
+# aboutissent même quand les runners macOS manquent, et restent téléchargeables en artefact ; il reste à relancer
+# l'exécution en entier (« gh run rerun <id> » : « --failed » n'enregistre qu'une tentative qui ne tourne pas), et
+# une version incomplète ne part jamais pour autant (voir le job publier).
+# Les deux jobs lancent « npm run check » : les essais du dépôt sautent sur un autre système ce qu'ils ne peuvent
+# pas y contrôler (l'applet et codesign ne s'essaient que sur un Mac), et aucun des deux ne fabrique de paquet que
+# ses propres essais n'ont pas validé.
+#
+# LA RÉUNION DES DEUX SORTIES SE FAIT DANS publier, et scripts/paquets.ts ne gagne pas d'option « --plateformes » :
+# choisir ses cibles est déjà sa première façon de s'appeler (« node scripts/paquets.ts linux-x64 win-x64 »), et
+# chaque job écrit donc un SHA256SUMS.txt partiel qu'il faut de toute façon réunir. Cette réunion est écrite ici,
+# en shell, et pas dans un script du dépôt, parce que publier est le seul job qui peut écrire : il ne lance ni code
+# du dépôt ni code de npm, sans quoi une dépendance ou une action compromise pourrait toucher les paquets à
+# l'instant où ils deviennent publics (scripts/chaine-ci.test.ts). PROVENANCE.txt ne dépend pas de la plateforme
+# (version, commit, étiquette, empreinte du verrou) : partis du même commit étiqueté, les deux jobs l'écrivent
+# identique, octet pour octet. publier les COMPARE au lieu d'en garder un — deux machines ont bien fabriqué ce
+# commit-là — puis concatène les deux SHA256SUMS.txt, dont le format ne change pas : scripts/signer-publication.ts
+# relit le fichier réuni tel quel.
+#
 # Aucune clé de signature Apple ici : signature Developer ID et notarisation, le jour venu, sur le Mac de l'éditeur
 # (docs/conformite/SECURITE.md).
 name: paquets
@@ -19,7 +41,41 @@ on:
 permissions:
   contents: read
 jobs:
-  fabriquer:
+  fabriquer-linux-windows:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Le tag correspond à la version de package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - name: Fabriquer les paquets Linux et Windows (Node.js vérifié par SHA-256 et signature de ses publieurs)
+        env:
+          LB_NEXUS_URL: ${{ vars.LB_NEXUS_URL }} # adresse de Breizhcosystem préréglée (variable du dépôt, facultative)
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then node scripts/paquets.ts linux-x64 win-x64; else node scripts/paquets.ts linux-x64 win-x64 --essai; fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: living-business-paquets-linux-windows
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
+            dist/PROVENANCE.txt
+            dist/essai/*.zip
+            dist/essai/SHA256SUMS.txt
+            dist/essai/PROVENANCE.txt
+          retention-days: 30
+  fabriquer-mac:
+    # osacompile (compilation de l'applet), codesign et ditto : les seules raisons d'avoir besoin de macOS
     runs-on: macos-15
     permissions:
       contents: read
@@ -36,11 +92,11 @@ jobs:
         run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
       - run: npm ci --ignore-scripts
       - run: npm run check
-      - name: Fabriquer les paquets (Node.js vérifié par SHA-256 et signature de ses publieurs)
+      - name: Fabriquer les paquets Mac (Node.js vérifié par SHA-256 et signature de ses publieurs)
         env:
           LB_NEXUS_URL: ${{ vars.LB_NEXUS_URL }} # adresse de Breizhcosystem préréglée (variable du dépôt, facultative)
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then node scripts/paquets.ts; else node scripts/paquets.ts --essai; fi
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then node scripts/paquets.ts darwin-arm64 darwin-x64; else node scripts/paquets.ts darwin-arm64 darwin-x64 --essai; fi
       - name: "Mac : le zip ne contient que Living Business.app, signature vérifiée une fois décompressée"
         run: |
           for z in dist/living-business-*-darwin-*.zip dist/essai/living-business-*-darwin-*.zip; do
@@ -53,7 +109,7 @@ jobs:
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: living-business-paquets
+          name: living-business-paquets-mac
           path: |
             dist/*.zip
             dist/SHA256SUMS.txt
@@ -63,16 +119,64 @@ jobs:
             dist/essai/PROVENANCE.txt
           retention-days: 30
   publier:
-    needs: fabriquer
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [fabriquer-linux-windows, fabriquer-mac]
+    # always() : quand les runners macOS manquent, GitHub annule le job Mac, et un publier simplement sauté ne
+    # dirait rien de ce qui s'est passé. Il tourne donc quand même et s'arrête à l'étape « Les quatre paquets sont
+    # là » en nommant ceux qui manquent. Jamais hors d'un tag : à la main, ce sont des paquets d'essai.
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write # publication de la version (release) sur un tag ; aucun code du dépôt n'est lancé ici
     steps:
+      # continue-on-error : une fabrication annulée ou en échec n'a pas déposé son artefact. L'étape « Les quatre
+      # paquets sont là » dit alors lesquels manquent, au lieu d'un téléchargement qui échoue sans l'expliquer.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
         with:
-          name: living-business-paquets
-          path: dist
+          name: living-business-paquets-linux-windows
+          path: morceaux/linux-windows
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: living-business-paquets-mac
+          path: morceaux/mac
+      - name: Réunir les deux fabrications (même commit, empreintes concaténées)
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # Un artefact absent (fabrication annulée) ne laisse pas de dossier, ou un dossier vide : on part des
+          # SHA256SUMS.txt réellement reçus, et c'est l'étape suivante qui nomme les paquets qui manquent.
+          sommes=(morceaux/*/SHA256SUMS.txt)
+          test "${#sommes[@]}" -gt 0 || { echo "::error::Aucune empreinte reçue : les deux fabrications ont échoué."; exit 1; }
+          mkdir dist
+          : > dist/SHA256SUMS.txt
+          for s in "${sommes[@]}"; do
+            m="${s%SHA256SUMS.txt}"
+            test -f "${m}PROVENANCE.txt" || { echo "::error::$m sans PROVENANCE.txt : rien n'est publié."; exit 1; }
+            # PROVENANCE.txt ne dépend pas de la plateforme : deux fabrications parties du même commit étiqueté
+            # l'écrivent identique. Les comparer dit que les deux machines ont bien fabriqué CE commit.
+            if [ -f dist/PROVENANCE.txt ]; then
+              cmp dist/PROVENANCE.txt "${m}PROVENANCE.txt" \
+                || { echo "::error::Fabrications d'origines différentes (PROVENANCE.txt distincts) : rien n'est publié."; exit 1; }
+            else
+              cp "${m}PROVENANCE.txt" dist/PROVENANCE.txt
+            fi
+            zips=("$m"*.zip)
+            test "${#zips[@]}" -gt 0 || { echo "::error::$m sans paquet (.zip) : rien n'est publié."; exit 1; }
+            cp "${zips[@]}" dist/
+            cat "$s" >> dist/SHA256SUMS.txt
+          done
+          sort -k2 -o dist/SHA256SUMS.txt dist/SHA256SUMS.txt # ordre indépendant de celui d'arrivée des artefacts
+          cat dist/SHA256SUMS.txt
+      - name: Les quatre paquets sont là (une version incomplète ne se publie pas)
+        run: |
+          set -euo pipefail
+          for c in darwin-arm64 darwin-x64 linux-x64 win-x64; do
+            echo "living-business-${GITHUB_REF_NAME#v}-$c.zip"
+          done | sort > attendus.txt
+          awk '{ print $2 }' dist/SHA256SUMS.txt | sort > recus.txt
+          diff attendus.txt recus.txt \
+            || { echo "::error::Paquets manquants ou en trop (« < » attendu, « > » reçu) : une fabrication a été annulée ou a échoué. Relancez-la (relance complète) ; rien n'est publié."; exit 1; }
       - name: Empreintes et provenance des paquets (fabriqués depuis ce tag, pas des paquets d'essai)
         working-directory: dist
         run: |
