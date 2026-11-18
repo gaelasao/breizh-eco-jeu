@@ -4463,6 +4463,20 @@ void main() {
     calques(etat) { Object.assign(etatCalques, etat); appliquerCalques(); },
     etatCalques: () => ({ ...etatCalques }),
     pause(v) { enPause = v ?? !enPause; appliquerMeteo(); reveiller(); return enPause; }, // en pause, le ciel revient au clair
+    /**
+     * Le vrai temps qu'il fait : le ciel se fige sur l'un des quatre passages du tour (clair, éclaircie, nuages,
+     * averse) au lieu de les parcourir. `null` rend la carte à son tour d'ambiance. Les quatre passages restent les
+     * seuls peints : leurs lumières sont réglées pour que la scène se lise sous les nuages (§5.2), et une couverture
+     * continue venue d'un service extérieur déferait ce réglage sans rien apprendre à personne.
+     */
+    meteoReelle(nom) {
+      const voulu = nom && nom !== 'clair' ? coeurDuPassage(nom) : nom === 'clair' ? coeurDuPassage('clair') : null;
+      if (voulu === meteoForcee) return;
+      meteoForcee = voulu;
+      METEO = meteoActive() ? effetsMeteo(etatMeteo(meteoForcee ?? (tempsAmbiance + DEPART_METEO))) : METEO_CLAIRE;
+      appliquerMeteo();
+      reveiller();
+    },
     enPause: () => enPause || !ambianceActive(),
     /** Réglages › Carte : animations ambiantes, heure de la carte. */
     /** Le HUD a changé (panneau replié, feuille déplacée) : recalcule le centre de la vue. */

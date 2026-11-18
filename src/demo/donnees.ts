@@ -55,10 +55,10 @@ export function donneesDemo(maintenant: Date): ObjetMetier[] {
     o('org', 'organisation', 'mon_entreprise', NOM_ORG_DEMO, { secteur: 'Services et distribution (démo)', taille: 'TPE (moins de 10 personnes)', effectif: 9, tresorerie: 61000, charges_mensuelles: 38000, chiffre_affaires_annuel: 620000, marge_brute: 34 }),
 
     // ---- Mes lieux
-    o('l-siege', 'lieu', 'siege', 'Siège — Quimper', { adresse: 'Adresse fictive', besoin_effectif: 2 }),
-    o('l-atelier', 'lieu', 'atelier', 'Atelier — Lorient', { adresse: 'Adresse fictive' }),
-    o('l-agence', 'lieu', 'site', 'Agence — Rennes', { adresse: 'Adresse fictive', besoin_effectif: 1 }),
-    o('l-entrepot', 'lieu', 'entrepot', 'Entrepôt — Brest', { adresse: 'Adresse fictive', besoin_effectif: 2 }),
+    o('l-siege', 'lieu', 'siege', 'Siège — Quimper', { adresse: '2 rue fictive, 29000 Quimper', besoin_effectif: 2 }),
+    o('l-atelier', 'lieu', 'atelier', 'Atelier — Lorient', { adresse: '14 rue fictive, 56100 Lorient' }),
+    o('l-agence', 'lieu', 'site', 'Agence — Rennes', { adresse: '8 rue fictive, 35000 Rennes', besoin_effectif: 1 }),
+    o('l-entrepot', 'lieu', 'entrepot', 'Entrepôt — Brest', { adresse: '3 rue fictive, 29200 Brest', besoin_effectif: 2 }),
 
     // ---- Mes employés (prénoms fictifs ; lieu = rattachement, pas une présence constatée)
     employe('e-anna', 'Anna', 'l-siege', 'Dirigeante', 'Direction'),

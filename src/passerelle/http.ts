@@ -1033,6 +1033,15 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
     if (methode === 'POST' && chemin === '/import/sheets') return envoyer(res, 200, await monde.analyserSheets(profil, sid, await lireCorps(req)));
     if (methode === 'POST' && chemin === '/objets') return envoyer(res, 200, monde.creerObjet(profil, sid, await lireCorps(req)));
     if (methode === 'GET' && chemin === '/planning') { const q = new URL(req.url ?? '/', 'http://local').searchParams; return envoyer(res, 200, monde.planning(profil, sid, q.get('debut'), q.get('jours'))); }
+    /* Le temps qu'il fait, pour le ciel de la carte. Rien ne part tant que personne ne le demande : le réglage est
+       éteint à l'installation, et seul le navigateur qui l'allume appelle cette adresse. Ce qui sort du serveur
+       tient en deux nombres arrondis au centième de degré — une commune, pas une adresse. */
+    if (methode === 'GET' && chemin === '/meteo') {
+      const q = new URL(req.url ?? '/', 'http://local').searchParams;
+      try { return envoyer(res, 200, await app.meteo.lire(q.get('lat'), q.get('lon'))); } catch (e) {
+        return envoyer(res, 502, { erreur: 'meteo_indisponible', message: e instanceof Error ? e.message : 'Météo indisponible.' });
+      }
+    }
     if (methode === 'POST' && chemin === '/planning') return envoyer(res, 200, monde.affecter(profil, sid, await lireCorps(req)));
     let mc = /^\/courrier\/([^/]+)\/statut$/.exec(chemin);
     if (methode === 'POST' && mc) return envoyer(res, 200, monde.statutCourrier(profil, sid, decodeURIComponent(mc[1] as string), await lireCorps(req)));

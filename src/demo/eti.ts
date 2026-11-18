@@ -54,10 +54,10 @@ export function donneesDemoEti(maintenant: Date): ObjetMetier[] {
 
   ajouter(o('org', 'organisation', 'mon_entreprise', NOM_ORG_ETI, { secteur: 'Distribution et transformation (démo)', taille: 'ETI ou grande (250 et plus)', effectif: 280, tresorerie: 2350000, charges_mensuelles: 1450000, chiffre_affaires_annuel: 21500000, marge_brute: 29 }));
   ajouter(
-    o('l-siege', 'lieu', 'siege', 'Siège — Vannes', { adresse: 'Adresse fictive', besoin_effectif: 11 }),
-    o('l-agence', 'lieu', 'site', 'Agence — Rennes', { adresse: 'Adresse fictive', departement: 'd-service-client', besoin_effectif: 7 }),
-    o('l-atelier', 'lieu', 'atelier', 'Usine — Lorient', { adresse: 'Adresse fictive', departement: 'd-production', besoin_effectif: 2 }),
-    o('l-entrepot', 'lieu', 'entrepot', 'Plateforme — Brest', { adresse: 'Adresse fictive', departement: 'd-logistique', besoin_effectif: 6 }),
+    o('l-siege', 'lieu', 'siege', 'Siège — Vannes', { adresse: '5 rue fictive, 56000 Vannes', besoin_effectif: 11 }),
+    o('l-agence', 'lieu', 'site', 'Agence — Rennes', { adresse: '8 rue fictive, 35000 Rennes', departement: 'd-service-client', besoin_effectif: 7 }),
+    o('l-atelier', 'lieu', 'atelier', 'Usine — Lorient', { adresse: '14 rue fictive, 56100 Lorient', departement: 'd-production', besoin_effectif: 2 }),
+    o('l-entrepot', 'lieu', 'entrepot', 'Plateforme — Brest', { adresse: '3 rue fictive, 29200 Brest', departement: 'd-logistique', besoin_effectif: 6 }),
   );
 
   // ---- départements et employés

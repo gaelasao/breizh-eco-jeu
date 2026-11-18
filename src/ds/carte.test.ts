@@ -616,3 +616,20 @@ test('carte : lumière atlantique — soleil bas et chaud, voûte bleue, ciel à
   assert.match(scene, /renderer\.toneMapping = THREE\.NeutralToneMapping;/);
   assert.doesNotMatch(scene, /AgXToneMapping|ACESFilmicToneMapping/, 'aucune courbe qui déplace les teintes');
 });
+
+test('le vrai temps qu’il fait : éteint au départ, et ce qui sort est écrit à l’écran', () => {
+  const app = lire('web/app.js');
+  const scene = lire('web/scene.js');
+  // le réglage se garde sur l'appareil, et vaut « non » tant que personne ne l'a allumé
+  assert.match(app, /const meteoReelleActive = \(\) => lireLocal\(CLE_METEO\) === 'oui';/);
+  // éteint : la carte revient à son tour d'ambiance, et aucun appel n'est fait
+  assert.match(app, /if \(!meteoReelleActive\(\)\) \{ E\.scene\.meteoReelle\?\.\(null\); E\.meteo = null; return; \}/);
+  // ce qui sort est dit en toutes lettres, à l'endroit où on l'allume
+  assert.match(app, /Ce qui sort : la latitude et la longitude de votre commune, arrondies au centième de degré\./);
+  assert.match(app, /Éteint, la carte garde son ciel d’ambiance et rien ne sort de votre installation\./);
+  // le ciel se fige sur l'un des quatre passages du tour : les lumières des quatre sont réglées pour rester lisibles
+  assert.match(scene, /meteoReelle\(nom\) \{\n\s*const voulu = nom && nom !== 'clair' \? coeurDuPassage\(nom\)/);
+  assert.match(app, /E\.scene\?\.meteoReelle\?\.\(r\.ciel\);/);
+  // le relevé est redemandé au quart d'heure, pas à chaque rendu
+  assert.match(app, /const METEO_MS = 15 \* 60_000;/);
+});

@@ -1772,6 +1772,7 @@ async function rendreVue() {
       if (ouverture) ecrireLocal('lb-ouverture-carte', jourLocal());
       rendreBanniere();
       rendreHud();
+      rafraichirMeteo(); // le ciel suit le temps qu'il fait, si le réglage est allumé ; sinon rien ne part
     } catch {
       fondreInstantane();
       E.sceneEchec = 'La 3D n’est pas disponible sur cet appareil : affichage en liste.';
@@ -1970,6 +1971,27 @@ function objetsPersonnalisables() {
   lieux.sort((a, b) => Number((b.icone ?? b.type) === 'siege') - Number((a.icone ?? a.type) === 'siege'));
   return ordonner(lieux, E.perso).slice(0, 4);
 }
+/**
+ * « Le vrai temps qu'il fait » : un interrupteur, et ce qu'il fait écrit dessous. Éteint, la carte garde son tour
+ * d'ambiance et rien ne sort. Allumé, il dit le relevé en clair — pour qu'on voie bien que ce n'est plus du décor.
+ */
+function sectionCiel() {
+  const actif = meteoReelleActive();
+  const m = E.meteo;
+  return h('section', { class: 'bz-pile', 'aria-labelledby': 'titre-ciel' },
+    h('h3', { id: 'titre-ciel', texte: 'Le ciel' }),
+    h('label', { class: 'bz-interrupteur' },
+      h('input', { type: 'checkbox', role: 'switch', checked: actif, cle: 'meteo-reelle', 'aria-describedby': 'ciel-aide', onchange: (e) => reglerMeteoReelle(e.target.checked) }),
+      h('span', { texte: 'Le vrai temps qu’il fait' }),
+      h('span', { class: 'bz-interrupteur__etat', 'aria-hidden': 'true', texte: actif ? 'Activé' : 'Désactivé' })),
+    h('p', { class: 'bz-champ__aide', id: 'ciel-aide', texte: actif
+      ? 'Ce qui sort : la latitude et la longitude de votre commune, arrondies au centième de degré. Aucun nom, aucun identifiant. Relevé toutes les 15 minutes, par votre serveur — jamais par ce navigateur.'
+      : 'Éteint, la carte garde son ciel d’ambiance et rien ne sort de votre installation. Allumé, elle suit la météo de votre commune (Open-Meteo, données libres, sans compte ni clé).' }),
+    actif && m?.texte ? h('p', { class: 'bz-t-petit' }, icone('sun', { taille: 'sm' }),
+      h('span', { texte: `${m.texte}${m.temperature === null ? '' : ` · ${nombre(m.temperature)} °C`} · ${m.couverture} % de ciel couvert${m.pluie > 0 ? ` · ${nombre(m.pluie)} mm dans l’heure` : ''}` })) : null,
+    actif && m?.erreur ? h('p', { class: 'bz-t-petit bz-texte-2', texte: m.erreur }) : null);
+}
+
 function sectionPersonnaliser() {
   const liste = objetsPersonnalisables();
   if (!liste.length) return null;
@@ -2010,7 +2032,65 @@ function sectionPersonnaliser() {
  * Calques, préréglages, personnalisation, légende et gestes : le même contenu dans le menu (ordinateur) et dans la
  * feuille (téléphone), qui n'en prend que certaines parties — d'où les sections nommées plutôt que numérotées.
  */
-const SECTIONS_CARTE = Object.freeze(['prereglages', 'calques', 'personnaliser', 'legende', 'gestes']);
+const SECTIONS_CARTE = Object.freeze(['prereglages', 'calques', 'ciel', 'personnaliser', 'legende', 'gestes']);
+/* ---- Le vrai temps qu'il fait sur la carte (§5.2)
+
+   Le ciel de la carte suivait un tour écrit d'avance : 164 secondes, toujours les mêmes. De l'ambiance. Branché sur
+   la météo, il dit quelque chose : pour qui pose des fenêtres ou coule une dalle, la pluie de cet après-midi n'est
+   pas un décor. Le réglage est ÉTEINT au départ et se garde sur cet appareil — tant que personne ne l'allume, rien
+   ne sort de l'installation. Allumé, ce qui part tient en deux nombres arrondis au centième de degré (une commune,
+   pas une adresse), depuis le serveur de l'entreprise et jamais depuis le navigateur. */
+const CLE_METEO = 'lb-meteo-reelle';
+const meteoReelleActive = () => lireLocal(CLE_METEO) === 'oui';
+/** Relecture : le ciel ne change pas plus vite, et le serveur garde de toute façon son relevé un quart d'heure. */
+const METEO_MS = 15 * 60_000;
+let GEO = null;
+
+/** Où l'entreprise travaille : le code postal du siège, sinon du premier lieu qui en porte un. Rien d'autre. */
+async function coordonneesEntreprise() {
+  const lieux = E.monde?.objets.filter((o) => o.famille === 'lieu') ?? [];
+  if (!lieux.length) return null;
+  GEO ??= await (async () => {
+    const [g, c] = await Promise.all([import('/carte/geographie.js'), import('/carte/communes.js')]);
+    return { pointDe: g.pointDe, table: g.decoderCodesPostaux(c.CODES_POSTAUX, 1000) };
+  })().catch(() => null);
+  if (!GEO) return null;
+  const champs = (o) => Object.fromEntries(o.champs.map((c) => [c.id, c.valeur]));
+  const siege = lieux.find((o) => o.type === 'siege') ?? lieux[0];
+  for (const o of [siege, ...lieux]) {
+    const p = GEO.pointDe(champs(o), GEO.table);
+    if (p) return { lat: p.lat, lon: p.lon };
+  }
+  return null;
+}
+
+/** Le ciel de la carte suit le temps qu'il fait, ou revient à son tour d'ambiance si le réglage est éteint. */
+async function rafraichirMeteo() {
+  clearTimeout(rafraichirMeteo.t);
+  if (!E.scene) return;
+  if (!meteoReelleActive()) { E.scene.meteoReelle?.(null); E.meteo = null; return; }
+  try {
+    const ou = await coordonneesEntreprise();
+    if (!ou) { E.meteo = { erreur: 'Aucune adresse connue : indiquez celle de votre siège pour que la carte connaisse votre ciel.' }; return; }
+    const r = await api('GET', `/meteo?lat=${ou.lat}&lon=${ou.lon}`);
+    E.meteo = r;
+    E.scene?.meteoReelle?.(r.ciel);
+  } catch (e) {
+    E.meteo = { erreur: e.message };
+  } finally {
+    if (meteoReelleActive()) rafraichirMeteo.t = setTimeout(rafraichirMeteo, METEO_MS);
+    if (E.calquesOuverts) rendreHud();
+  }
+}
+
+/** L'interrupteur du menu Calques : ce qu'il fait, et ce qui sort quand il est allumé. */
+function reglerMeteoReelle(oui) {
+  ecrireLocal(CLE_METEO, oui ? 'oui' : 'non');
+  E.meteo = null;
+  rafraichirMeteo();
+  rendreHud();
+}
+
 function contenuCalques(quoi = SECTIONS_CARTE) {
   const m = E.monde;
   const cal = E.scene?.etatCalques() ?? {};
@@ -2035,6 +2115,7 @@ function contenuCalques(quoi = SECTIONS_CARTE) {
     calques: () => h('section', { class: 'bz-pile', 'aria-labelledby': 'titre-calques' },
       h('h3', { id: 'titre-calques', texte: 'Ce que la carte affiche' }),
       h('div', { class: 'bz-calques' }, calques.map(([k, titre]) => h('button', { type: 'button', cle: `calque-${k}`, 'aria-pressed': actif(k), onclick: () => appliquer({ [k]: !actif(k) }) }, icone('check'), titre)))),
+    ciel: sectionCiel,
     personnaliser: sectionPersonnaliser,
     legende: () => h('section', { class: 'bz-pile', 'aria-labelledby': 'titre-legende' },
       h('h3', { id: 'titre-legende', texte: 'Légende' }),

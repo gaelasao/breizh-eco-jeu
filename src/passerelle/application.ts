@@ -23,6 +23,7 @@ import { LienNexus, type EtatLienNexus } from './lien-nexus.ts';
 import { Miroir, type EtatMiroir } from './miroir.ts';
 import { ErreurApi, Monde, SYSTEME, UNIVERS_DISPONIBLES, type EtatMonde, type Exemple, type OptionsMonde } from './monde.ts';
 import { recuperateurProtege, type Recuperateur } from './sortant.ts';
+import { Meteo } from './meteo.ts';
 import { chiffrerAvecPhrase, CONSERVATION_JOURS, creerChiffreur, dechiffrerAvecPhrase, Stockage, type Chiffreur, type SauvegardeAuto } from './stockage.ts';
 import { RelaisOAuth } from './oauth-relais.ts';
 import { ETAT_VIDE as MAJ_VIDE, lireDerniereVersion, lireEtat as lireEtatMaj, resume as resumeMaj, type EtatMisesAJour } from './mises-a-jour.ts';
@@ -149,6 +150,8 @@ export class Application {
   /** Justificatifs photographiés sur le chantier (photo rangée ici, trois champs courts). */
   readonly justificatifs: Justificatifs;
   readonly automatisations: Automatisations;
+  /** Le temps qu'il fait là où l'entreprise travaille : le ciel de la carte, quand le réglage est allumé. */
+  readonly meteo: Meteo;
   readonly cles: Cles;
   readonly comptes: Comptes;
   readonly nexus: LienNexus;
@@ -221,6 +224,8 @@ export class Application {
       droits: () => { const e = this.nexus.etat(); return { relie: e.relie, plan: e.droits?.plan ?? null, etatAbonnement: e.droits?.etatAbonnement ?? null }; },
       // « relancer un devis sans réponse » ne compte plus ses jours ici : le moteur de suivi les compte une seule fois
       relances: () => { try { return this.suivis.relancesPreparees(); } catch { return []; } } });
+    // le ciel de la carte : aucun appel tant que personne ne le demande, et rien d'autre que des coordonnées au centième
+    this.meteo = new Meteo({ fetch: this.#fetch ?? recuperateurProtege });
     // alertes : le module lit ce que le jeu voit déjà (situations, fiches, connecteurs, réseau) et n'écrit rien dans le monde
     this.alertes = new Alertes({
       maintenant: () => monde.maintenant(),

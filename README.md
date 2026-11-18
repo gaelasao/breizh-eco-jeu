@@ -219,6 +219,8 @@ Tout est **enregistré sur disque** dans `donnees/` (fichier JSON écrit de faç
 
 Recherche (`/` ou ⌘K), préréglages de calques « L'essentiel / Le travail / Tout », toits (vue fermée), anneaux de présence (plein = confirmé, pointillés = déclaré), prénoms, pause des animations, vue de dessus, rotation par quart, raccourcis clavier (`?`), visite guidée en 6 étapes (dans Aide, plus jamais lancée d'office), états des véhicules (révision, contrôle technique, pneus), échéances (tâches, livraisons) qui créent des alertes.
 
+**Le vrai temps qu'il fait** (Calques → Le ciel, **éteint à l'installation**) : le ciel de la carte suit la météo de votre commune au lieu de son tour d'ambiance — pour qui pose des fenêtres ou coule une dalle, la pluie de cet après-midi n'est pas un décor. Ce qui sort alors de votre installation : **une latitude et une longitude arrondies au centième de degré** (≈ 1 km : une commune, pas une adresse), relevées sur le code postal de votre siège, envoyées **par votre serveur** (jamais par le navigateur) à **Open-Meteo** — données libres CC-BY, modèles des services météorologiques nationaux, **sans compte ni clé**. Aucun nom, aucun identifiant, aucun cookie : le service ne peut pas savoir qui demande. Un relevé est gardé 15 minutes. Éteint, rien ne sort du tout.
+
 On arrive **directement sur la maquette 3D** d'une entreprise **fictive** (« Démo Breizh ») :
 
 - **Mon entreprise** au centre : siège, agence, atelier, entrepôt — bâtiments ouverts (maison de poupée), employés à leur poste de rattachement, stock en rayonnages, véhicules immatriculés au parking, projets en échafaudage chez le client.
@@ -419,6 +421,7 @@ src/
     sources-microsoft.ts  Excel Microsoft 365 (Graph, relais ou code d'appareil avec l'application de l'entreprise)
     sources-agenda.ts  Google Agenda et agenda Microsoft 365, dans les deux sens
     sources-caldav.ts  agenda Apple (iCloud) et tout serveur CalDAV, dans les deux sens
+    meteo.ts           le vrai temps qu'il fait sur la carte (Open-Meteo, sur réglage, éteint au départ)
     sources-courrier.ts  Gmail et boîte Outlook en reflet (le texte des messages n'entre jamais dans le jeu)
     tri-courrier.ts  tri du courrier par mots-clés, sans IA : les mêmes règles pour un mail collé et pour une boîte
   core/fec.ts     lecture du FEC (totaux du plan comptable général)
