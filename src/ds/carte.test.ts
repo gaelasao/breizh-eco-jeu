@@ -80,6 +80,15 @@ test('carte : heure réelle indépendante du thème, quatre états, interpolatio
   assert.equal(etatHeure(a(10), { reglage: 'reelle', themeSombre: true }).nuit, 0);
   assert.equal(etatHeure(a(23), { reglage: 'jour' }).nuit, 0);
   assert.equal(etatHeure(a(10), { reglage: 'theme', themeSombre: true }).nuit, 1);
+  /* §5.3 dit que l'heure réelle ne dépend pas du thème, et c'est toujours vrai de la FONCTION : avec
+     `reglage: 'reelle'`, dix heures restent le jour quel que soit le thème (ligne au-dessus). Ce qui change, c'est
+     le DÉFAUT de l'application : il était « réelle », et donnait une scène en plein soleil au milieu d'une
+     interface de nuit — la chose la plus violente de l'écran. Il est désormais « suivre le thème », et
+     « réelle » reste à un clic dans Calques › Le ciel. */
+  const app = lire('web/app.js');
+  assert.match(app, /const CIEL_PAR_DEFAUT = 'theme';/, 'le ciel suit le thème tant que personne n’a choisi');
+  assert.doesNotMatch(app, /lireLocal\('lb-carte-heure'\) \?\? 'reelle'/, 'plus d’heure réelle imposée par défaut');
+  assert.equal((app.match(/lireLocal\('lb-carte-heure'\) \?\? CIEL_PAR_DEFAUT/g) ?? []).length, 3, 'un seul défaut, aux trois endroits qui le lisent');
   assert.equal(etatHeure(a(23), { reglage: 'theme', themeSombre: false }).nuit, 0);
   assert.equal(melanger('#000000', '#ffffff', 0.5), '#808080');
   assert.equal(melanger('#7fb6d3', '#08131f', 0), '#7fb6d3');

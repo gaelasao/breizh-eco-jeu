@@ -1769,7 +1769,7 @@ async function rendreVue() {
         E.scene = await creerScene($('#scene'), {
           surSelection: (id) => (id ? selectionner(id) : fermerFiche()), surSurvol: survoler, annoncer, surCamera, zoneLibre,
           surPremiereImage: () => { fondreInstantane(); },
-          qualite: lireLocal('lb-carte-qualite') ?? 'auto', heure: lireLocal('lb-carte-heure') ?? 'reelle',
+          qualite: lireLocal('lb-carte-qualite') ?? 'auto', heure: lireLocal('lb-carte-heure') ?? CIEL_PAR_DEFAUT,
           animations: lireLocal('lb-carte-animations') !== 'non' && !modeCalme(), ouverture, niveau: modeCalme() ? 0 : E.monde.progression?.niveau?.n ?? 1,
         });
       } finally { chargement?.fermer(); }
@@ -1982,7 +1982,7 @@ function objetsPersonnalisables() {
 function sectionCiel() {
   const actif = meteoReelleActive();
   const m = E.meteo;
-  const heure = lireLocal('lb-carte-heure') ?? 'reelle';
+  const heure = lireLocal('lb-carte-heure') ?? CIEL_PAR_DEFAUT;
   return h('section', { class: 'bz-pile', 'aria-labelledby': 'titre-ciel' },
     h('h3', { id: 'titre-ciel', texte: 'Le ciel' }),
     /* La lumière de la carte suit l'heure réelle, quel que soit le thème (§5.3) : à 10 h, il fait jour, même en
@@ -2153,6 +2153,18 @@ function contenuCalques(quoi = SECTIONS_CARTE) {
 }
 /** Mini-carte (§5.5) : plan 2D des quartiers en SVG, cadre de la vue courante ; un clic y emmène la caméra. */
 const NS_SVG = 'http://www.w3.org/2000/svg';
+/**
+ * LE CIEL SUIT LE THÈME, PAR DÉFAUT. Trois réglages existaient déjà (Calques › Le ciel) : « Réelle »,
+ * « Toujours le jour », « Suivre le thème ». Le défaut était l'heure réelle — et personne n'allait chercher les
+ * deux autres. Résultat, en thème sombre à quinze heures : une scène en plein soleil, éclatante, au milieu d'une
+ * interface de nuit. C'est la chose la plus violente de l'écran, et c'est ce qu'on appelait « le mode nuit est
+ * cata ».
+ *
+ * L'heure réelle n'est pas perdue : elle reste un choix, à un clic, pour qui tient à voir son port au vrai soleil.
+ * Elle cesse seulement d'être imposée à qui a demandé une interface sombre.
+ */
+const CIEL_PAR_DEFAUT = 'theme';
+
 function basculerMiniCarte(ouvrir) {
   E.miniCarte = ouvrir;
   ecrireLocal('lb-minicarte', ouvrir ? 'ouverte' : 'repliee');
@@ -8617,7 +8629,7 @@ function contenuCarte(maj = () => { const n = $('#bloc-carte'); if (n) remplir(n
       choix.map(([v, l]) => h('button', { type: 'button', cle: `${id}-${v}`, 'aria-pressed': actuel === v, onclick: () => { regler(v); maj(); }, texte: l }))),
     aide ? h('span', { class: 'bz-champ__aide', id: `${id}-aide`, texte: aide }) : null);
   const qualite = lireLocal('lb-carte-qualite') ?? 'auto';
-  const heure = lireLocal('lb-carte-heure') ?? 'reelle';
+  const heure = lireLocal('lb-carte-heure') ?? CIEL_PAR_DEFAUT;
   const anim = lireLocal('lb-carte-animations') !== 'non';
   const actuelle = E.scene?.qualite?.();
   return [
