@@ -76,7 +76,7 @@ export const SUJETS: readonly Sujet[] = Object.freeze([
   { id: 'demande_sans_suite', libelle: 'Une demande client à rappeler', aide: 'La date que vous aviez notée pour rappeler un prospect est arrivée.', defaut: false },
   { id: 'devis_sans_reponse', libelle: 'Un devis sans réponse', aide: 'Un devis envoyé reste sans réponse depuis plus d’une semaine.', defaut: false },
   { id: 'commande', libelle: 'Une commande client à traiter', aide: 'Livrée mais pas encore facturée, ou livraison en retard.', defaut: false },
-  { id: 'reception_ecart', libelle: 'Une réception qui ne concorde pas', aide: 'Le bon de livraison ne colle pas à la commande, ou le même bon est enregistré deux fois.', defaut: false },
+  { id: 'reception_ecart', libelle: 'Une réception qui ne concorde pas', aide: 'Le bon de livraison ne colle pas à la commande, ou le même bon est enregistré deux fois.', defaut: true },
   { id: 'echeance', libelle: 'Une échéance qui approche', aide: 'Contrôle technique, révision, document qui expire, tâche en retard.', defaut: true },
   { id: 'stock_bas', libelle: 'Un stock bas', aide: 'Un article passe sous son seuil d’alerte.', defaut: false },
   { id: 'demande_reseau', libelle: 'Une demande du réseau', aide: 'Une entreprise de Breizhcosystem attend votre réponse.', defaut: false },
@@ -1073,10 +1073,11 @@ export class Alertes {
     /*
       * UNE RÉCEPTION QUI NE CONCORDE PAS. C'est l'argent qui part sans que personne ne s'en aperçoive : un bon
       * supérieur à la commande, ou le même bon enregistré deux fois. Les deux se paient, et les deux se repèrent
-      * sans rien deviner. NON cochée au départ, malgré l'envie : la maison promet trois sujets seulement à la
-      * première ouverture (« on ne noie personne dès le premier jour »), et une quatrième case cochée en douce vide
-      * cette promesse de son sens. Elle se coche en un clic dans Réglages, Alertes — et elle mérite de l'être,
-      * parce qu'un bon payé deux fois ne se rattrape pas.
+      * sans rien deviner. COCHÉE au départ : c'est la quatrième, là où la maison n'en promettait que trois (« on
+      * ne noie personne dès le premier jour »). La règle a été rouverte exprès, parce qu'un bon payé deux fois ne
+      * se rattrape pas, et parce que celle-ci ne sonne que sur des chiffres qui ne tombent pas — jamais sur une
+      * livraison du jour qu'on n'a pas encore eu le temps de contrôler. Une cinquième demanderait la même
+      * discussion : le nombre n'est pas la règle, c'est le fait qu'aucune ne sonne pour rien.
       *
       * Les questions sans réponse (« quantités pas encore vérifiées ») ne sonnent PAS : une réception de la veille
       * qu'on n'a pas eu le temps de contrôler n'est pas une anomalie, et une alerte qui se déclenche sur chaque

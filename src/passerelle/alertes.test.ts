@@ -251,9 +251,16 @@ test('essai : le lien du jeu accompagne le message quand l’adresse est connue'
 
 // ---------------------------------------------------------------- filtres
 
-test('filtres : seuls les sujets cochés partent, et trois seulement sont cochés au départ', async () => {
-  assert.deepEqual([...SUJETS_DEFAUT], ['facture_retard', 'echeance', 'erreur_synchro']);
-  assert.equal(SUJETS.filter((s) => s.defaut).length, 3, 'on ne noie personne dès le premier jour');
+test('filtres : seuls les sujets cochés partent, et quatre seulement sont cochés au départ', async () => {
+  /*
+   * TROIS PENDANT LONGTEMPS, QUATRE DEPUIS LE 19 NOVEMBRE 2026. La règle n'a jamais été « trois » : elle est
+   * qu'aucune alerte cochée au départ ne doit sonner pour rien. « Une réception qui ne concorde pas » tient cette
+   * exigence — elle ne se déclenche que sur deux chiffres qui ne tombent pas, ou sur un numéro de bon déjà vu,
+   * jamais sur une livraison du jour qu'on n'a pas encore eu le temps de contrôler — et ce qu'elle rattrape, un
+   * règlement parti deux fois, ne se rattrape pas autrement. Une cinquième demandera la même démonstration.
+   */
+  assert.deepEqual([...SUJETS_DEFAUT], ['facture_retard', 'reception_ecart', 'echeance', 'erreur_synchro']);
+  assert.equal(SUJETS.filter((s) => s.defaut).length, 4, 'on ne noie toujours personne : chacune a sa raison');
   const x = alertes();
   await brancherTelegram(x);
   x.m.objets = [objet('f1', 'facture', 'F-2043', { montant: 1450 }), objet('a1', 'article', 'Panneau 19 mm', { quantite: 4 })];
