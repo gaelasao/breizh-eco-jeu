@@ -1,3 +1,4 @@
+import { entetesCle } from './sources.ts';
 /**
  * Connecteurs : rapprochement par le nom sans détournement de fiche, secrets enregistrés qui ne partent jamais vers une
  * autre destination, relais OAuth lié à la connexion. `fetch` simulé, valeurs factices construites ici, aucun réseau.
@@ -201,4 +202,22 @@ test('revue-jeu-1-2 : même e-mail des deux côtés = lien sûr d’emblée ; un
   await app.synchro.synchroniser(rest.id, p);
   assert.equal(app.monde.objetReel(fiche.id)?.champs.email, 'contact@port.test', 'lien confirmé : la fiche suit l’outil');
   assert.equal(app.synchro.lister(p).find((c) => c.id === rest.id)?.aConfirmer, 0);
+});
+
+test('API REST : une clé d’API part dans SON en-tête, un jeton garde « Bearer »', () => {
+  /* Vu en vrai le 19 novembre 2026 : « connexion api seulement via https et pas clé api ». L’authentification était
+     câblée sur « Authorization: Bearer », ce qu’attend un jeton OAuth — mais une bonne moitié des logiciels métier
+     veut une clé dans un en-tête à eux (X-API-Key, apikey). Avec « Bearer » devant, ils répondent 401, et rien à
+     l’écran ne permettait de corriger. */
+  assert.deepEqual(entetesCle({}, 'abc'), { authorization: 'Bearer abc' }, 'par défaut, rien ne change');
+  assert.deepEqual(entetesCle({ entete: 'Authorization' }, 'abc'), { authorization: 'Bearer abc' });
+  assert.deepEqual(entetesCle({ entete: 'X-API-Key' }, 'abc'), { 'x-api-key': 'abc' }, 'la clé part telle quelle');
+  assert.deepEqual(entetesCle({ entete: 'apikey' }, 'abc'), { apikey: 'abc' });
+  // sans clé, aucun en-tête : on n’annonce pas une authentification qu’on n’a pas
+  assert.deepEqual(entetesCle({ entete: 'X-API-Key' }, null), {});
+  /* Un nom d’en-tête fantaisiste ne fabrique pas une requête illégale : on retombe sur Bearer plutôt que de laisser
+     le navigateur ou Node refuser l’appel avec un message incompréhensible. */
+  for (const faux of ['X API Key', 'clé:valeur', '', '   ', 'a'.repeat(200)]) {
+    assert.deepEqual(entetesCle({ entete: faux }, 'abc'), { authorization: 'Bearer abc' }, faux);
+  }
 });

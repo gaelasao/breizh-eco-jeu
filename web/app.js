@@ -8138,7 +8138,13 @@ function champOutil(C, ch, { apres = null } = {}) {
   else if (choix?.chargement) saisie = liste([h('option', { texte: `Lecture dans ${nomOutil}…` })], { disabled: true });
   else if (choix?.options.length) saisie = liste([h('option', { value: '', texte: 'Choisir…' }), ...choix.options.map((o) => h('option', { value: o.valeur, selected: C.config[ch.id] === o.valeur, texte: o.libelle }))], { onchange: (e) => { C.config[ch.id] = e.target.value; suiteChoix(C, ch); majOutil(C); apres?.(); } });
   else if (ch.id === 'outilLecture' && C.outils) saisie = liste([h('option', { value: '', texte: 'Choisir…' }), ...C.outils.map((o) => h('option', { value: o.nom, selected: C.config[ch.id] === o.nom, texte: `${o.nom}${o.description ? ` · ${o.description.slice(0, 60)}` : ''}` }))], { onchange: (e) => { C.config[ch.id] = e.target.value; apres?.(); } });
-  else saisie = h('input', { id, class: 'bz-champ__saisie', type: ch.secret ? 'password' : 'text', autocomplete: 'off', spellcheck: 'false', placeholder: ch.exemple ?? '', value: C.config[ch.id] ?? '',
+  /* CHROME SE MOQUE DE `autocomplete="off"`. Dès qu'il voit un champ mot de passe, il cherche un « identifiant »
+     juste à côté et y verse l'adresse enregistrée. Vu en vrai le 19 novembre 2026 : l'écran « API REST » avec
+     une adresse mail dans « Adresse d'écriture » et un mot de passe dans « Jeton », sans que personne y ait
+     touché — de quoi croire le connecteur cassé. Deux mots suffisent à l'en empêcher : `new-password` sur le
+     secret (Chrome ne propose plus un mot de passe existant) et `url` sur une adresse (elle cesse d'être prise
+     pour un identifiant). */
+  else saisie = h('input', { id, class: 'bz-champ__saisie', type: ch.secret ? 'password' : 'text', autocomplete: ch.secret ? 'new-password' : /url|adresse|site|domaine|organisation|boutique/i.test(ch.id) ? 'url' : 'off', spellcheck: 'false', placeholder: ch.exemple ?? '', value: C.config[ch.id] ?? '',
     'data-brut': ch.exemple ? '' : null, 'aria-describedby': decrit, 'aria-required': ch.obligatoire ? 'true' : null, 'aria-invalid': invalide, oninput: (e) => (C.config[ch.id] = e.target.value), onchange: () => apres?.() });
   return h('div', { class: `bz-champ${large ? ' bz-champ--large' : ''}` },
     h('label', { class: 'bz-champ__libelle', for: id, texte: ch.libelle }),

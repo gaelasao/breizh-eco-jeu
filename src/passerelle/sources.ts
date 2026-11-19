@@ -95,6 +95,25 @@ export interface Adaptateur {
 
 // ---------------------------------------------------------------- outils communs
 
+/**
+ * COMMENT ON PRÉSENTE LA CLÉ. Un jeton OAuth se donne avec « Bearer » devant, et c'est ce que le connecteur faisait,
+ * en dur. Mais une bonne moitié des logiciels métier n'utilise pas de jeton : ils attendent une CLÉ D'API dans un
+ * en-tête à eux — `X-API-Key`, `apikey`, `X-Auth-Token`. Avec « Bearer » devant, ces API répondent 401, et la
+ * personne n'a aucun moyen de corriger : le champ n'existait pas.
+ *
+ * Par défaut rien ne change (Authorization + Bearer). Nommer un autre en-tête envoie la clé telle quelle, qui est
+ * ce que ces API attendent. Le nom est borné aux caractères d'un en-tête HTTP : une valeur fantaisiste est ignorée
+ * plutôt que de fabriquer une requête illégale.
+ */
+const NOM_ENTETE = /^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$/;
+export function entetesCle(cfg: Readonly<Record<string, string>>, secret: string | null): Record<string, string> {
+  if (!secret) return {};
+  const nom = (cfg.entete ?? '').trim();
+  if (!nom || nom.toLowerCase() === 'authorization') return { authorization: `Bearer ${secret}` };
+  return NOM_ENTETE.test(nom) ? { [nom.toLowerCase()]: secret } : { authorization: `Bearer ${secret}` };
+}
+
+
 /** Ramène n'importe quelle valeur d'API à un texte lisible (listes jointes, objets nommés). */
 export function aplatir(v: unknown): string {
   if (v === null || v === undefined) return '';
@@ -871,13 +890,14 @@ const rest: Adaptateur = {
     { id: 'champId', libelle: 'Champ identifiant', aide: 'défaut : id' },
     { id: 'urlEcriture', libelle: 'Adresse d’écriture (facultatif)', aide: 'avec {id}, ex. …/clients/{id}' },
     { id: 'methode', libelle: 'Méthode d’écriture', aide: 'PATCH, PUT ou POST', choix: ['PATCH', 'PUT', 'POST'] },
-    { id: 'jeton', libelle: 'Jeton (Bearer, facultatif)', aide: 'Chiffré sur le serveur.', secret: true },
+    { id: 'entete', libelle: 'En-tête d’authentification', aide: 'Défaut : Authorization, avec « Bearer » devant la clé. Pour une clé d’API, mettez son en-tête (ex. X-API-Key) : la clé est alors envoyée telle quelle.' },
+    { id: 'jeton', libelle: 'Clé ou jeton (facultatif)', aide: 'Chiffré sur le serveur.', secret: true },
   ],
   lecture: 'appel',
   ecriture: true,
   async lire(cfg, secret, f) {
     const u = await verifierUrl(cfg.url);
-    const { donnees } = await appeler(f, u, { entetes: secret ? { authorization: `Bearer ${secret}` } : {} });
+    const { donnees } = await appeler(f, u, { entetes: entetesCle(cfg, secret) });
     const cle = cfg.champId || 'id';
     return trouverListe(donnees, cfg.chemin ?? '').slice(0, 5000).map((o, i) => ({ externeId: aplatir(o[cle]) || `ligne-${i + 1}`, champs: aplatirObjet(o) }));
   },
@@ -888,7 +908,7 @@ const rest: Adaptateur = {
     const methode = externeId ? (cfg.methode || 'PATCH') : 'POST';
     // Réponse lue comme du texte : beaucoup d'API répondent « OK », une page ou rien du tout à une écriture réussie.
     // Avant, un 2xx qui n'était pas du JSON passait pour un échec, et la création était retentée (doublons chez l'outil).
-    const { donnees, entetes } = await appeler(f, u, { methode, corps: valeurs, texte: true, entetes: secret ? { authorization: `Bearer ${secret}` } : {} });
+    const { donnees, entetes } = await appeler(f, u, { methode, corps: valeurs, texte: true, entetes: entetesCle(cfg, secret) });
     if (externeId) return externeId;
     // identifiant du nouvel enregistrement : dans le corps JSON, sinon à la fin de l'en-tête Location (201 Created)
     let cree: unknown = null;
