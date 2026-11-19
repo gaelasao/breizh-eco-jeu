@@ -211,7 +211,10 @@ test('fiche courrier, textes et dates : état réel, « Objet », valeurs en cas
   const app = lire('web/app.js');
   assert.match(app, /if \(o\.type === 'courrier'\) \{/);
   assert.match(app, /'Urgent · à traiter'/);
-  assert.match(app, /libelle: o\.type === 'courrier' \? 'Objet' : 'Nom'/);
+  /* La règle voulait qu'un courrier ait « Objet » et non « Nom ». Elle vaut pour les autres : devant « Nom » on
+     écrit le sien, pas celui d'une tâche. Un seul endroit décide désormais du mot, et le courrier y est. */
+  assert.match(app, /const LIBELLE_NOM = \{ courrier: 'Objet', tache: 'Nom de la tâche', rendez_vous: 'Intitulé du rendez-vous' \};/);
+  assert.match(app, /libelle: libelleNom\(o\.type\)/);
   assert.match(app, /if \(c\.type === 'choix' && typeof c\.valeur === 'string'\) return casseDePhrase\(c\.valeur\);/);
   assert.match(app, /'Personne n’est prévu\.'/);
   assert.doesNotMatch(app, /Personne de prévu|Des pistes automatisables/);

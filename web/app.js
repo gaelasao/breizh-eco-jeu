@@ -107,6 +107,14 @@ function remplir(el, ...enfants) {
   }
 }
 
+/**
+ * COMMENT S'APPELLE LE NOM. « Nom » convient à un client ou à un lieu, pas à une tâche : devant « Nom », on
+ * écrit le sien. Un courrier avait déjà « Objet » ; une tâche méritait le même soin. Le mot juste à chaque fois,
+ * et un seul endroit qui le décide.
+ */
+const LIBELLE_NOM = { courrier: 'Objet', tache: 'Nom de la tâche', rendez_vous: 'Intitulé du rendez-vous' };
+const libelleNom = (typeId) => LIBELLE_NOM[typeId] ?? 'Nom';
+
 async function api(methode, chemin, corps, entetes = {}) {
   const ecriture = methode !== 'GET';
   // une photo de justificatif part telle quelle (Blob), jamais dans du JSON : plusieurs mégaoctets n'ont rien à gagner
@@ -3746,7 +3754,7 @@ function rendreFiche() {
       blocRendezVous(o),
       blocSatisfaction(o),
       h('div', { class: 'bz-fiche__groupes' },
-        modifiable && o.famille !== 'organisation' ? h('dl', { class: 'bz-champs-fiche' }, ligneChampFiche(o, { id: '__nom', libelle: o.type === 'courrier' ? 'Objet' : 'Nom', type: 'texte', valeur: o.nom }, true)) : null,
+        modifiable && o.famille !== 'organisation' ? h('dl', { class: 'bz-champs-fiche' }, ligneChampFiche(o, { id: '__nom', libelle: libelleNom(o.type), type: 'texte', valeur: o.nom }, true)) : null,
         groupes.map((g) => h('details', { class: 'bz-fiche__groupe', open: ouverts.has(g.id), ontoggle: (e) => { if (e.target.open) ouverts.add(g.id); else ouverts.delete(g.id); } },
           h('summary', { class: 'bz-fiche__groupe-titre' }, icone('chevron-down', { taille: 'sm', classe: 'bz-repli__chevron' }), h('span', { texte: g.titre }), h('span', { class: 'bz-t-micro bz-texte-2', texte: ` ${g.champs.length}` })),
           h('dl', { class: 'bz-champs-fiche' }, g.champs.map((c) => ligneChampFiche(o, c, modifiable)))))),
@@ -5015,7 +5023,7 @@ function ouvrirSaisie(cible, { apres = null } = {}) {
           h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Enregistré sur cet appareil, sans passer par un logiciel connecté.' }),
           variantes.length > 1 ? h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'saisie-type', texte: 'Type' }),
             h('div', { class: 'bz-select' }, h('select', { id: 'saisie-type', class: 'bz-champ__saisie', onchange: (e) => { t = u.types.find((x) => x.id === e.target.value) ?? t; S.champs = {}; D.rendre(); } }, variantes.map((x) => h('option', { value: x.id, selected: x.id === t.id, texte: x.libelle }))), icone('chevron-down', { taille: 'sm' }))) : null,
-          h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'saisie-nom', texte: 'Nom' }),
+          h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: 'saisie-nom', texte: libelleNom(t.id) }),
             h('input', { id: 'saisie-nom', class: 'bz-champ__saisie', type: 'text', required: true, maxlength: '200', autocomplete: 'off', value: S.nom, 'aria-invalid': S.erreur && !S.nom.trim() ? 'true' : null, oninput: (e) => (S.nom = e.target.value) })),
           t.famille === 'tiers' ? h('fieldset', { class: 'bz-champ' }, h('legend', { class: 'bz-champ__libelle', texte: 'Rôles (un même tiers peut en avoir plusieurs)' }),
             h('div', { class: 'bz-cases' }, u.roles.map((r) => h('label', { class: 'bz-case' }, h('input', { type: 'checkbox', checked: S.roles.has(r.id), onchange: (e) => { if (e.target.checked) S.roles.add(r.id); else S.roles.delete(r.id); } }), r.libelle)))) : null,

@@ -168,9 +168,14 @@ export const RUBRIQUES = Object.freeze(Object.fromEntries(Object.entries({
   documents: {
     regle: 'Apparaît dès le premier document.',
     debloque: (f) => f.documents > 0,
-    sert: 'Vos documents à échéance : assurances, contrôles, contrats.',
-    premier: 'vérifiez les dates de fin : vous êtes prévenu avant l’échéance.',
-    manque: 'Aucun document pour le moment.',
+    /* CE N'EST PAS UNE GED, et il faut le dire. On arrive ici en s'attendant à déposer des fichiers, et l'écran
+       propose d'importer un tableau — ce qui paraît absurde tant qu'on n'a pas compris que c'est un REGISTRE
+       d'échéances : il garde la date de fin de vos assurances et de vos contrôles, et vous prévient avant. Les
+       fichiers, eux, restent là où ils sont, et le champ « Où le trouver » dit où. Dit comme ça, le tableau
+       redevient le bon outil. (Pour une photo de justificatif prise sur place, c'est « Saisir ».) */
+    sert: 'Les dates de fin de vos assurances, contrôles et contrats — pour être prévenu avant. Les fichiers restent où ils sont.',
+    premier: 'notez une assurance et sa date de fin : vous serez prévenu avant l’échéance.',
+    manque: 'Aucune échéance suivie pour le moment.',
   },
   saisir: {
     regle: 'Apparaît dès le premier chantier, la première commande ou la première tâche.',

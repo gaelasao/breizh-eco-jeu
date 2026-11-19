@@ -254,6 +254,11 @@
       "icone": "personne",
       "champs": [
         {
+          "id": "prenom",
+          "libelle": "Prénom",
+          "type": "texte"
+        },
+        {
           "id": "adresse",
           "libelle": "Adresse",
           "type": "texte"
@@ -889,6 +894,13 @@
           "cible": {
             "famille": "departement"
           }
+        },
+        {
+          "id": "priorite",
+          "libelle": "Priorité",
+          "type": "choix",
+          "choix": ["basse", "normale", "haute", "urgente"],
+          "defaut": "normale"
         },
         {
           "id": "echeance",
