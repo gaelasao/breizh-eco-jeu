@@ -74,8 +74,9 @@ test('un compte, pas un connecteur : Google et Microsoft n’ont qu’une entré
     'un seul compte Microsoft couvre Excel, Dynamics 365 et Business Central');
   assert.ok(microsoft?.contenus?.every((c) => !c.disponible || c.unClic), 'ouverts : chacun en un clic');
   const google = comptes.find((x) => x.id === 'google');
-  assert.deepEqual(google?.contenus?.map((c) => [c.id, c.disponible]), [['sheets', true], ['agenda', false], ['taches', false], ['messagerie', false]],
-    'la place de l’agenda, des tâches et de la messagerie est prévue, sans être proposée');
+  assert.deepEqual(google?.contenus?.map((c) => [c.id, c.disponible]),
+    [['sheets', true], ['agenda', false], ['taches', false], ['messagerie', false], ['documents', false], ['fichiers', false]],
+    'la place de l’agenda, des tâches, de la messagerie, des documents et des dépôts Drive est prévue, sans être proposée');
   assert.equal(M.compteDe('excel365')?.id, 'microsoft');
   assert.equal(M.compteDe('hubspot'), null, 'les autres outils gardent une entrée chacun');
   assert.ok(cat.some((x) => x.genre === 'outil' && x.id === 'hubspot'));
@@ -89,7 +90,8 @@ test('agenda et courrier : proposés dans le compte dès que le relais les ouvre
   const cat = M.catalogue(sourcesReelles(['sheets', 'agendagoogle', 'excel365', 'agendamicrosoft', 'outlook']), CONNECTEURS);
   const comptes = cat.filter((x) => x.genre === 'compte');
   const contenus = (id: string) => comptes.find((x) => x.id === id)?.contenus ?? [];
-  assert.deepEqual(contenus('google').map((c) => [c.id, c.disponible]), [['sheets', true], ['agenda', true], ['taches', false], ['messagerie', false]],
+  assert.deepEqual(contenus('google').map((c) => [c.id, c.disponible]),
+    [['sheets', true], ['agenda', true], ['taches', false], ['messagerie', false], ['documents', false], ['fichiers', false]],
     'Gmail fermé chez l’éditeur : l’entrée n’est pas proposée');
   // Excel, Dynamics et Business Central restent branchables par une clé ; l'agenda et le courrier, eux, n'ont que le clic
   assert.deepEqual(contenus('microsoft').map((c) => [c.id, c.disponible, c.unClic]),
@@ -98,6 +100,11 @@ test('agenda et courrier : proposés dans le compte dès que le relais les ouvre
   for (const c of [...contenus('google'), ...contenus('microsoft')]) if (c.disponible) assert.ok(c.unClic || c.cle, `${c.id} : une voie qui marche`);
   // un agenda ou une boîte ne figure jamais à part : il appartient à son compte
   for (const id of ['agendagoogle', 'agendamicrosoft', 'gmail', 'outlook']) assert.ok(!cat.some((x) => x.genre === 'outil' && x.id === id), `${id} : pas d’entrée séparée`);
+  // Docs et Drive sont du compte Google eux aussi : trois cartes Google côte à côte, c'était trois fois la même connexion
+  for (const id of ['googledocs', 'googledrive']) {
+    assert.ok(!cat.some((x) => x.genre === 'outil' && x.id === id), `${id} : pas d’entrée séparée`);
+    assert.equal(M.compteDe(id)?.id, 'google');
+  }
   assert.equal(M.compteDe('agendagoogle')?.id, 'google');
   assert.equal(M.compteDe('outlook')?.id, 'microsoft');
   // ce qui entre est connu d'avance : aucune cible à choisir, aucune colonne à associer, une étape de moins
@@ -119,7 +126,7 @@ test('tâches : Google Tasks et Microsoft To Do entrent par leur compte, sans ri
   const cat = M.catalogue(sourcesReelles(['sheets', 'tachesgoogle', 'excel365', 'tachesmicrosoft']), CONNECTEURS);
   const contenus = (id: string) => cat.find((x) => x.genre === 'compte' && x.id === id)?.contenus ?? [];
   assert.deepEqual(contenus('google').map((c) => [c.id, c.disponible, c.unClic]),
-    [['sheets', true, true], ['agenda', false, false], ['taches', true, true], ['messagerie', false, false]]);
+    [['sheets', true, true], ['agenda', false, false], ['taches', true, true], ['messagerie', false, false], ['documents', false, false], ['fichiers', false, false]]);
   assert.deepEqual(contenus('microsoft').filter((c) => c.disponible).map((c) => c.source),
     ['excel365', 'tachesmicrosoft', 'dynamics365', 'businesscentral']);
   // une liste de tâches ne figure jamais à part : elle appartient à son compte

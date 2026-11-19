@@ -72,6 +72,8 @@ export const COMPTES = Object.freeze([
       { id: 'agenda', libelle: 'Agenda', resume: 'votre agenda', detail: 'Vos rendez-vous dans le planning, et ceux d’ici dans votre agenda.', source: 'agendagoogle' },
       { id: 'taches', libelle: 'Tâches', resume: 'vos tâches', detail: 'Vos tâches Google dans l’écran Tâches, et celles d’ici dans votre liste.', source: 'tachesgoogle' },
       { id: 'messagerie', libelle: 'Courrier Gmail', resume: 'votre courrier', detail: 'Vos messages récents dans l’écran Courrier, triés dans vos bacs.', source: 'gmail' },
+      { id: 'documents', libelle: 'Un document Google Docs', resume: 'vos documents', detail: 'Un document lu ici ; en « dans les deux sens », ce qui se décide ici s’ajoute à la fin, sans rien effacer.', source: 'googledocs' },
+      { id: 'fichiers', libelle: 'Dépôts dans Google Drive', resume: 'vos dépôts dans Drive', detail: 'Vos documents déposés dans votre Drive depuis Living Business, avec leur lien en retour. Vos fichiers déjà présents ne sont jamais lus.', source: 'googledrive' },
     ],
   },
   {
