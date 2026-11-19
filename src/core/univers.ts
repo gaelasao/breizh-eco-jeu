@@ -18,6 +18,13 @@ export interface DefChamp {
   type: TypeChamp;
   obligatoire?: boolean;
   unite?: string;
+  /**
+   * Type « date » qui porte aussi une HEURE (« 2026-11-20T14:30 »). Le stockage l'acceptait déjà — `convertir()`
+   * lit le jour seul ou le jour et l'heure à la minute — et l'affichage savait l'écrire ; seul le champ de saisie
+   * restait un sélecteur de jour, sans moyen de dire « à 14 h 30 ». Ce drapeau le débloque, sans nouveau type :
+   * la validation, l'import CSV et l'export ne bougent pas d'une ligne.
+   */
+  heure?: boolean;
   choix?: readonly string[]; // type « choix »
   cible?: { famille: Famille; role?: string }; // type « reference » (ex. projet → client) ; absent = tout objet
 }

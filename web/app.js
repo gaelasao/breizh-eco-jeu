@@ -115,6 +115,20 @@ function remplir(el, ...enfants) {
 const LIBELLE_NOM = { courrier: 'Objet', tache: 'Nom de la tâche', rendez_vous: 'Intitulé du rendez-vous' };
 const libelleNom = (typeId) => LIBELLE_NOM[typeId] ?? 'Nom';
 
+/**
+ * SAISIE D'UNE DATE, AVEC OU SANS HEURE. Un champ `date` marqué `heure` se saisit avec l'heure (`datetime-local`).
+ * Le navigateur exige alors une valeur complète : une échéance déjà enregistrée sans heure est donc présentée à
+ * minuit dans le champ, et seule une heure réellement saisie est renvoyée — personne ne se retrouve avec un
+ * « 00 h 00 » qu'il n'a pas écrit.
+ */
+const typeSaisieDate = (c) => (c?.heure ? 'datetime-local' : 'date');
+const valeurSaisieDate = (c, v) => {
+  const t = v === undefined || v === null ? '' : String(v);
+  return c?.heure && /^\d{4}-\d{2}-\d{2}$/.test(t) ? `${t}T00:00` : t;
+};
+/** Ce qu'on renvoie au serveur : minuit non écrit redevient un jour seul. */
+const sortieSaisieDate = (c, v) => (c?.heure && /T00:00$/.test(String(v ?? '')) ? String(v).slice(0, 10) : v);
+
 async function api(methode, chemin, corps, entetes = {}) {
   const ecriture = methode !== 'GET';
   // une photo de justificatif part telle quelle (Blob), jamais dans du JSON : plusieurs mégaoctets n'ont rien à gagner
@@ -3336,7 +3350,7 @@ function formatValeur(c) {
   if (c.valeur === null || c.valeur === undefined) return '—';
   if (c.lien) return sansDemo(c.lien.nom);
   if (c.type === 'booleen') return c.valeur ? 'Oui' : 'Non';
-  if (c.type === 'date') return date(c.valeur);
+  if (c.type === 'date') return String(c.valeur ?? '').length > 10 ? dateHeure(c.valeur) : date(c.valeur);
   if (c.type === 'montant' && (c.unite === '€' || !c.unite)) return nfEuro.format(c.valeur);
   if (c.type === 'nombre' || c.type === 'montant') return `${nf.format(c.valeur)}${c.unite ? ` ${c.unite}` : ''}`;
   // valeur d'une liste de choix (« à traiter », « haute ») : en casse de phrase, jamais le mot brut en minuscules
@@ -3553,7 +3567,7 @@ function saisieEnPlace(o, c, ed) {
     const opts = E.monde.objets.filter((x) => x.id !== o.id && (!def.cible || x.famille === def.cible.famille) && (!def.cible?.role || x.roles.some((r) => r.id === def.cible.role)));
     saisie = h('select', { ...commun, onchange: lier }, h('option', { value: '', texte: '—' }), opts.map((x) => h('option', { value: x.id, selected: x.id === ed.brut, texte: sansDemo(x.nom) })));
   } else if (def.type === 'booleen') saisie = h('select', { ...commun, onchange: lier }, h('option', { value: '', texte: '—' }), h('option', { value: 'oui', selected: ed.brut === 'oui', texte: 'Oui' }), h('option', { value: 'non', selected: ed.brut === 'non', texte: 'Non' }));
-  else if (def.type === 'date') saisie = h('input', { ...commun, type: 'date', value: ed.brut, oninput: lier });
+  else if (def.type === 'date') saisie = h('input', { ...commun, type: typeSaisieDate(def), value: valeurSaisieDate(def, ed.brut), oninput: (e) => { ed.brut = sortieSaisieDate(def, e.target.value); ed.erreur = null; } });
   else if (def.type === 'nombre' || def.type === 'montant') saisie = h('input', { ...commun, type: 'text', inputmode: 'decimal', enterkeyhint: 'done', autocomplete: 'off', value: ed.brut, oninput: lier });
   else saisie = h('input', { ...commun, type: 'text', maxlength: '2000', enterkeyhint: 'done', autocomplete: 'off', value: ed.brut, oninput: lier });
   return h('div', { class: 'bz-edition' },
@@ -4992,13 +5006,16 @@ function ouvrirSaisie(cible, { apres = null } = {}) {
   const optionsRef = (c) => E.monde.objets.filter((o) => (!c.cible || o.famille === c.cible.famille) && (!c.cible?.role || o.roles.some((r) => r.id === c.cible.role)));
   const champ = (c) => {
     const id = `saisie-${idDom(c.id)}`;
-    const lier = (e) => { const v = e.target.type === 'checkbox' ? e.target.checked : e.target.value; S.champs[c.id] = (c.type === 'nombre' || c.type === 'montant') && v !== '' ? Number(v) : v; };
+    const lier = (e) => {
+      const v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+      S.champs[c.id] = (c.type === 'nombre' || c.type === 'montant') && v !== '' ? Number(v) : c.type === 'date' ? sortieSaisieDate(c, v) : v;
+    };
     const v = S.champs[c.id];
     if (c.type === 'booleen') return h('label', { class: 'bz-case' }, h('input', { type: 'checkbox', id, checked: v === true, onchange: lier }), c.libelle);
     const select = (options) => h('div', { class: 'bz-select' }, h('select', { id, class: 'bz-champ__saisie', onchange: lier }, h('option', { value: '', texte: '—' }), options), icone('chevron-down', { taille: 'sm' }));
     const entree = c.type === 'choix' ? select((c.choix ?? []).map((x) => h('option', { value: x, selected: v === x, texte: x })))
       : c.type === 'reference' ? select(optionsRef(c).map((o) => h('option', { value: o.id, selected: v === o.id, texte: sansDemo(o.nom) })))
-      : h('input', { id, class: 'bz-champ__saisie', type: c.type === 'date' ? 'date' : 'text', inputmode: c.type === 'nombre' || c.type === 'montant' ? 'decimal' : null, autocomplete: 'off', value: v === undefined || v === null ? '' : String(v), oninput: lier });
+      : h('input', { id, class: 'bz-champ__saisie', type: c.type === 'date' ? typeSaisieDate(c) : 'text', inputmode: c.type === 'nombre' || c.type === 'montant' ? 'decimal' : null, autocomplete: 'off', value: c.type === 'date' ? valeurSaisieDate(c, v) : v === undefined || v === null ? '' : String(v), oninput: lier });
     return h('div', { class: 'bz-champ' }, h('label', { class: 'bz-champ__libelle', for: id, texte: `${c.libelle}${c.unite ? ` (${c.unite})` : ''}` }), entree);
   };
   const D = dialogueVivant({

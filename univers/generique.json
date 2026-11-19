@@ -899,13 +899,13 @@
           "id": "priorite",
           "libelle": "Priorité",
           "type": "choix",
-          "choix": ["basse", "normale", "haute", "urgente"],
-          "defaut": "normale"
+          "choix": ["basse", "normale", "haute", "urgente"]
         },
         {
           "id": "echeance",
           "libelle": "Échéance",
-          "type": "date"
+          "type": "date",
+          "heure": true
         },
         {
           "id": "responsable",

@@ -887,7 +887,8 @@ export class Monde {
         .filter((t) => !t.masque)
         .map((t) => ({
           id: t.id, famille: t.famille, libelle: t.libelle, pluriel: t.pluriel, icone: t.icone ?? null,
-          champs: t.champs.map((c) => ({ id: c.id, libelle: c.libelle, type: c.type, unite: c.unite ?? null, choix: c.choix ?? null })),
+          // `heure` voyage avec le champ : sans lui, l'écran ne sait pas qu'une échéance se saisit à l'heure près
+          champs: t.champs.map((c) => ({ id: c.id, libelle: c.libelle, type: c.type, unite: c.unite ?? null, choix: c.choix ?? null, heure: c.heure ?? false })),
         })),
     };
   }
