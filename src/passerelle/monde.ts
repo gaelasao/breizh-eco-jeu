@@ -518,7 +518,8 @@ export class Monde {
     if (!receptions.length) return [];
     const commandeDe = (r: ObjetMetier) => (typeof r.champs.commande === 'string' ? e.objets.get(r.champs.commande) ?? null : null);
     const fournisseurDe = (r: ObjetMetier) => { const f = commandeDe(r)?.champs.fournisseur; return typeof f === 'string' && f ? f : null; };
-    return receptions.flatMap((r) => situationsReception(r, commandeDe(r), receptions, fournisseurDe, this.#responsable(r, e.objets), ctx));
+    const lignes = objets.filter((o) => o.type === 'ligne_commande');
+    return receptions.flatMap((r) => situationsReception(r, commandeDe(r), receptions, fournisseurDe, this.#responsable(r, e.objets), ctx, lignes));
   }
 
   /**
@@ -545,7 +546,8 @@ export class Monde {
       return typeof f === 'string' && f ? f : null;
     };
     const autres = [...objets.values()].filter((x) => x.type === 'reception');
-    const etat = etatReception(o, commandeDe(o), autres, fournisseurDe);
+    const lignes = [...objets.values()].filter((x) => x.type === 'ligne_commande');
+    const etat = etatReception(o, commandeDe(o), autres, fournisseurDe, lignes);
     return { ...etat, phrase: phraseReception(etat) };
   }
 

@@ -144,6 +144,9 @@ export function donneesDemo(maintenant: Date): ObjetMetier[] {
     // ---- Commandes, devis, factures
     o('c-negoce', 'commande', 'commande_fournisseur', 'Commande fournisseur CF-104', { fournisseur: 't-negoce', montant: 2300, livraison_prevue: dans(3), statut: 'confirmée' }),
     o('c-grossiste', 'commande', 'commande_fournisseur', 'Commande fournisseur CF-105', { fournisseur: 't-grossiste', montant: 860, livraison_prevue: dans(6), statut: 'envoyée' }),
+    // ---- lignes de la commande CF-104 : de quoi COMPTER les quantités au lieu de les demander
+    o('lg-104-a', 'commande', 'ligne_commande', 'Panneaux 19 mm', { commande: 'c-negoce', article: 'a-panneaux', quantite_commandee: 10, quantite_recue: 7, prix_unitaire: 42 }),
+    o('lg-104-b', 'commande', 'ligne_commande', 'Visserie', { commande: 'c-negoce', article: 'a-visserie', quantite_commandee: 200, quantite_recue: 200, prix_unitaire: 0.12 }),
     // ---- réceptions : le bon de livraison contre la commande, les trois cas qu'on rencontre vraiment
     o('rc-negoce', 'commande', 'reception', 'Réception CF-104', { commande: 'c-negoce', recue_le: ilYA(1), bl_numero: 'BL-2026/114',
       montant_bl: 2415, quantites: 'conformes', articles: 'conforme à la commande' }),

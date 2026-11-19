@@ -104,3 +104,70 @@ test('bon à payer coché malgré un problème : montré, jamais tu', () => {
   // coché quand tout concorde : rien à signaler
   assert.equal(etatReception(reception({ ...nickel, bon_a_payer: true }), commande()).payeQuandMeme, false);
 });
+
+// ---------------------------------------------------------------- quand la commande a des lignes
+
+const ligne = (champs: Record<string, ValeurChamp>, id: string, nom: string) =>
+  obj(id, 'ligne_commande', 'commande', { commande: 'cf1', ...champs }, nom);
+
+test('avec des lignes, les quantités se COMPTENT au lieu d’être demandées', () => {
+  /* Quand la commande dit « 10 panneaux » et que la réception en enregistre 7, il n'y a plus rien à demander à
+     personne : il en manque 3, et on le nomme. */
+  const lignes = [
+    ligne({ quantite_commandee: 10, quantite_recue: 7 }, 'l1', 'Panneaux'),
+    ligne({ quantite_commandee: 4, quantite_recue: 4 }, 'l2', 'Joints'),
+  ];
+  const e = etatReception(reception({ montant_bl: 2300, articles: 'conforme à la commande' }), commande(), [], () => null, lignes);
+  assert.equal(e.lignes?.total, 2);
+  assert.equal(e.lignes?.completes, 2);
+  assert.deepEqual(e.lignes?.ecarts, [{ nom: 'Panneaux', commandee: 10, recue: 7, ecart: -3 }]);
+  assert.match(e.problemes.join(' '), /il manque 3 Panneaux sur 10/);
+  assert.equal(e.rienNeBloque, false);
+  // la question « les quantités y sont-elles ? » n'est plus posée : elle est répondue
+  assert.doesNotMatch(e.manque.join(' '), /quantités ne sont pas encore vérifiées/);
+});
+
+test('cocher « conformes » ne couvre pas des lignes qui disent le contraire', () => {
+  /* C'est le geste qu'on fait vite, le camion en attente. Les lignes passent devant. */
+  const lignes = [ligne({ quantite_commandee: 10, quantite_recue: 7 }, 'l1', 'Panneaux')];
+  const e = etatReception(reception({ ...nickel }), commande(), [], () => null, lignes);
+  assert.match(e.problemes.join(' '), /il manque 3 Panneaux/);
+  assert.equal(e.rienNeBloque, false);
+});
+
+test('une ligne pas encore pointée n’est pas un écart, et ne se dit pas comme un écart', () => {
+  const lignes = [
+    ligne({ quantite_commandee: 10, quantite_recue: 10 }, 'l1', 'Panneaux'),
+    ligne({ quantite_commandee: 4 }, 'l2', 'Joints'),
+  ];
+  const e = etatReception(reception({ montant_bl: 2300, articles: 'conforme à la commande' }), commande(), [], () => null, lignes);
+  assert.deepEqual(e.lignes?.ecarts, []);
+  assert.equal(e.lignes?.completes, 1);
+  assert.deepEqual(e.problemes, [], 'ce n’est pas un problème');
+  assert.match(e.manque.join(' '), /n’ont pas encore de quantité reçue/);
+});
+
+test('tout compté et tout juste : les lignes suffisent, rien ne bloque', () => {
+  const lignes = [
+    ligne({ quantite_commandee: 10, quantite_recue: 10 }, 'l1', 'Panneaux'),
+    ligne({ quantite_commandee: 4, quantite_recue: 4 }, 'l2', 'Joints'),
+  ];
+  const e = etatReception(reception({ montant_bl: 2300, articles: 'conforme à la commande' }), commande(), [], () => null, lignes);
+  assert.equal(e.rienNeBloque, true);
+  assert.match(phraseReception(e), /concordent/);
+  // il en est arrivé PLUS que commandé : ça se dit aussi, c'est du stock qu'on n'a pas commandé
+  const trop = etatReception(reception({ montant_bl: 2300, articles: 'conforme à la commande' }), commande(), [], () => null,
+    [ligne({ quantite_commandee: 10, quantite_recue: 12 }, 'l1', 'Panneaux')]);
+  assert.match(trop.problemes.join(' '), /il y a 2 Panneaux de plus que les 10 commandés/);
+});
+
+test('sans lignes, rien ne change : la question est posée comme avant', () => {
+  /* Personne ne saisira des lignes pour une commande de trois vis. Les deux chemins coexistent. */
+  const e = etatReception(reception({ montant_bl: 2300 }), commande(), [], () => null, []);
+  assert.equal(e.lignes, null);
+  assert.match(e.manque.join(' '), /quantités ne sont pas encore vérifiées/);
+  // et les lignes d'une AUTRE commande ne comptent pas
+  const ailleurs = etatReception(reception({ montant_bl: 2300 }), commande(), [], () => null,
+    [obj('l9', 'ligne_commande', 'commande', { commande: 'cf-autre', quantite_commandee: 5, quantite_recue: 1 }, 'Vis')]);
+  assert.equal(ailleurs.lignes, null);
+});

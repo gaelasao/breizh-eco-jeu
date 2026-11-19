@@ -3893,6 +3893,13 @@ function blocReception(o) {
     h('p', { class: 'bz-resultat', 'data-ton': ton },
       icone(ton === 'critique' ? 'triangle-alert' : ton === 'attention' ? 'info' : 'circle-check', { taille: 'sm' }),
       h('span', { texte: r.phrase })),
+    /* Les lignes de la commande, quand il y en a : c'est la différence entre « on vous pose la question » et « on
+       vous donne la réponse ». Dites même quand tout va bien — c'est ce qui permet de savoir que ça a été compté. */
+    r.lignes ? h('p', { class: 'bz-t-petit bz-texte-2', texte: r.lignes.ecarts.length
+      ? `${r.lignes.ecarts.length} ligne${r.lignes.ecarts.length > 1 ? 's' : ''} de la commande ne tombe${r.lignes.ecarts.length > 1 ? 'nt' : ''} pas, sur ${r.lignes.total}.`
+      : r.lignes.completes < r.lignes.total
+        ? `${r.lignes.completes} ligne${r.lignes.completes > 1 ? 's' : ''} pointée${r.lignes.completes > 1 ? 's' : ''} sur ${r.lignes.total}.`
+        : `Les ${r.lignes.total} lignes de la commande tombent juste.` }) : null,
     ...liste('Ce qui cloche', r.problemes),
     ...liste('Reste à vérifier', r.manque),
     e ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `Commande ${nfEuro.format(e.commande)} · bon de livraison ${nfEuro.format(e.bl)}${e.ecart === 0 ? ' · identiques' : ` · ${e.ecart > 0 ? '+' : '−'}${nfEuro.format(Math.abs(e.ecart))}`}` }) : null,

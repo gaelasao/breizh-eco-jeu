@@ -7,10 +7,11 @@
  * sont les deux erreurs qu'une machine attrape mieux qu'un humain : l'écart de quelques euros qu'on ne recompte
  * jamais, et le bon envoyé deux fois par le fournisseur — qui se paie deux fois.
  *
- * CE QU'IL NE SAIT PAS, ET QU'IL DEMANDE. « Est-ce bien ce que j'avais demandé ? » et « les quantités y sont-elles ? »
- * ne se déduisent de rien : il n'y a pas de lignes d'articles dans une commande ici, et il n'y en aura pas tant que
- * personne ne les saisit. Ces deux questions sont donc POSÉES, et leur réponse « pas encore vérifié » est tenue
- * pour ce qu'elle est — une réponse manquante, pas un feu vert.
+ * CE QU'IL NE SAIT PAS TOUJOURS. « Les quantités y sont-elles ? » ne se déduit de rien tant que la commande n'a pas
+ * de LIGNES. Quand elle en a — un article, une quantité commandée, une quantité reçue — la question cesse d'être
+ * posée : elle se compte, et le logiciel dit ce qui manque, article par article. Quand elle n'en a pas, la question
+ * reste POSÉE, et sa réponse « pas encore vérifié » est tenue pour ce qu'elle est : une réponse manquante, pas un
+ * feu vert. Les deux chemins coexistent, parce que personne ne saisira des lignes pour une commande de trois vis.
  *
  * LE BON À PAYER N'EST JAMAIS AUTOMATIQUE. Le logiciel dit ce qui manque et ce qui cloche ; c'est une personne qui
  * coche. Un bon à payer calculé tout seul serait un virement décidé par un logiciel sur deux champs mal remplis.
@@ -32,7 +33,21 @@ export interface EcartMontant {
   pourcent: number;
 }
 
+/** Ce qu'une ligne de commande dit : ce qui était demandé, ce qui est arrivé. */
+export interface EcartLigne {
+  nom: string;
+  commandee: number;
+  recue: number;
+  /** recue − commandee : négatif = il en manque. */
+  ecart: number;
+}
+
 export interface EtatReception {
+  /**
+   * Le compte des lignes, quand la commande en a. `null` : la commande n'a pas de lignes, et les quantités restent
+   * une question posée à la personne.
+   */
+  lignes: { total: number; completes: number; ecarts: EcartLigne[] } | null;
   /** Le bon porte-t-il un numéro déjà vu chez ce fournisseur ? L'identifiant de l'autre réception, le cas échéant. */
   doublon: string | null;
   ecartMontant: EcartMontant | null;
@@ -89,13 +104,29 @@ export function etatReception(
   commande: ObjetMetier | null,
   autres: readonly ObjetMetier[] = [],
   fournisseurDe: (r: ObjetMetier) => string | null = () => null,
+  lignes: readonly ObjetMetier[] = [],
 ): EtatReception {
   const quantites = texte(reception.champs.quantites);
   const articles = texte(reception.champs.articles);
   const manque: string[] = [];
   const problemes: string[] = [];
 
-  if (NON_VERIFIE.has(quantites)) manque.push('les quantités ne sont pas encore vérifiées');
+  /*
+   * LES LIGNES PASSENT DEVANT LA RÉPONSE À LA MAIN. Quand la commande dit « 10 panneaux » et que la réception en
+   * enregistre 7, il n'y a plus rien à demander à personne : il en manque 3, et on le nomme. Cocher « conformes »
+   * sur une commande dont les lignes disent le contraire ne doit pas suffire — c'est précisément le geste qu'on
+   * fait vite, le camion en attente.
+   */
+  const compte = compterLignes(commande, lignes);
+  if (compte) {
+    if (compte.ecarts.length) {
+      problemes.push(compte.ecarts.map((e) => (e.ecart < 0
+        ? `il manque ${-e.ecart} ${e.nom} sur ${e.commandee}`
+        : `il y a ${e.ecart} ${e.nom} de plus que les ${e.commandee} commandés`)).join(' ; '));
+    } else if (compte.completes < compte.total) {
+      manque.push(`${compte.total - compte.completes} ligne(s) de la commande n’ont pas encore de quantité reçue`);
+    }
+  } else if (NON_VERIFIE.has(quantites)) manque.push('les quantités ne sont pas encore vérifiées');
   else if (quantites === 'manquantes') problemes.push('il manque des quantités');
   else if (quantites === 'en trop') problemes.push('il y a plus que commandé');
 
@@ -124,6 +155,7 @@ export function etatReception(
 
   const rienNeBloque = manque.length === 0 && problemes.length === 0;
   return {
+    lignes: compte,
     doublon,
     ecartMontant: ecart,
     manque,
@@ -131,6 +163,28 @@ export function etatReception(
     rienNeBloque,
     payeQuandMeme: reception.champs.bon_a_payer === true && !rienNeBloque,
   };
+}
+
+/**
+ * CE QUE LES LIGNES DE LA COMMANDE DISENT. `null` quand la commande n'en a pas : on ne transforme pas une absence
+ * de lignes en « tout est conforme ». Une ligne sans quantité reçue n'est pas un écart — c'est une ligne pas encore
+ * pointée, ce qui n'est pas la même chose et ne se dit pas avec les mêmes mots.
+ */
+function compterLignes(commande: ObjetMetier | null, lignes: readonly ObjetMetier[]): EtatReception['lignes'] {
+  if (commande === null) return null;
+  const miennes = lignes.filter((l) => l.champs.commande === commande.id);
+  if (!miennes.length) return null;
+  const ecarts: EcartLigne[] = [];
+  let completes = 0;
+  for (const l of miennes) {
+    const commandee = nombre(l.champs.quantite_commandee);
+    const recue = nombre(l.champs.quantite_recue);
+    if (commandee === null || recue === null) continue;
+    completes++;
+    const ecart = Math.round((recue - commandee) * 1e6) / 1e6;
+    if (ecart !== 0) ecarts.push({ nom: l.nom, commandee, recue, ecart });
+  }
+  return { total: miennes.length, completes, ecarts };
 }
 
 /** La phrase de la réception : ce qui bloque d'abord, ce qui manque ensuite, et le feu vert en dernier. */
@@ -157,8 +211,9 @@ export function situationsReception(
   fournisseurDe: (r: ObjetMetier) => string | null,
   responsable: string | null,
   ctx: ContexteRegle,
+  lignes: readonly ObjetMetier[] = [],
 ): Situation[] {
-  const e = etatReception(reception, commande, autres, fournisseurDe);
+  const e = etatReception(reception, commande, autres, fournisseurDe, lignes);
   const preuve = {
     valeur: e.ecartMontant?.ecart ?? null, seuil: 0, source: reception.source, observeLe: reception.majLe,
     provenance: reception.provenance, fraicheur: fraicheur(reception.majLe, ctx.maintenant, ctx.ageMaxMs),

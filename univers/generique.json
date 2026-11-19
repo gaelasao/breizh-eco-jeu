@@ -860,6 +860,20 @@
       ]
     },
     {
+      "id": "ligne_commande",
+      "famille": "commande",
+      "libelle": "Ligne de commande",
+      "pluriel": "Lignes de commande",
+      "champs": [
+        { "id": "commande", "libelle": "Commande", "type": "reference", "cible": { "famille": "commande" }, "obligatoire": true },
+        { "id": "article", "libelle": "Article en stock", "type": "reference", "cible": { "famille": "ressource" } },
+        { "id": "quantite_commandee", "libelle": "Quantité commandée", "type": "nombre" },
+        { "id": "quantite_recue", "libelle": "Quantité reçue", "type": "nombre" },
+        { "id": "prix_unitaire", "libelle": "Prix unitaire", "type": "montant", "unite": "€" },
+        { "id": "unite", "libelle": "Unité", "type": "texte" }
+      ]
+    },
+    {
       "id": "reception",
       "famille": "commande",
       "libelle": "Réception",
