@@ -1173,6 +1173,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       return envoyer(res, 200, r);
     }
     // rappels d'entretien chez le client : une échéance lointaine sur un travail terminé (l'entreprise est prévenue, pas le client)
+    if (methode === 'POST' && chemin === '/alertes/personnes') return envoyer(res, 200, app.alertes.reglerPersonne(profil, await lireCorps(req, LIMITE_ALERTES)));
     if (methode === 'POST' && chemin === '/alertes/entretiens') return envoyer(res, 200, app.alertes.ajouterEntretien(profil, await lireCorps(req, LIMITE_ALERTES)));
     ma = /^\/alertes\/entretiens\/(ent-[a-f0-9]{12})$/.exec(chemin);
     if (methode === 'DELETE' && ma) return envoyer(res, 200, app.alertes.supprimerEntretien(profil, ma[1]));

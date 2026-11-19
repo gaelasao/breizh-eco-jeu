@@ -222,6 +222,22 @@ export interface EtatAlertes {
   entretiens: RappelEntretien[];
   /** Dernière urgence poussée hors des heures autorisées : deux urgences coup sur coup ne font pas deux messages. */
   urgenceLe: string | null;
+  /**
+   * QUI A ÉCRIT AU ROBOT, ET QUI A LE DROIT. Tant que personne n'est coché, la conversation branchée fait foi et
+   * tout le monde y écrit — c'est ce qui marchait avant, et une mise à jour ne doit pas couper le robot d'une
+   * entreprise qui s'en sert. Dès qu'UNE personne est autorisée, la liste devient la règle et les autres sont
+   * refusées : la restriction s'allume d'elle-même, le jour où quelqu'un décide de s'en servir.
+   */
+  personnes: PersonneRobot[];
+}
+
+/** Quelqu'un qui a écrit au robot au moins une fois. `nom` est ce que Telegram donne, et il peut changer. */
+export interface PersonneRobot {
+  id: string;
+  nom: string;
+  autorise: boolean;
+  /** Dernière fois qu'on l'a vue écrire : de quoi reconnaître qui est qui dans la liste. */
+  vueLe: string;
 }
 
 interface Fait {
@@ -286,6 +302,8 @@ const PAUSE_URGENCE_MS = 10 * 60_000;
 const GESTE_DUREE_MS = 7 * JOUR_MS;
 const GESTES_MAX = 200;
 const ENTRETIENS_MAX = 10;
+/** Au-delà, ce n'est plus une équipe : on garde les plus récentes et on le dit à l'écran. */
+const PERSONNES_MAX = 60;
 const ENTRETIEN_MOIS_MAX = 120;
 const JETON_GESTE = /^[A-Za-z0-9_-]{32}$/;
 /** Nouvel essai après un échec, par nombre d'échecs d'affilée (minutes). */
@@ -370,6 +388,11 @@ export class Alertes {
       reportes: estObj(e?.reportes) ? (e.reportes as Record<string, string>) : {},
       gestes: (Array.isArray(e?.gestes) ? e.gestes : []).filter((g): g is GesteOffert =>
         estObj(g) && typeof g.empreinte === 'string' && typeof g.cle === 'string' && (g.geste === 'fait' || g.geste === 'plus_tard')).slice(-GESTES_MAX),
+      personnes: (Array.isArray(e?.personnes) ? e.personnes : []).filter((x): x is PersonneRobot =>
+        estObj(x) && typeof x.id === 'string' && x.id.length > 0 && x.id.length <= 40).map((x) => ({
+        id: x.id, nom: uneLigne(String(x.nom ?? '')).slice(0, 60), autorise: x.autorise === true,
+        vueLe: typeof x.vueLe === 'string' ? x.vueLe : '',
+      })).slice(-PERSONNES_MAX),
       entretiens: (Array.isArray(e?.entretiens) ? e.entretiens : []).filter((r): r is RappelEntretien =>
         estObj(r) && ID_ENTRETIEN.test(String(r.id)) && typeof r.type === 'string' && typeof r.champ === 'string' && Number.isInteger(r.apresMois)).slice(0, ENTRETIENS_MAX),
       urgenceLe: typeof e?.urgenceLe === 'string' ? e.urgenceLe : null,
@@ -428,6 +451,10 @@ export class Alertes {
       // ce que l'entreprise peut viser : les types de son univers qui portent une date, et rien d'écrit en dur
       entretiensPossibles: this.#typesEntretien(),
       ecrireAuClient: this.#ecrireAuClient(),
+      // qui a écrit au robot, et si la liste fait loi (dès qu'une personne est cochée, les autres sont refusées)
+      personnes: this.personnes(p),
+      personnesMax: PERSONNES_MAX,
+      robotRestreint: this.#etat.personnes.some((x) => x.autorise),
     };
   }
 
@@ -870,6 +897,11 @@ export class Alertes {
         if (clic && typeof clic.id === 'string') {
           await this.#telegramAppel(prive.jeton, 'answerCallbackQuery', { callback_query_id: clic.id });
         }
+        const refus = this.#noterPersonne(expediteur, this.#src.maintenant());
+        if (refus) {
+          await this.#telegramAppel(prive.jeton, 'sendMessage', { chat_id: prive.conversation, text: refus, link_preview_options: { is_disabled: true } });
+          continue;
+        }
         let reponse: ReponseRobot = { texte: '' };
         try {
           const f = clic ? this.#src.surBouton : this.#src.surMessage;
@@ -884,6 +916,54 @@ export class Alertes {
       }
       if (lots.length) this.#changement();
     }
+  }
+
+  /**
+   * NOTER QUI A ÉCRIT, ET DIRE S'IL A LE DROIT. Rend `null` quand le message peut être traité, ou la phrase à
+   * répondre quand il ne le peut pas.
+   *
+   * La personne est enregistrée MÊME refusée : c'est comme ça qu'elle apparaît dans la liste, et que quelqu'un
+   * peut la cocher. Sans cela, l'entreprise devrait taper un identifiant Telegram à la main — personne ne le fait.
+   *
+   * Aucun nom n'est inventé : si Telegram n'en donne pas, la ligne porte son numéro, et l'écran l'affiche tel quel.
+   */
+  #noterPersonne(de: Expediteur, maintenant: Date): string | null {
+    if (!de.id) return null; // Telegram n'a pas dit qui écrit : la conversation reste la seule porte, comme avant
+    const liste = this.#etat.personnes;
+    const connue = liste.find((x) => x.id === de.id);
+    const restreint = liste.some((x) => x.autorise);
+    if (connue) {
+      connue.vueLe = maintenant.toISOString();
+      if (de.nom) connue.nom = de.nom;
+    } else {
+      while (liste.length >= PERSONNES_MAX) liste.shift();
+      liste.push({ id: de.id, nom: de.nom, autorise: false, vueLe: maintenant.toISOString() });
+      this.#changement();
+    }
+    // personne n'est coché : la conversation fait foi, comme avant. C'est le premier coché qui ferme la porte.
+    if (!restreint) return null;
+    if (connue?.autorise) return null;
+    return 'Vous n’êtes pas encore autorisé à écrire à ce robot. Demandez à la personne qui administre Living Business de vous cocher dans Réglages, Alertes.';
+  }
+
+  /** La liste des personnes vues, la plus récente d'abord : l'écran coche, le module applique. */
+  personnes(p: Profil): PersonneRobot[] {
+    this.#admin(p);
+    return [...this.#etat.personnes].sort((a, b) => b.vueLe.localeCompare(a.vueLe));
+  }
+
+  /**
+   * Cocher ou décocher quelqu'un. Décocher le DERNIER autorisé rouvre la porte à toute la conversation : on le dit
+   * à l'écran plutôt que de laisser croire qu'on vient de tout fermer.
+   */
+  reglerPersonne(p: Profil, d: unknown): { personnes: PersonneRobot[]; restreint: boolean } {
+    this.#admin(p);
+    if (!estObj(d) || typeof d.id !== 'string') throw new ErreurApi(400, 'requete_invalide');
+    const x = this.#etat.personnes.find((y) => y.id === d.id);
+    if (!x) throw new ErreurApi(404, 'introuvable', 'Cette personne n’a pas encore écrit au robot.');
+    x.autorise = d.autorise === true;
+    this.#changement();
+    return { personnes: this.personnes(p), restreint: this.#etat.personnes.some((y) => y.autorise) };
   }
 
   async passer(): Promise<number> {

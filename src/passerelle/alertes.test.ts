@@ -1056,3 +1056,70 @@ test('ce qu’on écrit au robot : sans crochet posé, rien n’est lu (le canal
   await x.a.passer();
   assert.equal(x.S.appels.filter((a) => /getUpdates/.test(a.url.pathname)).length, 0);
 });
+
+test('qui peut écrire au robot : la conversation fait foi, jusqu’à ce qu’une personne soit cochée', async () => {
+  /*
+   * LA RÈGLE QUI COMPTE, ET POURQUOI ELLE EST AINSI. Tant que personne n'est coché, tout le monde écrit — c'est
+   * ce qui marchait avant, et une mise à jour ne doit pas couper le robot d'une entreprise qui s'en sert tous les
+   * jours. Le premier coché ferme la porte aux autres : la restriction s'allume d'elle-même, le jour où quelqu'un
+   * décide de s'en servir, et personne n'a d'identifiant Telegram à taper.
+   */
+  const x = alertes();
+  const recus: string[] = [];
+  const a = new Alertes({ ...x.src, surMessage: async (t) => { recus.push(t); return { texte: 'ok' }; } }, chiffreurEphemere(), { fetch: x.f });
+  const r = await a.robotTelegram(ADMIN, { jeton: JETON });
+  await a.conversationTelegram(ADMIN, { ref: r.ref });
+  a.ajouterCanal(ADMIN, { canal: 'telegram', ref: r.ref });
+
+  // personne n'est coché : Yann et Soizic écrivent toutes les deux, et apparaissent dans la liste
+  x.S.updates = [
+    { update_id: 10, message: { chat: { id: 4242 }, from: { id: 1, first_name: 'Yann' }, text: 'sortie 3' } },
+    { update_id: 11, message: { chat: { id: 4242 }, from: { id: 2, first_name: 'Soizic' }, text: 'sortie 4' } },
+  ];
+  await a.passer();
+  assert.deepEqual(recus, ['sortie 3', 'sortie 4'], 'rien n’est fermé tant que rien n’est coché');
+  assert.deepEqual(a.personnes(ADMIN).map((p) => [p.nom, p.autorise]).sort(), [['Soizic', false], ['Yann', false]]);
+  assert.equal(a.reglages(ADMIN).robotRestreint, false);
+
+  // Yann est coché : à partir de là, Soizic est refusée, et on le lui dit
+  const apres = a.reglerPersonne(ADMIN, { id: '1', autorise: true });
+  assert.equal(apres.restreint, true);
+  recus.length = 0;
+  x.S.envois.length = 0;
+  x.S.updates = [
+    { update_id: 12, message: { chat: { id: 4242 }, from: { id: 1, first_name: 'Yann' }, text: 'sortie 5' } },
+    { update_id: 13, message: { chat: { id: 4242 }, from: { id: 2, first_name: 'Soizic' }, text: 'sortie 6' } },
+  ];
+  await a.passer();
+  assert.deepEqual(recus, ['sortie 5'], 'seule la personne cochée est écoutée');
+  assert.ok(x.S.envois.some((e) => /pas encore autorisé/.test(e)), 'le refus est dit, pas tu');
+
+  // décocher le dernier autorisé rouvre la porte : on ne laisse pas croire qu'on vient de tout fermer
+  assert.equal(a.reglerPersonne(ADMIN, { id: '1', autorise: false }).restreint, false);
+  recus.length = 0;
+  x.S.updates = [{ update_id: 14, message: { chat: { id: 4242 }, from: { id: 2, first_name: 'Soizic' }, text: 'sortie 7' } }];
+  await a.passer();
+  assert.deepEqual(recus, ['sortie 7']);
+});
+
+test('un inconnu qui écrit entre dans la liste, même refusé : c’est comme ça qu’on peut le cocher', async () => {
+  /* Sans cela, l'entreprise devrait taper un identifiant Telegram à la main. Personne ne le fait. */
+  const x = alertes();
+  const a = new Alertes({ ...x.src, surMessage: async () => ({ texte: 'ok' }) }, chiffreurEphemere(), { fetch: x.f });
+  const r = await a.robotTelegram(ADMIN, { jeton: JETON });
+  await a.conversationTelegram(ADMIN, { ref: r.ref });
+  a.ajouterCanal(ADMIN, { canal: 'telegram', ref: r.ref });
+  x.S.updates = [{ update_id: 20, message: { chat: { id: 4242 }, from: { id: 1, first_name: 'Yann' }, text: 'bonjour' } }];
+  await a.passer();
+  a.reglerPersonne(ADMIN, { id: '1', autorise: true });
+  x.S.updates = [{ update_id: 21, message: { chat: { id: 4242 }, from: { id: 7, first_name: 'Inconnu' }, text: 'sortie 9' } }];
+  await a.passer();
+  const vus = a.personnes(ADMIN);
+  assert.equal(vus.length, 2, 'le refusé figure dans la liste');
+  assert.equal(vus.find((p) => p.id === '7')?.autorise, false);
+  // on ne coche pas quelqu'un qui n'a jamais écrit : il n'y a rien à cocher
+  assert.throws(() => a.reglerPersonne(ADMIN, { id: '999', autorise: true }), (e: unknown) => e instanceof ErreurApi && e.statut === 404);
+  // et la liste survit au redémarrage, sinon les autorisations seraient perdues à chaque mise à jour
+  const relu = new Alertes({ ...x.src }, chiffreurEphemere(), { fetch: x.f, etat: a.instantane() });
+  assert.equal(relu.personnes(ADMIN).find((p) => p.id === '1')?.autorise, true);
+});

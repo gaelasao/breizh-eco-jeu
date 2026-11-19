@@ -6975,6 +6975,36 @@ async function rendreAlertes() {
       h('li', { texte: '« C’est fait » : Living Business arrête de vous le rappeler. Aucune fiche n’est modifiée depuis un message.' }),
       h('li', { texte: '« Plus tard » : on vous en reparle demain, comme le report de l’écran Aujourd’hui.' })));
 
+  /* ---- QUI A LE DROIT D’ÉCRIRE AU ROBOT.
+     La liste ne se remplit pas à la main : on n’y figure qu’après avoir écrit une fois au robot. Personne ne tape
+     un identifiant Telegram, et personne ne devrait avoir à le faire.
+     Tant qu’aucune case n’est cochée, la conversation branchée fait foi — c’est ce qui marchait avant, et une mise
+     à jour ne coupe pas le robot d’une entreprise qui s’en sert. La première case cochée ferme la porte aux
+     autres : la restriction s’allume d’elle-même, le jour où quelqu’un décide de s’en servir. C’est dit en haut de
+     la section, parce que cocher une case ne doit pas avoir d’effet qu’on n’attendait pas. */
+  const sectionPersonnes = () => {
+    const gens = A.personnes ?? [];
+    const regler = (id, autorise) => agir(async () => {
+      const r = await api('POST', '/alertes/personnes', { id, autorise });
+      informer(autorise ? 'Autorisé.' : r.restreint ? 'Retiré.' : 'Retiré : plus personne n’est coché, toute la conversation peut écrire à nouveau.', 'ok');
+    });
+    if (!gens.length) {
+      return sectionReglage('alertes-personnes', 'Qui peut écrire au robot',
+        'Pour l’instant, tous ceux qui sont dans la conversation branchée. Dès que quelqu’un aura écrit au robot, il apparaîtra ici et vous pourrez n’autoriser que lui.');
+    }
+    return sectionReglage('alertes-personnes', 'Qui peut écrire au robot',
+      A.robotRestreint
+        ? 'Seules les personnes cochées peuvent écrire au robot. Les autres reçoivent un refus et rien n’est enregistré.'
+        : 'Personne n’est coché : tous ceux qui sont dans la conversation branchée peuvent écrire. Cochez une personne et, à partir de là, seules les personnes cochées pourront.',
+      h('ul', { class: 'bz-liste-simple', role: 'list' }, gens.map((g) => h('li', {},
+        interrupteurReglage({
+          cle: `robot-${g.id}`, titre: g.nom || `Compte Telegram ${g.id}`,
+          aide: g.vueLe ? `Dernier message ${dateRelative(g.vueLe)}.` : '',
+          actif: g.autorise, regler: (v) => regler(g.id, v),
+        })))),
+      gens.length >= (A.personnesMax ?? 60) ? h('p', { class: 'bz-t-micro bz-texte-2', texte: 'Seules les dernières personnes vues sont gardées dans cette liste.' }) : null);
+  };
+
   // ---- rappels d’entretien chez le client : prévenir l’entreprise, jamais le client
   const sectionEntretien = () => {
     const possibles = A.entretiensPossibles ?? [];
@@ -7040,6 +7070,7 @@ async function rendreAlertes() {
       sectionQuand(),
       sectionLien(),
       sectionGeste(),
+      sectionPersonnes(),
       sectionEntretien());
   };
   rendre();
