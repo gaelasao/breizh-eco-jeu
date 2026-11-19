@@ -11107,6 +11107,14 @@ async function rendreVehicule(id) {
       ontoggle: (ev) => { if (ev.currentTarget.open) E.replisOuverts.add('veh-aremplir'); else E.replisOuverts.delete('veh-aremplir'); } },
       h('summary', {}, h('span', { class: 'bz-repli__titre', texte: 'À renseigner quand vous voulez' }), h('span', { class: 'bz-repli__note', texte: pluriel(f.aRemplir.length, 'échéance', 'échéances') }), icone('chevron-down', { taille: 'sm' })),
       h('div', { class: 'bz-repli__corps' }, h('ol', { class: 'bz-priorites' }, f.aRemplir.map(ligneEcheance)))) : null,
+    /* INDEMNITÉS KILOMÉTRIQUES : seulement quand l'univers déclare la puissance fiscale et les kilomètres
+       professionnels (aujourd'hui les prestataires de service). Ailleurs, la section n'existe pas — plutôt que
+       d'afficher un encadré vide invitant à remplir des champs qui n'existent pas dans ce métier. */
+    f.indemnite ? h('section', { class: 'bz-pile', 'aria-labelledby': 'veh-ik' },
+      h('h2', { class: 'bz-t-titre-4', id: 'veh-ik', texte: 'Indemnités kilométriques' }),
+      h('p', { class: 'bz-t-titre-3', texte: euros(f.indemnite.montant) }),
+      h('p', { class: 'bz-t-petit bz-texte-2', texte: f.texteIndemnite }),
+      h('p', { class: 'bz-t-micro bz-texte-2', texte: 'Estimation au barème forfaitaire de l’administration : elle couvre l’usure, l’entretien, les pneus, le carburant et l’assurance. Les péages, le stationnement et les intérêts d’emprunt se déduisent en plus, sur justificatifs. À vérifier avant toute déclaration.' })) : null,
     h('section', { class: 'bz-pile', 'aria-labelledby': 'veh-historique' },
       h('h2', { class: 'bz-t-titre-4', id: 'veh-historique', texte: 'Ce qui a été fait' }),
       h('p', { class: 'bz-t-petit bz-texte-2', texte: f.texteTotal }),

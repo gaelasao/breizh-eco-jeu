@@ -181,6 +181,12 @@ export function planFiche(v, m) {
     texteTotal: suivi.totalAnnee === null
       ? `Aucun coût saisi en ${suivi.annee}.`
       : `${euros(suivi.totalAnnee)} en ${suivi.annee}, sur ${pluriel(suivi.historique.filter((l) => l.cout !== null && String(l.faitLe ?? '').startsWith(`${suivi.annee}-`)).length, 'ligne', 'lignes')}.`,
+    /* Indemnités kilométriques : déjà calculées par la passerelle, au barème de l'année, avec la formule en clair.
+       L'écran ne recalcule rien et n'arrondit rien — il dit le montant, d'où il sort, et que ça reste à justifier. */
+    indemnite: suivi.indemnite,
+    texteIndemnite: suivi.indemnite
+      ? `${euros(suivi.indemnite.montant)} au barème ${suivi.indemnite.annee} (${suivi.indemnite.cv} CV) : ${suivi.indemnite.formule}.`
+      : '',
   };
 }
 

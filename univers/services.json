@@ -5,6 +5,14 @@
   "herite": "generique",
   "types": [
     { "id": "projet", "libelle": "Mission", "pluriel": "Missions", "genre": "f" },
+    {
+      "id": "vehicule",
+      "champs": [
+        { "id": "puissance_cv", "libelle": "Puissance fiscale", "type": "nombre", "unite": "CV" },
+        { "id": "energie", "libelle": "Énergie", "type": "choix", "choix": ["thermique", "hybride", "hydrogène", "électrique"] },
+        { "id": "km_professionnels", "libelle": "Kilomètres professionnels de l’année", "type": "nombre", "unite": "km" }
+      ]
+    },
     { "id": "commande_client", "libelle": "Prestation vendue", "pluriel": "Prestations vendues", "genre": "f" },
     { "id": "article", "masque": true },
     { "id": "entrepot", "masque": true },

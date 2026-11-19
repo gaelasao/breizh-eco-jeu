@@ -10,6 +10,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { RegistreActions, transition, type CommandeAction, type Executeur } from '../core/actions.ts';
 import { etatChantier, phraseChantier, type EtatChantier } from '../core/chantier.ts';
+import { indemniteKilometrique, type Indemnite } from '../core/kilometres.ts';
 import { indicateursDepuisRegles, type DetailCouverture } from '../core/indicateurs.ts';
 import { fraicheur, type Fraicheur, type ObjetMetier, type ValeurChamp } from '../core/model.ts';
 import { majQuetes, type Quete } from '../core/quetes.ts';
@@ -234,6 +235,12 @@ export interface VueVehicule {
   historique: LigneEntretien[];
   annee: number;
   totalAnnee: number | null;
+  /**
+   * Indemnités kilométriques de l'année au barème forfaitaire, quand l'univers déclare de quoi les calculer
+   * (puissance fiscale et kilomètres professionnels). `null` partout ailleurs : un indépendant qui n'a pas
+   * renseigné la carte grise ne doit pas lire un montant.
+   */
+  indemnite: Indemnite | null;
 }
 
 const ID_SUR = /^[A-Za-z0-9_-]{1,80}$/;
@@ -515,6 +522,7 @@ export class Monde {
       historique,
       annee,
       totalAnnee: totalAnnee(historique, annee),
+      indemnite: indemniteKilometrique(v.champs.km_professionnels, v.champs.puissance_cv, v.champs.energie === 'électrique'),
     };
   }
 
