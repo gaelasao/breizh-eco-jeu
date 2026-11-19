@@ -1396,6 +1396,14 @@
   ],
   "echeances": [
     {
+      "id": "relance_demande",
+      "libelle": "Demande à rappeler",
+      "type": "demande",
+      "champ": "relance_le",
+      "termine": { "champ": "statut", "valeurs": ["gagnée", "perdue"] },
+      "critiqueApresJours": 7
+    },
+    {
       "id": "tache_en_retard",
       "libelle": "Tâche",
       "type": "tache",
