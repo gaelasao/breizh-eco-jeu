@@ -61,6 +61,26 @@ import type { Chiffreur } from './stockage.ts';
 
 export type Canal = 'telegram' | 'whatsapp' | 'webhook';
 
+/**
+ * QUI A ÉCRIT. Telegram donne le prénom et parfois le pseudo de l'expéditeur. On le transmet pour que le journal
+ * dise qui a sorti trois panneaux — pas pour lui donner des droits : la conversation branchée est la seule porte,
+ * et tout ce qui y est écrit vaut pour l'entreprise. Autoriser les gens un par un est un autre sujet, et il
+ * demandera son propre écran.
+ */
+export interface Expediteur {
+  /** Identifiant Telegram, stable : utile au journal, jamais montré tel quel. */
+  id: string;
+  /** Prénom ou pseudo, tel que Telegram le donne. Vide si la personne n'en expose aucun. */
+  nom: string;
+}
+
+/** Ce que le robot répond : un texte, et parfois des boutons à presser plutôt qu'un nom à retaper. */
+export interface ReponseRobot {
+  texte: string;
+  /** `donnee` revient telle quelle quand le bouton est pressé ; Telegram la borne à 64 octets. */
+  boutons?: ReadonlyArray<{ texte: string; donnee: string }>;
+}
+
 /** Version de l'API Graph utilisée pour WhatsApp (la plus récente servie par Meta au moment de l'écriture). */
 export const VERSION_WHATSAPP = 'v27.0';
 const TELEGRAM = 'https://api.telegram.org';
@@ -249,7 +269,12 @@ export interface SourcesAlertes {
    * premier jour). Quand un message arrive de la conversation branchée, il le passe ici et renvoie la réponse que
    * cette fonction rend. Les fiches créées, les droits, le journal : tout cela se passe de l'autre côté.
    */
-  surMessage?: (texte: string) => Promise<string>;
+  surMessage?: (texte: string, expediteur: Expediteur) => Promise<ReponseRobot>;
+  /**
+   * Un bouton pressé dans une réponse du robot (choisir l'article d'un mouvement de stock). Même règle : ce module
+   * transmet, il n'interprète rien.
+   */
+  surBouton?: (donnee: string, expediteur: Expediteur) => Promise<ReponseRobot>;
 }
 
 const ID = /^al-[a-f0-9]{12}$/;
@@ -807,14 +832,14 @@ export class Alertes {
    * redémarre entre-temps. Telegram efface de lui-même ce qu'on a confirmé avoir lu.
    */
   async #ecouter(): Promise<void> {
-    if (!this.#src.surMessage) return;
+    if (!this.#src.surMessage && !this.#src.surBouton) return;
     for (const c of this.#etat.canaux) {
       if (c.canal !== 'telegram' || !c.actif) continue;
       let prive: PriveTelegram;
       try { prive = JSON.parse(this.#chiffreur.dechiffrer(c.prive)) as PriveTelegram; } catch { continue; }
       if (!prive?.jeton || !prive.conversation) continue;
       const r = await this.#telegramAppel(prive.jeton, 'getUpdates', {
-        limit: 20, timeout: 0, allowed_updates: ['message'], ...(c.luJusqua ? { offset: c.luJusqua + 1 } : {}),
+        limit: 20, timeout: 0, allowed_updates: ['message', 'callback_query'], ...(c.luJusqua ? { offset: c.luJusqua + 1 } : {}),
       });
       if (!r.ok) return; // robot pris par un webhook, jeton révoqué… : l'envoi dira déjà pourquoi, on n'insiste pas
       const lots = Array.isArray(r.resultat) ? r.resultat : [];
@@ -825,14 +850,37 @@ export class Alertes {
         const deja = c.luJusqua !== undefined && u.update_id <= c.luJusqua;
         c.luJusqua = Math.max(c.luJusqua ?? 0, u.update_id);
         if (deja) continue;
-        const m = estObj(u.message) ? u.message : null;
+        /*
+         * DEUX SORTES DE NOUVELLES : un message écrit, et un bouton pressé. Le bouton sert à CHOISIR plutôt qu'à
+         * retaper — l'article d'un mouvement de stock, sur un quai, à une main. Telegram veut qu'on accuse
+         * réception d'un bouton (`answerCallbackQuery`), faute de quoi il tourne indéfiniment sur le téléphone.
+         */
+        const clic = estObj(u.callback_query) ? u.callback_query : null;
+        const m = estObj(u.message) ? u.message : (clic && estObj(clic.message) ? clic.message : null);
         const chat = m && estObj(m.chat) ? m.chat : null;
-        const texte = m && typeof m.text === 'string' ? m.text : '';
+        const brut = clic ? clic.data : u.message && estObj(u.message) ? u.message.text : null;
+        const texte = typeof brut === 'string' ? brut : '';
         // la conversation branchée, et elle seule
         if (!chat || String(chat.id) !== String(prive.conversation) || !texte.trim()) continue;
-        let reponse = '';
-        try { reponse = await this.#src.surMessage(texte); } catch (e) { reponse = e instanceof Error ? e.message : 'Je n’ai pas pu le faire.'; }
-        if (reponse) await this.#telegramAppel(prive.jeton, 'sendMessage', { chat_id: prive.conversation, text: reponse.slice(0, 4096), link_preview_options: { is_disabled: true } });
+        const de = estObj(clic?.from) ? clic.from : (m && estObj(m.from) ? m.from : null);
+        const expediteur: Expediteur = {
+          id: de && (typeof de.id === 'number' || typeof de.id === 'string') ? String(de.id) : '',
+          nom: uneLigne(String(de?.first_name ?? de?.username ?? '')).slice(0, 60),
+        };
+        if (clic && typeof clic.id === 'string') {
+          await this.#telegramAppel(prive.jeton, 'answerCallbackQuery', { callback_query_id: clic.id });
+        }
+        let reponse: ReponseRobot = { texte: '' };
+        try {
+          const f = clic ? this.#src.surBouton : this.#src.surMessage;
+          reponse = f ? await f(texte, expediteur) : { texte: '' };
+        } catch (e) { reponse = { texte: e instanceof Error ? e.message : 'Je n’ai pas pu le faire.' }; }
+        if (reponse.texte) {
+          const clavier = reponse.boutons?.length
+            ? { reply_markup: { inline_keyboard: reponse.boutons.slice(0, 12).map((b) => [{ text: b.texte.slice(0, 64), callback_data: b.donnee.slice(0, 64) }]) } }
+            : {};
+          await this.#telegramAppel(prive.jeton, 'sendMessage', { chat_id: prive.conversation, text: reponse.texte.slice(0, 4096), link_preview_options: { is_disabled: true }, ...clavier });
+        }
       }
       if (lots.length) this.#changement();
     }

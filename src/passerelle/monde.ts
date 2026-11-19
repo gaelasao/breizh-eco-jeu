@@ -1701,6 +1701,30 @@ export class Monde {
     return o.id;
   }
 
+  /**
+   * UN MOUVEMENT DE STOCK AU NOM D'UN ACTEUR TECHNIQUE (le robot Telegram). Les mêmes garde-fous que le mouvement
+   * fait à l'écran, et pour les mêmes raisons : une valeur de départ inconnue ne se complète pas par zéro, et un
+   * résultat négatif est refusé — du stock qui passe sous zéro, c'est une erreur de saisie, jamais un fait.
+   *
+   * Rend l'avant et l'après, pour que celui qui a écrit au robot sache ce qu'il reste sans rouvrir l'ordinateur.
+   */
+  mouvementSysteme(acteur: string, id: string, champ: string, delta: number, source: { id: string; libelle: string }): { avant: number; apres: number } {
+    const o = this.#reel.objets.get(id);
+    if (!o) throw new ErreurApi(404, 'introuvable');
+    const avant = o.champs[champ];
+    if (typeof avant !== 'number') throw new ErreurApi(409, 'valeur_inconnue', `La quantité actuelle de ${o.nom} n’est pas connue : à renseigner dans Living Business avant de bouger du stock.`);
+    const apres = Math.round((avant + delta) * 1e6) / 1e6;
+    if (apres < 0) throw new ErreurApi(409, 'resultat_negatif', `Refusé : il n’y a que ${avant} en stock.`);
+    const maintenant = this.#o.maintenant().toISOString();
+    this.#reel.objets.set(o.id, {
+      ...o, champs: { ...o.champs, [champ]: apres }, majLe: maintenant, provenance: 'confirme',
+      source: { ...source, derniereSynchro: maintenant },
+    });
+    this.#tracer({ ...SYSTEME, id: acteur }, this.#reel, 'mouvement', o.id, `${o.nom} : ${avant} → ${apres}`);
+    this.#recalculerQuetes();
+    return { avant, apres };
+  }
+
   /** Retire des objets réels au nom d'un acteur technique (données rendues anonymes) : le journal ne garde que le nombre. */
   retirerObjetsSysteme(acteur: string, ids: readonly string[], motif: string): number {
     let n = 0;

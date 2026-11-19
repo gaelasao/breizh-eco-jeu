@@ -1024,7 +1024,7 @@ test('supprimer un canal arrête tout de suite les envois', async () => {
 test('ce qu’on écrit au robot : seule la conversation branchée est écoutée, et la réponse part', async () => {
   const x = alertes();
   const recus: string[] = [];
-  const a = new Alertes({ ...x.src, surMessage: async (t) => { recus.push(t); return `reçu : ${t}`; } }, chiffreurEphemere(), { fetch: x.f });
+  const a = new Alertes({ ...x.src, surMessage: async (t) => { recus.push(t); return { texte: `reçu : ${t}` }; } }, chiffreurEphemere(), { fetch: x.f });
   const r = await a.robotTelegram(ADMIN, { jeton: JETON });
   await a.conversationTelegram(ADMIN, { ref: r.ref });
   a.ajouterCanal(ADMIN, { canal: 'telegram', ref: r.ref });
@@ -1043,7 +1043,7 @@ test('ce qu’on écrit au robot : seule la conversation branchée est écoutée
   await a.passer();
   // `deepEqual(recus, [])` ramènerait le type de `recus` à celui du tableau vide : on compte, on ne compare pas
   assert.equal(recus.length, 0);
-  const relu = new Alertes({ ...x.src, surMessage: async (t) => { recus.push(t); return ''; } }, chiffreurEphemere(), { fetch: x.f, etat: a.instantane() });
+  const relu = new Alertes({ ...x.src, surMessage: async (t) => { recus.push(t); return { texte: '' }; } }, chiffreurEphemere(), { fetch: x.f, etat: a.instantane() });
   await relu.passer();
   assert.equal(recus.length, 0, 'la position de lecture survit au redémarrage');
 });

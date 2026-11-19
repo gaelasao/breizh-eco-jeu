@@ -6856,6 +6856,10 @@ async function rendreAlertes() {
         T.message ? messageEnLigne('attention', T.message) : null) : null,
       T.etape >= 3 ? etape(3, 'C’est prêt',
         messageEnLigne('ok', `Conversation trouvée : ${T.conversation}.`),
+        /* QUI PEUT ÉCRIRE : dit ici, et pas seulement dans une page d'aide. C'est la conversation qui fait foi,
+           pas la personne — quelqu'un doit le savoir AVANT d'ajouter le robot à un groupe de quinze. */
+        h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Qui pourra écrire au robot : tous ceux qui sont dans cette conversation. Pour votre équipe, créez un groupe Telegram, ajoutez-y le robot, et branchez ce groupe plutôt qu’une conversation privée — chacun pourra y écrire « sortie 3 » depuis le chantier et choisir l’article dans la liste.' }),
+        h('p', { class: 'bz-t-micro bz-texte-2', texte: 'Living Business note le prénom de celui qui écrit, mais ne vérifie pas qui il est : n’ajoutez à ce groupe que des personnes de l’entreprise.' }),
         h('div', { class: 'bz-groupe-boutons' }, bouton('tg-brancher', 'bz-bouton--principal', 'send', 'Brancher et m’envoyer un message d’essai', () => agirBrancher({ canal: 'telegram', ref: T.ref })))) : null);
   };
   const agirTelegram1 = () => agirSansRecharger(async () => {

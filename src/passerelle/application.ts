@@ -6,7 +6,8 @@
  * Rien n'est envoyé à l'éditeur ; seule la couche Breizhcosystem (optionnelle, payante) échange avec l'extérieur.
  */
 import { randomBytes } from 'node:crypto';
-import { Alertes, type EtatAlertes } from './alertes.ts';
+import type { ObjetMetier } from '../core/model.ts';
+import { Alertes, type EtatAlertes, type Expediteur, type ReponseRobot } from './alertes.ts';
 import { Automatisations, type EtatAutomatisations } from './automatisations.ts';
 import { adresseNexus } from './bureau.ts';
 import { Cles, type EtatCles } from './cles.ts';
@@ -184,6 +185,12 @@ export class Application {
   #majs: EtatMisesAJour;
   #santeAJour = false;
   #fetch: Recuperateur | undefined;
+  /**
+   * Mouvements de stock en attente du choix de l'article (le temps que la personne presse un bouton). En mémoire
+   * seulement, dix minutes, vingt au plus : un mouvement qu'on n'a pas confirmé dans la minute ne doit pas partir
+   * tout seul une heure après, quand le stock a changé.
+   */
+  #stockEnAttente = new Map<string, { sens: 'entree' | 'sortie'; quantite: number; articleId: string; champ: string; expire: number }>();
   #ecouteurs = new Set<(s: SignalTempsReel) => void>();
   #minuteries: NodeJS.Timeout[] = [];
 
@@ -257,7 +264,8 @@ export class Application {
       // le bon de livraison contre la commande : comparé une seule fois, dans le monde (core/reception.ts)
       reception: (id) => monde.rapprochement(id),
       // ce qu'on écrit au robot : `alertes.ts` tient le canal, ici on agit dans le monde et on rend la réponse
-      surMessage: (texte) => Promise.resolve(this.#repondreAuRobot(texte)),
+      surMessage: (texte, de) => Promise.resolve(this.repondreAuRobot(texte, de)),
+      surBouton: (donnee, de) => Promise.resolve(this.boutonDuRobot(donnee, de)),
     }, this.#chiffreur, { etat: etat?.alertes ?? null, changement, ...(f ? { fetch: f } : {}) });
     // moteur de suivi : il lit le monde et les droits déjà confirmés, écrit des rendez-vous et des tâches dans le
     // monde privé (que les connecteurs branchés emmènent ensuite), et ne dit JAMAIS à `alertes.ts` quoi faire —
@@ -311,27 +319,133 @@ export class Application {
    * n'écrit rien et reçoit la liste de ce que le robot sait faire. Chaque fiche créée porte « Telegram » comme
    * source et passe au journal sous le nom du canal : on sait toujours d'où elle vient.
    */
-  #repondreAuRobot(texte: string): string {
+  /**
+   * LES ARTICLES SUR LESQUELS UN MOUVEMENT A UN SENS : ceux dont une règle de l'univers suit la quantité. On ne
+   * devine pas « tout ce qui ressemble à du stock » — c'est l'univers du métier qui dit ce qui se compte, et quel
+   * champ se compte.
+   *
+   * LA FAMILLE « RESSOURCE », ET ELLE SEULE. Le drapeau « mouvement » de l'univers couvre aussi l'encours d'un
+   * client : à l'écran c'est juste (on encaisse, l'encours baisse), mais dans une messagerie « sortie 3 » offrait
+   * la liste des clients à côté de celle des matériaux, et une pression de travers sur un quai aurait retranché 3
+   * de l'encours d'une boulangerie. Le geste du quai ne touche qu'au stock.
+   */
+  #articlesMobiles(): Array<{ o: ObjetMetier; champ: string }> {
+    const regles = this.monde.univers.regles.filter((r) => r.mouvement);
+    if (!regles.length) return [];
+    const res: Array<{ o: ObjetMetier; champ: string }> = [];
+    for (const o of this.monde.objetsReels()) {
+      if (o.famille !== 'ressource') continue;
+      const r = regles.find((x) => x.type === o.type);
+      if (r && typeof o.champs[r.champ] === 'number') res.push({ o, champ: r.champ });
+    }
+    return res;
+  }
+
+  /**
+   * CE QU'ON PROPOSE, ET DANS QUEL ORDRE. Ce que la personne a tapé n'est qu'un filtre : ce qui commence par ces
+   * lettres d'abord, ce qui les contient ensuite. Huit au plus — une liste de quarante boutons sur un téléphone
+   * tenu à une main ne se lit pas, et on finit par presser le mauvais.
+   */
+  #articlesProposes(filtre: string | null): Array<{ o: ObjetMetier; champ: string }> {
+    const tous = this.#articlesMobiles();
+    const f = filtre ? sansAccentSimple(filtre) : '';
+    const notes = tous
+      .map((x) => {
+        const n = sansAccentSimple(x.o.nom);
+        return { x, note: !f ? 0 : n.startsWith(f) ? 2 : n.includes(f) ? 1 : -1 };
+      })
+      .filter((y) => y.note >= 0)
+      .sort((a, b) => b.note - a.note || a.x.o.nom.localeCompare(b.x.o.nom, 'fr'));
+    return notes.slice(0, 8).map((y) => y.x);
+  }
+
+  /** Nettoie les choix périmés, puis en retient un nouveau. Vingt au plus : au-delà, on jette les plus anciens. */
+  #retenirStock(v: { sens: 'entree' | 'sortie'; quantite: number; articleId: string; champ: string }): string {
+    const maintenant = Date.now();
+    for (const [k, x] of this.#stockEnAttente) if (x.expire < maintenant) this.#stockEnAttente.delete(k);
+    while (this.#stockEnAttente.size >= 20) {
+      const vieux = this.#stockEnAttente.keys().next().value;
+      if (vieux === undefined) break;
+      this.#stockEnAttente.delete(vieux);
+    }
+    const id = randomBytes(6).toString('hex');
+    this.#stockEnAttente.set(id, { ...v, expire: maintenant + 10 * 60_000 });
+    return id;
+  }
+
+  /**
+   * UN BOUTON PRESSÉ : le mouvement part pour de bon.
+   *
+   * PUBLIC, comme `repondreAuRobot`. Ce sont les deux portes par lesquelles une messagerie agit sur le monde ; le
+   * transport (Telegram, et demain autre chose) est ailleurs, et n'a pas à être rejoué pour vérifier ce qui se
+   * passe ici. C'est le seul endroit où le stock bouge depuis la
+   * messagerie, et c'est voulu : la quantité se tape, l'article se CHOISIT, et rien ne part avant ce choix.
+   */
+  boutonDuRobot(donnee: string, de: Expediteur): ReponseRobot {
+    const m = /^st:([0-9a-f]{12})$/.exec(donnee);
+    if (!m) return { texte: 'Ce bouton ne me dit plus rien.' };
+    const att = this.#stockEnAttente.get(m[1] as string);
+    if (!att || att.expire < Date.now()) {
+      this.#stockEnAttente.delete(m[1] as string);
+      return { texte: 'Ce mouvement a attendu trop longtemps : récrivez-le, le stock a pu changer entre-temps.' };
+    }
+    this.#stockEnAttente.delete(m[1] as string);
+    const article = this.monde.objetsReels().find((o) => o.id === att.articleId);
+    if (!article) return { texte: 'Cet article n’existe plus dans Living Business.' };
+    const delta = att.sens === 'sortie' ? -att.quantite : att.quantite;
+    const qui = de.nom ? ` (${de.nom})` : '';
+    try {
+      const r = this.monde.mouvementSysteme('telegram', article.id, att.champ, delta,
+        { id: 'telegram', libelle: `Telegram${qui}` });
+      return { texte: `${att.sens === 'sortie' ? 'Sorti' : 'Entré'} ${att.quantite} ${article.nom}. Il reste ${r.apres}.` };
+    } catch (e) {
+      return { texte: e instanceof ErreurApi ? e.message : 'Je n’ai pas pu enregistrer ce mouvement.' };
+    }
+  }
+
+  repondreAuRobot(texte: string, de: Expediteur): ReponseRobot {
     const intention = comprendre(texte, this.monde.maintenant());
-    const source = { id: 'telegram', libelle: 'Telegram' };
-    if (intention.genre === 'aide') return AIDE_TEXTE;
+    const qui = de.nom ? ` (${de.nom})` : '';
+    // qui a écrit figure dans la source : le journal doit pouvoir dire qui a sorti trois panneaux
+    const source = { id: 'telegram', libelle: `Telegram${qui}` };
+    if (intention.genre === 'aide') return { texte: AIDE_TEXTE };
+
+    /*
+     * UN MOUVEMENT DE STOCK NE PART JAMAIS SUR UN NOM TAPÉ. On répond par la liste des articles, et c'est le
+     * bouton pressé qui déclenche le mouvement. Un « panno » mal orthographié ne doit pas pouvoir vider la mauvaise
+     * ligne de stock : au pire la liste est vide, et on le dit.
+     */
+    if (intention.genre === 'stock') {
+      const choix = this.#articlesProposes(intention.article);
+      if (!choix.length) {
+        const total = this.#articlesMobiles().length;
+        if (!total) return { texte: 'Cet univers ne suit aucun stock : je ne sais pas où ranger ce mouvement.' };
+        return { texte: intention.article ? `Aucun article ne correspond à « ${intention.article} ».` : 'Aucun article à bouger.' };
+      }
+      const verbe = intention.sens === 'sortie' ? 'Sortir' : 'Entrer';
+      const boutons = choix.map((c) => ({
+        texte: `${c.o.nom} (${c.o.champs[c.champ]})`,
+        donnee: `st:${this.#retenirStock({ sens: intention.sens, quantite: intention.quantite, articleId: c.o.id, champ: c.champ })}`,
+      }));
+      return { texte: `${verbe} ${intention.quantite} de quoi ?`, boutons };
+    }
     if (intention.genre === 'resume') {
       const sits = this.monde.situationsReelles().filter((x) => x.statut === 'ouverte');
-      if (!sits.length) return 'Rien à faire pour le moment. Tout est à jour.';
+      if (!sits.length) return { texte: 'Rien à faire pour le moment. Tout est à jour.' };
       const trois = sits.slice(0, 3).map((x) => `• ${lisible(x.description)}`);
-      return [`${pluriel(sits.length, 'chose à faire', 'choses à faire')} :`, ...trois, sits.length > 3 ? `…et ${sits.length - 3} de plus dans Living Business.` : ''].filter(Boolean).join('\n');
+      return { texte: [`${pluriel(sits.length, 'chose à faire', 'choses à faire')} :`, ...trois, sits.length > 3 ? `…et ${sits.length - 3} de plus dans Living Business.` : ''].filter(Boolean).join('\n') };
     }
     if (intention.genre === 'tache') {
       const type = this.monde.univers.types.find((t) => t.famille === 'tache');
-      if (!type) return 'Cet univers n’a pas de tâches : je ne sais pas où la ranger.';
+      if (!type) return { texte: 'Cet univers n’a pas de tâches : je ne sais pas où la ranger.' };
       const champs: Record<string, string> = { statut: 'à faire' };
       if (intention.quand) champs.echeance = intention.quand;
       this.monde.creerObjetSysteme('telegram', type.id, intention.titre, champs, source);
-      return intention.quand ? `C'est noté : « ${intention.titre} », pour le ${jourCourt(intention.quand)}.` : `C'est noté : « ${intention.titre} ».`;
+      return { texte: intention.quand ? `C'est noté : « ${intention.titre} », pour le ${jourCourt(intention.quand)}.` : `C'est noté : « ${intention.titre} ».` };
     }
     // une note : le compte rendu d'un rendez-vous, rattaché au client quand le nom écrit en désigne un seul
     const type = this.monde.univers.types.find((t) => t.id === 'rendez_vous') ?? this.monde.univers.types.find((t) => t.famille === 'evenement');
-    if (!type) return 'Cet univers n’a pas de rendez-vous : je ne sais pas où ranger cette note.';
+    if (!type) return { texte: 'Cet univers n’a pas de rendez-vous : je ne sais pas où ranger cette note.' };
     const cherche = intention.qui ? sansAccentSimple(intention.qui) : '';
     const vus = cherche.length >= 3
       ? this.monde.objetsReels().filter((o) => o.famille === 'tiers' && sansAccentSimple(o.nom).includes(cherche))
@@ -345,9 +459,9 @@ export class Application {
     if (client) champs.avec = client.id;
     const nom = intention.qui ? `Point — ${intention.qui}` : 'Note';
     this.monde.creerObjetSysteme('telegram', type.id, nom, champs, source);
-    if (client) return `C'est rangé dans le suivi de ${client.nom}.`;
-    if (intention.qui && vus.length > 1) return `Plusieurs fiches portent « ${intention.qui} » : la note est enregistrée sans client, à rattacher dans Living Business.`;
-    return intention.qui ? `Je n'ai pas trouvé « ${intention.qui} » : la note est enregistrée, à rattacher dans Living Business.` : 'C\'est noté.';
+    if (client) return { texte: `C'est rangé dans le suivi de ${client.nom}.` };
+    if (intention.qui && vus.length > 1) return { texte: `Plusieurs fiches portent « ${intention.qui} » : la note est enregistrée sans client, à rattacher dans Living Business.` };
+    return { texte: intention.qui ? `Je n'ai pas trouvé « ${intention.qui} » : la note est enregistrée, à rattacher dans Living Business.` : 'C\'est noté.' };
   }
 
   instantane(): EtatApplication {

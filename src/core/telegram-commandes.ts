@@ -21,6 +21,13 @@ export type Intention =
   | { genre: 'resume' }
   | { genre: 'tache'; titre: string; quand: string | null }
   | { genre: 'note'; qui: string | null; texte: string }
+  /**
+   * Un mouvement de stock. La QUANTITÉ et le SENS se tapent ; la DÉNOMINATION se choisit dans une liste, parce
+   * qu'un nom d'article tapé au doigt sur un quai (« panno 19 », « panneau19mm ») ne retrouve rien, et qu'un
+   * mouvement rangé sur le mauvais article est pire qu'un mouvement pas saisi. `article` n'est qu'un filtre pour
+   * raccourcir la liste proposée — jamais une désignation retenue d'office.
+   */
+  | { genre: 'stock'; sens: 'entree' | 'sortie'; quantite: number; article: string | null }
   | { genre: 'aide' };
 
 const sansAccent = (t: string): string => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -37,6 +44,15 @@ const AIDE = /^(aide|help|\/start|\/aide|\/help|comment|quoi faire|tu sais faire
    « à faire », « a faire ») — il attrape large, et c'est sans conséquence sur un début de phrase ancré. */
 const TACHE = /^(?:\/?t.che|\/?todo|. faire|af|note moi|rappelle moi|penser .|pense .|ne pas oublier)\s*(?:de\s+)?[:\-–—]?\s*/i;
 const NOTE = /^(?:\/?note|\/?cr|compte[\s-]?rendu|rdv|rendez[\s-]?vous|vu|appel)\s*[:\-–—]?\s*/i;
+/*
+ * LE STOCK, DANS LES MOTS DU QUAI. On écrit « sortie 3 », « sorti 12 panneaux », « -3 », « entrée 50 vis »,
+ * « +10 ». Le signe compte autant que le mot : sur un téléphone, « -3 » se tape en deux touches, et c'est ce que
+ * les gens font. La quantité peut précéder ou suivre le sens, parce que les deux s'écrivent.
+ */
+const STOCK_MOT = /^(?:\/?stock\s+)?(entree|entrees|entre|rentre|rentree|recu|recus|livre|livraison|sortie|sorties|sorti|sortis|sort|pris|prise|consomme|utilise)\b\s*/;
+const STOCK_SIGNE = /^([+-])\s*(\d{1,6}(?:[.,]\d{1,3})?)\s*/;
+const SORTIE = /^(sortie|sorties|sorti|sortis|sort|pris|prise|consomme|utilise)/;
+const QUANTITE = /(?:^|\s)(\d{1,6}(?:[.,]\d{1,3})?)(?:\s|$)/;
 
 /** Jours et repères de temps qu'on écrit vraiment dans un message. Rien de plus : une date mal devinée est pire. */
 const QUAND = [
@@ -93,6 +109,14 @@ export function comprendre(brut: unknown, aujourdhui = new Date()): Intention {
   if (AIDE.test(t)) return { genre: 'aide' };
   if (DEMANDER.test(t)) return { genre: 'resume' };
 
+  /*
+   * LE STOCK PASSE AVANT LA TÂCHE. « sorti 3 panneaux » est un mouvement, pas une chose à faire : sans cette
+   * priorité, la phrase tomberait dans le filet des tâches (deux mots, cinq caractères) et créerait une tâche
+   * intitulée « sorti 3 panneaux », que personne ne fermerait jamais.
+   */
+  const stock = stockDuTexte(phrase, t);
+  if (stock) return stock;
+
   const note = NOTE.exec(phrase);
   if (note) {
     const reste = propre(phrase.slice(note[0].length));
@@ -113,10 +137,36 @@ export function comprendre(brut: unknown, aujourdhui = new Date()): Intention {
   return { genre: 'aide' };
 }
 
+/**
+ * UN MOUVEMENT DE STOCK, S'IL Y EN A UN. Deux écritures : le mot (« sortie 3 panneaux ») et le signe (« -3 »).
+ * Sans quantité, rien : « sortie » tout court ne dit pas combien, et deviner 1 ferait disparaître du stock sur un
+ * message incomplet. Le reste de la phrase est rendu tel quel comme FILTRE de la liste, jamais comme désignation.
+ */
+function stockDuTexte(phrase: string, sansAccents: string): Intention | null {
+  const signe = STOCK_SIGNE.exec(sansAccents);
+  if (signe) {
+    const q = Number(String(signe[2]).replace(',', '.'));
+    if (!Number.isFinite(q) || q <= 0) return null;
+    const reste = propre(phrase.slice(signe[0].length));
+    return { genre: 'stock', sens: signe[1] === '-' ? 'sortie' : 'entree', quantite: q, article: reste || null };
+  }
+  const mot = STOCK_MOT.exec(sansAccents);
+  if (!mot) return null;
+  const reste = propre(phrase.slice(mot[0].length));
+  const q = QUANTITE.exec(` ${reste} `);
+  if (!q) return null;
+  const quantite = Number(String(q[1]).replace(',', '.'));
+  if (!Number.isFinite(quantite) || quantite <= 0) return null;
+  // ce qui entoure le nombre sert à raccourcir la liste ; le nombre lui-même n'en fait pas partie
+  const article = propre(reste.replace(q[1] as string, ' ')) || null;
+  return { genre: 'stock', sens: SORTIE.test(mot[1] as string) ? 'sortie' : 'entree', quantite, article };
+}
+
 /** Ce que le robot répond quand il n'a pas compris : ce qu'il sait faire, en trois lignes et dans les mots des gens. */
 export const AIDE_TEXTE = [
   'Je sais faire trois choses :',
   '• « ? » — ce qu’il y a à faire aujourd’hui.',
   '• « rappeler Dupont lundi » — je le note en tâche, avec sa date.',
   '• « note Boulangerie : ils veulent un devis » — je le range dans le suivi du client.',
+  '• « sortie 3 » ou « -3 » — un mouvement de stock, et vous choisissez l’article dans la liste.',
 ].join('\n');

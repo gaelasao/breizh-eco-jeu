@@ -70,3 +70,44 @@ test('un pavé collé n’est pas une consigne : il est borné, jamais refusé',
   assert.equal(r.genre, 'tache');
   assert.ok(r.genre === 'tache' && r.titre.length <= MAX);
 });
+
+test('le stock dans les mots du quai : le mot ou le signe, et toujours une quantité', () => {
+  /* Sur un téléphone, « -3 » se tape en deux touches : c'est ce que les gens écrivent, et ça doit marcher. */
+  assert.deepEqual(comprendre('sortie 3'), { genre: 'stock', sens: 'sortie', quantite: 3, article: null });
+  assert.deepEqual(comprendre('-3'), { genre: 'stock', sens: 'sortie', quantite: 3, article: null });
+  assert.deepEqual(comprendre('+10'), { genre: 'stock', sens: 'entree', quantite: 10, article: null });
+  assert.deepEqual(comprendre('entrée 50 vis'), { genre: 'stock', sens: 'entree', quantite: 50, article: 'vis' });
+  assert.deepEqual(comprendre('sorti 12 panneaux'), { genre: 'stock', sens: 'sortie', quantite: 12, article: 'panneaux' });
+  assert.deepEqual(comprendre('reçu 2 palettes'), { genre: 'stock', sens: 'entree', quantite: 2, article: 'palettes' });
+  assert.deepEqual(comprendre('-2,5 ciment'), { genre: 'stock', sens: 'sortie', quantite: 2.5, article: 'ciment' });
+  assert.equal(comprendre('stock sortie 4').genre, 'stock');
+});
+
+test('sans quantité, aucun mouvement : on ne devine jamais « un »', () => {
+  /* Deviner 1 ferait disparaître du stock sur un message incomplet, et personne ne s'en apercevrait avant
+     l'inventaire. « sortie » tout court redevient donc ce qu'elle est : une phrase comme une autre. */
+  assert.notEqual(comprendre('sortie').genre, 'stock');
+  assert.notEqual(comprendre('sortie de panneaux').genre, 'stock');
+  assert.notEqual(comprendre('-0').genre, 'stock');
+  assert.notEqual(comprendre('- ').genre, 'stock');
+});
+
+test('un mouvement n’est jamais pris pour une tâche', () => {
+  /* Sans cette priorité, « sorti 3 panneaux » tombait dans le filet des tâches (deux mots, cinq caractères) et
+     créait une tâche que personne ne fermerait jamais. */
+  for (const phrase of ['sorti 3 panneaux', 'entrée 50 vis', '-3 câble']) {
+    assert.equal(comprendre(phrase).genre, 'stock', phrase);
+  }
+  // mais une phrase qui parle d'autre chose reste une tâche, même avec un nombre dedans
+  assert.equal(comprendre('rappeler Dupont au 3e étage').genre, 'tache');
+});
+
+test('le nom tapé n’est qu’un filtre, jamais une désignation retenue', () => {
+  /* C'est la règle qui compte : un mouvement rangé sur le mauvais article est pire qu'un mouvement pas saisi.
+     Ce que la personne tape raccourcit la liste ; c'est elle qui choisit ensuite dans la liste. */
+  const r = comprendre('sortie 3 panno');
+  assert.equal(r.genre, 'stock');
+  assert.equal(r.genre === 'stock' ? r.article : '', 'panno');
+  assert.equal(comprendre('aide').genre, 'aide');
+  assert.match(AIDE_TEXTE, /vous choisissez l’article dans la liste/);
+});
