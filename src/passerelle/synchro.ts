@@ -209,6 +209,8 @@ export const LIBELLES_CHOIX: Readonly<Record<string, string>> = {
   aFaire: 'Seulement ce qu’il reste à faire', tout: 'Aussi les tâches déjà terminées',
   // courrier : combien de messages récents montrer, et ce qu'un courrier « traité » déclenche dans la boîte
   messages25: 'Les 25 derniers messages', messages50: 'Les 50 derniers messages', messages100: 'Les 100 derniers messages',
+  // Drive : combien de fichiers déposés la liste montre
+  fichiers25: 'Les 25 derniers fichiers déposés', fichiers50: 'Les 50 derniers fichiers déposés', fichiers100: 'Les 100 derniers fichiers déposés',
   rien: 'Ne rien faire dans la boîte', lu: 'Marquer le message comme lu', archiver: 'Marquer comme lu, puis archiver',
 };
 

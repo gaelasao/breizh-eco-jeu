@@ -15,13 +15,14 @@ import { agendagoogle, agendamicrosoft } from './sources-agenda.ts';
 import { agendaapple } from './sources-caldav.ts';
 import { gmail, outlook } from './sources-courrier.ts';
 import { googledocs } from './sources-docs.ts';
+import { googledrive } from './sources-drive.ts';
 import { tachesgoogle, tachesmicrosoft } from './sources-taches.ts';
 import { lignesVersEnregistrements, sansFormule } from './tableau.ts';
 import { odoo, pennylane, pipedrive, qonto, shopify } from './sources-metier.ts';
 import { axonaut, prestashop, sellsy, stripe, woocommerce } from './sources-metier-2.ts';
 import { appeler, ErreurReglage, ErreurSortante, lireTexteBorne, verifierUrl, type Recuperateur } from './sortant.ts';
 
-export type TypeSource = 'airtable' | 'notion' | 'hubspot' | 'pennylane' | 'qonto' | 'odoo' | 'pipedrive' | 'shopify' | 'axonaut' | 'stripe' | 'woocommerce' | 'prestashop' | 'sellsy' | 'sheets' | 'excel365' | 'dynamics365' | 'businesscentral' | 'agendagoogle' | 'agendamicrosoft' | 'agendaapple' | 'tachesgoogle' | 'tachesmicrosoft' | 'gmail' | 'outlook' | 'googledocs' | 'webhook' | 'rest' | 'mcp';
+export type TypeSource = 'airtable' | 'notion' | 'hubspot' | 'pennylane' | 'qonto' | 'odoo' | 'pipedrive' | 'shopify' | 'axonaut' | 'stripe' | 'woocommerce' | 'prestashop' | 'sellsy' | 'sheets' | 'excel365' | 'dynamics365' | 'businesscentral' | 'agendagoogle' | 'agendamicrosoft' | 'agendaapple' | 'tachesgoogle' | 'tachesmicrosoft' | 'gmail' | 'outlook' | 'googledocs' | 'googledrive' | 'webhook' | 'rest' | 'mcp';
 
 export interface Enregistrement {
   externeId: string;
@@ -988,5 +989,5 @@ const mcp: Adaptateur = {
 
 export const ADAPTATEURS: Readonly<Record<TypeSource, Adaptateur>> = {
   airtable, notion, hubspot, pennylane, qonto, odoo, pipedrive, shopify, axonaut, stripe, woocommerce, prestashop, sellsy,
-  sheets, excel365, dynamics365, businesscentral: businessCentral, agendagoogle, agendamicrosoft, agendaapple, tachesgoogle, tachesmicrosoft, gmail, outlook, googledocs, webhook, rest, mcp,
+  sheets, excel365, dynamics365, businesscentral: businessCentral, agendagoogle, agendamicrosoft, agendaapple, tachesgoogle, tachesmicrosoft, gmail, outlook, googledocs, googledrive, webhook, rest, mcp,
 };

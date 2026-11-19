@@ -20,7 +20,7 @@ import { ErreurSortante, lireTexteBorne, recuperateurProtege, verifierUrl, type 
 import type { TypeSource } from './sources.ts';
 
 export const FOURNISSEURS_OAUTH = ['hubspot', 'google', 'microsoft', 'dynamics', 'businesscentral', 'notion', 'airtable', 'pipedrive', 'sellsy', 'shopify', 'woocommerce',
-  'googleagenda', 'googletaches', 'googlecourrier', 'googledocs', 'microsoftagenda', 'microsofttaches', 'microsoftcourrier'] as const;
+  'googleagenda', 'googletaches', 'googlecourrier', 'googledocs', 'googledrive', 'microsoftagenda', 'microsofttaches', 'microsoftcourrier'] as const;
 export type FournisseurOAuth = (typeof FOURNISSEURS_OAUTH)[number];
 export const estFournisseur = (x: unknown): x is FournisseurOAuth => (FOURNISSEURS_OAUTH as readonly unknown[]).includes(x);
 
@@ -32,7 +32,7 @@ export const estFournisseur = (x: unknown): x is FournisseurOAuth => (FOURNISSEU
 export const FOURNISSEUR_DE: Readonly<Partial<Record<TypeSource, FournisseurOAuth>>> = {
   hubspot: 'hubspot', sheets: 'google', excel365: 'microsoft', dynamics365: 'dynamics', businesscentral: 'businesscentral', notion: 'notion', airtable: 'airtable',
   pipedrive: 'pipedrive', sellsy: 'sellsy', shopify: 'shopify', woocommerce: 'woocommerce',
-  agendagoogle: 'googleagenda', tachesgoogle: 'googletaches', gmail: 'googlecourrier', googledocs: 'googledocs',
+  agendagoogle: 'googleagenda', tachesgoogle: 'googletaches', gmail: 'googlecourrier', googledocs: 'googledocs', googledrive: 'googledrive',
   agendamicrosoft: 'microsoftagenda', tachesmicrosoft: 'microsofttaches', outlook: 'microsoftcourrier',
 };
 
@@ -40,7 +40,7 @@ export const FOURNISSEUR_DE: Readonly<Partial<Record<TypeSource, FournisseurOAut
 export const NOM_FOURNISSEUR: Readonly<Record<FournisseurOAuth, string>> = {
   hubspot: 'HubSpot', google: 'Google', microsoft: 'Microsoft', dynamics: 'Microsoft', businesscentral: 'Microsoft', notion: 'Notion', airtable: 'Airtable',
   pipedrive: 'Pipedrive', sellsy: 'Sellsy', shopify: 'Shopify', woocommerce: 'WooCommerce',
-  googleagenda: 'Google', googletaches: 'Google', googlecourrier: 'Google', googledocs: 'Google',
+  googleagenda: 'Google', googletaches: 'Google', googlecourrier: 'Google', googledocs: 'Google', googledrive: 'Google',
   microsoftagenda: 'Microsoft', microsofttaches: 'Microsoft', microsoftcourrier: 'Microsoft',
 };
 
@@ -65,6 +65,8 @@ const HOTES_CONNEXION: Readonly<Partial<Record<FournisseurOAuth, readonly string
   googleagenda: ['accounts.google.com'],
   googletaches: ['accounts.google.com'],
   googlecourrier: ['accounts.google.com'],
+  googledocs: ['accounts.google.com'],
+  googledrive: ['accounts.google.com'],
   microsoftagenda: ['login.microsoftonline.com'],
   microsofttaches: ['login.microsoftonline.com'],
   microsoftcourrier: ['login.microsoftonline.com'],
