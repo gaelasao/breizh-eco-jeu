@@ -9,6 +9,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { RegistreActions, transition, type CommandeAction, type Executeur } from '../core/actions.ts';
+import { etatChantier, phraseChantier, type EtatChantier } from '../core/chantier.ts';
 import { indicateursDepuisRegles, type DetailCouverture } from '../core/indicateurs.ts';
 import { fraicheur, type Fraicheur, type ObjetMetier, type ValeurChamp } from '../core/model.ts';
 import { majQuetes, type Quete } from '../core/quetes.ts';
@@ -207,7 +208,16 @@ export interface ObjetVue {
   jour: { valeur: string; type: string; libelle: string; cible: string | null } | null;
   /** Suivi d'un matériel roulant : son compteur et ses échéances, déjà calculés (null pour tout le reste). */
   vehicule: VueVehicule | null;
+  /**
+   * Suivi de chantier : budget du devis contre consommé réel, déjà comparé (null pour tout ce qui n'est pas un
+   * chantier). Calculé ici et pas dans le navigateur, comme le véhicule : un seul endroit sait compter, et
+   * l'écran n'a qu'à dessiner.
+   */
+  chantier: VueChantier | null;
 }
+
+/** L'état d'un chantier, plus la phrase toute faite : l'écran ne refait ni le calcul ni la formulation. */
+export type VueChantier = EtatChantier & { phrase: string };
 
 /** Ce que l'écran d'un véhicule ou d'un engin montre sans rien recalculer. */
 export interface VueVehicule {
@@ -480,6 +490,7 @@ export class Monde {
       simule: e.simulation && e.modifies.has(o.id),
       jour: o.famille === 'personne' ? this.#jourDe(p, e, o.id, isoJour(this.#o.maintenant())) : null,
       vehicule: estMaterielSuivi(o) ? this.#vueVehicule(o, e, p) : null,
+      chantier: o.famille === 'projet' ? (() => { const c = etatChantier(o); return { ...c, phrase: phraseChantier(c) }; })() : null,
     };
   }
 

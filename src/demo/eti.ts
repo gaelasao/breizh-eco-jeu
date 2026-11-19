@@ -100,8 +100,8 @@ export function donneesDemoEti(maintenant: Date): ObjetMetier[] {
 
   // ---- production : projets, stock atelier, machines
   ajouter(
-    o('pr-hotel', 'projet', 'projet', 'Aménagement — Hôtel des Embruns', { lieu: 'l-atelier', departement: 'd-production', client: 't-hotel', montant: 48500, avancement: 70, retard_jours: 0, echeance: jour(18), besoin_effectif: 2 }),
-    o('pr-mairie', 'projet', 'projet', 'Équipement — Mairie', { lieu: 'l-atelier', departement: 'd-production', client: 't-mairie', montant: 62000, avancement: 40, retard_jours: 6, echeance: jour(10), besoin_effectif: 3 }),
+    o('pr-hotel', 'projet', 'projet', 'Aménagement — Hôtel des Embruns', { lieu: 'l-atelier', departement: 'd-production', client: 't-hotel', montant: 48500, avancement: 70, retard_jours: 0, echeance: jour(18), besoin_effectif: 2, budget_heures: 900, heures_faites: 560, budget_achats: 18_000, achats_engages: 11_500 }),
+    o('pr-mairie', 'projet', 'projet', 'Équipement — Mairie', { lieu: 'l-atelier', departement: 'd-production', client: 't-mairie', montant: 62000, avancement: 40, retard_jours: 6, echeance: jour(10), besoin_effectif: 3, budget_heures: 1200, heures_faites: 760, budget_achats: 22_000, achats_engages: 9800, cause_ecart: 'intempéries' }),
     o('pr-college', 'projet', 'projet', 'Mobilier — Collège', { lieu: 'l-atelier', departement: 'd-production', client: 't-college', montant: 23800, avancement: 15, retard_jours: 0, echeance: jour(45) }),
     o('a-matiere', 'ressource', 'article', 'Matière première A', { lieu: 'l-atelier', departement: 'd-production', quantite: 140, seuil_alerte: 100, unite: 'kg', fournisseur: 't-negoce' }, { source: 'erp' }),
     o('a-vernis', 'ressource', 'article', 'Vernis', { lieu: 'l-atelier', departement: 'd-production', quantite: 4, seuil_alerte: 10, unite: 'bidons', fournisseur: 't-grossiste' }, { source: 'erp' }),

@@ -515,7 +515,14 @@
           "id": "besoin_effectif",
           "libelle": "Besoin d’effectif (par jour)",
           "type": "nombre"
-        }
+        },
+        { "id": "budget_heures", "libelle": "Heures prévues (devis)", "type": "nombre", "unite": "h" },
+        { "id": "heures_faites", "libelle": "Heures passées", "type": "nombre", "unite": "h" },
+        { "id": "budget_achats", "libelle": "Achats prévus (devis)", "type": "montant", "unite": "€" },
+        { "id": "achats_engages", "libelle": "Achats engagés", "type": "montant", "unite": "€" },
+        { "id": "cause_ecart", "libelle": "Cause de l’écart", "type": "choix",
+          "choix": ["travaux supplémentaires", "matériel non livré", "intempéries", "malfaçon du fournisseur",
+            "qualité de notre travail", "panne de matériel", "sous-effectif", "autre"] }
       ]
     },
     {

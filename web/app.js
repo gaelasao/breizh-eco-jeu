@@ -3782,6 +3782,7 @@ function rendreFiche() {
           ['Données', LIBELLES.mode[o.mode] === 'Fictif (démo)' ? 'Exemple' : o.mode === 'simulation' ? 'Simulation' : 'Vos données'],
         ])),
       modifiable && f.objet.source.id.startsWith('connecteur:') ? h('p', { class: 'bz-t-micro bz-texte-2', texte: `Une modification est reportée dans « ${f.objet.source.libelle} ».` }) : null,
+      blocChantier(o),
       blocProposer(o),
       blocDonneesPersonnelles(o),
       f.quetes.length && !modeCalme() ? h('section', { class: 'bz-fiche__section' }, h('h3', { class: 'bz-t-titre-4', texte: 'Quêtes' }), h('ul', { class: 'bz-liste-simple' }, f.quetes.map((q) => h('li', { class: 'bz-quete-fiche' },
@@ -3859,6 +3860,35 @@ function alerteBodaccFiche(o) {
       h('span', { class: 'bz-t-petit', texte: `Publiée ${dateRelative(a.le)}${a.tribunal ? `, ${a.tribunal}` : ''}.` }),
       a.url ? h('a', { href: a.url, target: '_blank', rel: 'noopener noreferrer', class: 'bz-t-petit' }, 'Voir l’annonce', icone('external-link', { taille: 'sm' })) : null));
 }
+/**
+ * BUDGET DU CHANTIER : ce que le devis prévoyait, ce que le terrain a consommé, et la phrase qui dit si ça passe.
+ * Tout est déjà calculé par la passerelle (`core/chantier.ts`) — l'écran dessine, il ne compte pas.
+ *
+ * Rien ne s'affiche tant que le devis n'a pas été chiffré : un bloc à zéro se lirait « tout va bien », ce qui est
+ * le contraire de la vérité quand personne n'a rien renseigné. Les deux postes restent l'un sous l'autre, sans
+ * moyenne : un chantier qui tient ses heures et explose ses achats a un problème d'achats, pas un demi-problème.
+ */
+function blocChantier(o) {
+  const c = o.chantier;
+  if (!c || (!c.heures && !c.achats)) return null;
+  const ton = c.sens === 'retard' ? 'critique' : c.sens === 'avance' ? 'ok' : 'info';
+  const poste = (titre, p, formater) => (p ? h('li', { class: 'bz-critere' },
+    h('div', { class: 'bz-critere__tete' },
+      h('span', { class: 'bz-critere__nom', texte: titre }),
+      h('span', { class: 'bz-t-petit bz-texte-2', texte: `${formater(p.consomme)} sur ${formater(p.prevu)}` })),
+    barreScore(p.part, p.ecart > 5 ? 'critique' : p.ecart < -5 ? 'ok' : null),
+    h('p', { class: 'bz-t-petit bz-texte-2', texte: p.reste < 0
+      ? `Dépassé de ${formater(-p.reste)} · ${Math.round(p.part)} % du budget` 
+      : `Reste ${formater(p.reste)} · ${Math.round(p.part)} % du budget pour ${c.avancement} % fait` })) : null);
+  return h('section', { class: 'bz-fiche__section', 'aria-labelledby': 'fiche-chantier' },
+    h('h3', { class: 'bz-t-titre-4', id: 'fiche-chantier', texte: 'Budget du chantier' }),
+    c.phrase ? h('p', { class: 'bz-resultat', 'data-ton': ton }, icone(ton === 'critique' ? 'triangle-alert' : ton === 'ok' ? 'circle-check' : 'info', { taille: 'sm' }), h('span', { texte: c.phrase })) : null,
+    h('ul', { class: 'bz-liste-simple' },
+      poste('Heures', c.heures, (n) => `${nf.format(n)} h`),
+      poste('Achats', c.achats, (n) => nfEuro.format(n))),
+    c.sens === 'retard' && !c.cause ? h('p', { class: 'bz-t-petit bz-texte-2', texte: 'Renseignez « Cause de l’écart » : intempéries, matériel non livré, travaux supplémentaires… Le logiciel ne la devine pas.' }) : null);
+}
+
 function blocProposer(o) {
   if (o.famille !== 'tiers' || o.mode === 'demo' || !(E.monde.profil.peutAdministrer || E.monde.profil.peutPreparer)) return null;
   return h('p', { class: 'bz-t-petit bz-texte-2 bz-ligne-icone' }, icone('bz-nexus', { taille: 'sm' }),

@@ -93,8 +93,8 @@ export function donneesDemo(maintenant: Date): ObjetMetier[] {
     tiers('t-prospect2', 'entreprise', 'Atelier Prospect (fictif)', ['prospect'], { activite: 'Artisanat', ville: 'Quimperlé', num_departement: '29' }),
 
     // ---- Projets
-    o('pr-hotel', 'projet', 'projet', 'Rénovation — Hôtel des Embruns', { lieu: 'l-atelier', client: 't-hotel', montant: 18500, avancement: 60, retard_jours: 0, echeance: dans(20), besoin_effectif: 1 }),
-    o('pr-mairie', 'projet', 'projet', 'Installation — Mairie', { lieu: 'l-agence', client: 't-mairie', montant: 42000, avancement: 35, retard_jours: 5, echeance: dans(9), besoin_effectif: 1 }),
+    o('pr-hotel', 'projet', 'projet', 'Rénovation — Hôtel des Embruns', { lieu: 'l-atelier', client: 't-hotel', montant: 18500, avancement: 60, retard_jours: 0, echeance: dans(20), besoin_effectif: 1, budget_heures: 320, heures_faites: 180, budget_achats: 7400, achats_engages: 4100 }),
+    o('pr-mairie', 'projet', 'projet', 'Installation — Mairie', { lieu: 'l-agence', client: 't-mairie', montant: 42000, avancement: 35, retard_jours: 5, echeance: dans(9), besoin_effectif: 1, budget_heures: 540, heures_faites: 335, budget_achats: 15_000, achats_engages: 6200, cause_ecart: 'matériel non livré' }),
     o('pr-camping', 'projet', 'projet', 'Équipement — Camping', { lieu: 'l-atelier', client: 't-camping', montant: 9600, avancement: 10, retard_jours: 0, echeance: dans(40) }),
 
     // ---- Stock
