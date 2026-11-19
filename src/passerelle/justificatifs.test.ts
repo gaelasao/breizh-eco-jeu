@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { Application } from './application.ts';
 import { creerServeur } from './http.ts';
 import {
-  DOSSIER_PHOTOS, ENTETES_COMPTABLES, exportComptable, fournisseurPropose, Justificatifs, PLACE_MAX, reconnaitreImage,
+  CATEGORIES, categorieLue, DOSSIER_PHOTOS, ENTETES_COMPTABLES, exportComptable, fournisseurPropose, Justificatifs, PLACE_MAX, reconnaitreImage,
   poids, REFUS_TYPE, TAILLE_MAX, type VueJustificatif,
 } from './justificatifs.ts';
 import { AVERTISSEMENT_PHOTO, traiterMcp } from './mcp.ts';
@@ -312,21 +312,26 @@ test('MCP : la photo revient comme image, précédée de son avertissement ; l�
 test('justificatif : la ligne du comptable porte la date, le fournisseur, le montant et le nom de la photo', () => {
   const j = (x: Partial<VueJustificatif>): VueJustificatif => ({
     id: 'jt-000000000000000001', le: '2026-11-16T08:00:00Z', mime: 'image/jpeg', ext: 'jpg', octets: 1000, concerne: null,
-    montant: null, date: null, fournisseur: '', propose: null, par: 'p', concerneNom: null, complet: false, ...x,
+    montant: null, date: null, fournisseur: '', categorie: '', propose: null, par: 'p', concerneNom: null, complet: false, ...x,
   });
-  const complet = j({ id: 'jt-00000000000000000a', montant: 128.4, date: '2026-11-16', fournisseur: 'Point P', concerneNom: 'Chantier Kerlann', complet: true });
-  const vieux = j({ id: 'jt-00000000000000000b', montant: 9.9, date: '2026-10-02', fournisseur: 'Station', complet: true });
+  const complet = j({ id: 'jt-00000000000000000a', montant: 128.4, date: '2026-11-16', fournisseur: 'Point P', categorie: 'fourniture ou matériau', concerneNom: 'Chantier Kerlann', complet: true });
+  const vieux = j({ id: 'jt-00000000000000000b', montant: 9.9, date: '2026-10-02', fournisseur: 'Station', categorie: 'carburant', complet: true });
   const incomplet = j({ id: 'jt-00000000000000000c', date: '2026-11-01' });
   const r = exportComptable([complet, vieux, incomplet]);
-  assert.deepEqual(ENTETES_COMPTABLES, ['Date', 'Fournisseur', 'Montant TTC', 'Rattaché à', 'Photo', 'Référence']);
+  // la catégorie entre dans le fichier : c'est elle que le comptable réclamait ligne par ligne
+  assert.deepEqual(ENTETES_COMPTABLES, ['Date', 'Fournisseur', 'Montant TTC', 'Catégorie', 'Rattaché à', 'Photo', 'Référence']);
   assert.deepEqual(r.lignes, [
-    ['2026-10-02', 'Station', '9,90', '', 'jt-00000000000000000b.jpg', 'jt-00000000000000000b'],
-    ['2026-11-16', 'Point P', '128,40', 'Chantier Kerlann', 'jt-00000000000000000a.jpg', 'jt-00000000000000000a'],
+    ['2026-10-02', 'Station', '9,90', 'carburant', '', 'jt-00000000000000000b.jpg', 'jt-00000000000000000b'],
+    ['2026-11-16', 'Point P', '128,40', 'fourniture ou matériau', 'Chantier Kerlann', 'jt-00000000000000000a.jpg', 'jt-00000000000000000a'],
   ], 'les plus anciens d’abord, montants à la française, photo nommée');
   assert.equal(r.aCompleter, 1, 'ce qui manque est dit, jamais tu');
   assert.equal(r.total, 138.3);
   // une période : seules ses lignes partent
   assert.deepEqual(exportComptable([complet, vieux], { debut: '2026-11-01', fin: '2026-11-30' }).lignes.map((l) => l[1]), ['Point P']);
+  // une catégorie inventée n'entre pas dans un fichier comptable
+  assert.equal(categorieLue('bricoles'), '');
+  assert.equal(categorieLue('carburant'), 'carburant');
+  assert.ok(CATEGORIES.includes('véhicule') && CATEGORIES.includes('note de frais'), 'les deux que le comptable réclame le plus');
 });
 
 // ---------------------------------------------------------------- la note, et la tâche d'un rendez-vous

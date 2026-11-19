@@ -95,6 +95,12 @@ export interface FicheJustificatif {
   /** Date du justificatif, AAAA-MM-JJ. */
   date: string | null;
   fournisseur: string;
+  /**
+   * À quoi la dépense se rattache en comptabilité : carburant, péage, repas, fourniture… Le comptable passe
+   * aujourd'hui son temps à le demander ligne par ligne, alors que la personne qui prend la photo le sait, sur
+   * place, en une seconde. Vide tant qu'elle n'a pas choisi : on ne devine pas une imputation comptable.
+   */
+  categorie: string;
   /** Proposition d'un agent de l'entreprise (serveur MCP) : jamais enregistrée sans qu'une personne la valide. */
   propose: PropositionJustificatif | null;
   /** Profil qui a pris la photo. */
@@ -123,6 +129,22 @@ const uneLigne = (x: unknown, max: number): string =>
   (typeof x === 'string' ? x.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '');
 
 /** Montant lu d'un champ de saisie (« 128,40 », « 128.4 ») : positif, deux décimales. null quand le champ est vide. */
+/**
+ * Les catégories proposées. Une liste COURTE et fermée : trente cases, personne ne choisit et tout finit en
+ * « autre ». Celles-ci couvrent ce qu'un artisan ou un prestataire photographie vraiment dans la journée.
+ * « Véhicule » et « Note de frais » sont là parce que ce sont les deux que le comptable réclame le plus.
+ */
+export const CATEGORIES: readonly string[] = Object.freeze([
+  'carburant', 'véhicule', 'péage ou stationnement', 'fourniture ou matériau', 'matériel ou outillage',
+  'sous-traitance', 'repas', 'hébergement ou déplacement', 'note de frais', 'autre',
+]);
+
+/** Catégorie saisie : une de la liste, ou rien. Une valeur inventée n'entre pas dans un fichier comptable. */
+export function categorieLue(x: unknown): string {
+  const v = uneLigne(x, 40);
+  return CATEGORIES.includes(v) ? v : '';
+}
+
 export function montantLu(x: unknown): number | null {
   if (x === null || x === undefined || x === '') return null;
   const n = typeof x === 'number' ? x : Number(String(x).replace(/[\s  €]/g, '').replace(',', '.'));
@@ -161,6 +183,7 @@ function lireFiche(x: unknown): FicheJustificatif | null {
     montant: typeof x.montant === 'number' && Number.isFinite(x.montant) ? x.montant : null,
     date: typeof x.date === 'string' && JOUR.test(x.date) ? x.date : null,
     fournisseur: uneLigne(x.fournisseur, 120),
+    categorie: CATEGORIES.includes(uneLigne(x.categorie, 40)) ? uneLigne(x.categorie, 40) : '',
     propose: p ? {
       montant: typeof p.montant === 'number' && Number.isFinite(p.montant) ? p.montant : null,
       date: typeof p.date === 'string' && JOUR.test(p.date) ? p.date : null,
@@ -279,7 +302,7 @@ export class Justificatifs {
       id: `jt-${randomBytes(9).toString('hex')}`,
       le: this.#monde.maintenant().toISOString(),
       mime: type.mime, ext: type.ext, octets: octets.length,
-      concerne: cible?.id ?? null, montant: null, date: null, fournisseur: '', propose: null, par: p.id,
+      concerne: cible?.id ?? null, montant: null, date: null, fournisseur: '', categorie: '', propose: null, par: p.id,
     };
     this.#ecrire(f, octets);
     this.#fiches.push(f);
@@ -300,10 +323,12 @@ export class Justificatifs {
     const montant = 'montant' in x ? montantLu(x.montant) : f.montant;
     const date = 'date' in x ? jourLu(x.date) : f.date;
     const fournisseur = 'fournisseur' in x ? uneLigne(x.fournisseur, 120) : f.fournisseur;
+    const categorie = 'categorie' in x ? categorieLue(x.categorie) : f.categorie;
     const cible = 'concerne' in x ? this.#rattachement(p, sid, x.concerne) : null;
     f.montant = montant;
     f.date = date;
     f.fournisseur = fournisseur;
+    f.categorie = categorie;
     if ('concerne' in x) f.concerne = cible?.id ?? null;
     f.propose = null;
     this.#monde.tracer(p, 'justificatif.complete', f.concerne, `${f.fournisseur || 'fournisseur à préciser'} — ${f.montant === null ? 'montant à préciser' : `${f.montant} €`}`);
@@ -401,7 +426,7 @@ export class Justificatifs {
 // ---------------------------------------------------------------- ce qui part au comptable
 
 /** En-tête du fichier remis au comptable (le même ordre que `ligneComptable`). */
-export const ENTETES_COMPTABLES = Object.freeze(['Date', 'Fournisseur', 'Montant TTC', 'Rattaché à', 'Photo', 'Référence']);
+export const ENTETES_COMPTABLES = Object.freeze(['Date', 'Fournisseur', 'Montant TTC', 'Catégorie', 'Rattaché à', 'Photo', 'Référence']);
 
 /**
  * Une ligne du fichier remis au comptable. Le montant est écrit à la française (« 128,40 ») et la photo est nommée :
@@ -411,6 +436,7 @@ export const ligneComptable = (j: VueJustificatif): string[] => [
   j.date ?? '',
   j.fournisseur,
   j.montant === null ? '' : j.montant.toFixed(2).replace('.', ','),
+  j.categorie,
   j.concerneNom ?? '',
   `${j.id}.${j.ext}`,
   j.id,

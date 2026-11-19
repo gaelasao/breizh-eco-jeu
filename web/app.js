@@ -11470,7 +11470,7 @@ function ouvrirJustificatif(j, { neuf = false, fichier = null } = {}) {
   const etat = { erreur: null, envoi: false, photo: false, lu: null, lecture: null, avis: '', noeud: null, grand: false };
   const relire = () => SAISIE.champsAvecProposition(j, { aujourdhui: jourLocal(), lu: etat.lu });
   let champs = relire();
-  const v = { montant: champs.montant, date: champs.date, fournisseur: champs.fournisseur || SAISIE.champsProposes(E.saisie.liste, { concerne: j.concerne, aujourdhui: jourLocal() }).fournisseur };
+  const v = { montant: champs.montant, date: champs.date, fournisseur: champs.fournisseur || SAISIE.champsProposes(E.saisie.liste, { concerne: j.concerne, aujourdhui: jourLocal() }).fournisseur, categorie: j.categorie ?? '' };
   // ce que la personne a tapé ne se fait jamais écraser par une lecture qui arrive après
   const tape = { montant: false, date: false, fournisseur: false };
   const apercu = fichier ? URL.createObjectURL(fichier) : null;
@@ -11509,6 +11509,18 @@ function ouvrirJustificatif(j, { neuf = false, fichier = null } = {}) {
           h('label', { class: 'bz-champ__libelle', for: 'jt-fournisseur', texte: 'Fournisseur' }),
           h('input', { id: 'jt-fournisseur', class: 'bz-champ__saisie', type: 'text', autocomplete: 'off', maxlength: '120', value: v.fournisseur, placeholder: 'Point P, Leroy Merlin, station…', oninput: (e) => { v.fournisseur = e.target.value; tape.fournisseur = true; } }),
           origine(champs.fournisseurDe, 'fournisseur')),
+        /* LA CATÉGORIE, SUR PLACE. C'est la question que le comptable repose ligne par ligne trois semaines plus
+           tard, alors que la personne qui tient le ticket la connaît à la seconde. Facultative : elle ne bloque
+           pas l'enregistrement, parce qu'une photo prise sous la pluie vaut mieux qu'une photo pas prise. */
+        h('div', { class: 'bz-champ' },
+          h('label', { class: 'bz-champ__libelle', for: 'jt-categorie', texte: 'Catégorie (pour le comptable)' }),
+          h('div', { class: 'bz-select' },
+            h('select', { id: 'jt-categorie', class: 'bz-champ__saisie', onchange: (e) => { v.categorie = e.target.value; } },
+              h('option', { value: '', selected: !v.categorie, texte: 'À préciser' }),
+              // écrites telles quelles, comme les autres listes de choix de l'univers (« envoyé », « accepté ») : une
+              // capitale d'affichage ajoutée au vol finit par différer de la valeur enregistrée
+              SAISIE.CATEGORIES.map((c) => h('option', { value: c, selected: v.categorie === c, texte: c }))),
+            icone('chevron-down', { taille: 'sm' }))),
         // la photo pèse des mégaoctets : rouverte plus tard, elle n'est téléchargée que si on la demande
         apercu ? null : etat.photo
           ? h('img', { class: 'bz-justificatif__photo', src: `/api/v1/justificatifs/${j.id}/photo`, alt: `Photo du justificatif de ${j.fournisseur || 'ce fournisseur'}`, loading: 'lazy', decoding: 'async' })
@@ -11565,7 +11577,7 @@ function ouvrirJustificatif(j, { neuf = false, fichier = null } = {}) {
     etat.envoi = true;
     dlg.rendre();
     try {
-      await api('PUT', `/justificatifs/${j.id}`, { montant: v.montant, date: v.date, fournisseur: v.fournisseur, concerne: j.concerne ?? '' });
+      await api('PUT', `/justificatifs/${j.id}`, { montant: v.montant, date: v.date, fournisseur: v.fournisseur, categorie: v.categorie, concerne: j.concerne ?? '' });
       await chargerSaisie();
       dlg.fermer();
       toast({ texte: 'Justificatif enregistré.', ton: 'ok' });

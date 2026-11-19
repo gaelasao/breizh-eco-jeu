@@ -15,7 +15,7 @@ import { titreDeNote } from '../core/saisie-terrain.ts';
 const RACINE = fileURLToPath(new URL('../../', import.meta.url));
 const lire = (f: string) => readFileSync(RACINE + f, 'utf8');
 const S = (await import(new URL('../../web/saisie.js', import.meta.url).href)) as {
-  TYPES_PHOTO: readonly string[]; EXTENSIONS_PHOTO: readonly string[]; TAILLE_MAX: number; ENTETES_COMPTABLES: readonly string[];
+  TYPES_PHOTO: readonly string[]; EXTENSIONS_PHOTO: readonly string[]; TAILLE_MAX: number; ENTETES_COMPTABLES: readonly string[]; CATEGORIES: readonly string[];
   poids: (o: number) => string;
   problemePhoto: (f: unknown) => string | null;
   dicteeDisponible: (f?: unknown) => boolean;
@@ -130,11 +130,11 @@ test('place prise par les photos : dite en mégaoctets, et annoncée AVANT d’�
 test('ce qui part au comptable : les mêmes lignes qu’au serveur, avec le nom du fichier photo', () => {
   const brut = (x: Partial<VueJustificatif>): VueJustificatif => ({
     id: 'jt-000000000000000001', le: '2026-11-16T08:00:00Z', mime: 'image/jpeg', ext: 'jpg', octets: 1000, concerne: null,
-    montant: null, date: null, fournisseur: '', propose: null, par: 'p', concerneNom: null, complet: false, ...x,
+    montant: null, date: null, fournisseur: '', categorie: '', propose: null, par: 'p', concerneNom: null, complet: false, ...x,
   });
   const liste = [
-    brut({ id: 'jt-00000000000000000a', montant: 128.4, date: '2026-11-16', fournisseur: 'Point P', concerneNom: 'Chantier Kerlann', complet: true }),
-    brut({ id: 'jt-00000000000000000b', montant: 9.9, date: '2026-10-02', fournisseur: 'Station', complet: true }),
+    brut({ id: 'jt-00000000000000000a', montant: 128.4, date: '2026-11-16', fournisseur: 'Point P', categorie: 'fourniture ou matériau', concerneNom: 'Chantier Kerlann', complet: true }),
+    brut({ id: 'jt-00000000000000000b', montant: 9.9, date: '2026-10-02', fournisseur: 'Station', categorie: 'carburant', complet: true }),
     brut({ id: 'jt-00000000000000000c', date: '2026-11-01' }),
   ];
   const ici = S.lignesComptables(liste);
@@ -143,7 +143,7 @@ test('ce qui part au comptable : les mêmes lignes qu’au serveur, avec le nom 
   assert.deepEqual(ici.lignes, serveur.lignes, 'l’écran et le serveur écrivent la même chose');
   assert.equal(ici.aCompleter, 1);
   assert.equal(ici.total, 138.3);
-  assert.deepEqual(ici.lignes[0], ['2026-10-02', 'Station', '9,90', '', 'jt-00000000000000000b.jpg', 'jt-00000000000000000b']);
+  assert.deepEqual(ici.lignes[0], ['2026-10-02', 'Station', '9,90', 'carburant', '', 'jt-00000000000000000b.jpg', 'jt-00000000000000000b']);
   assert.deepEqual(S.lignesComptables(liste, { debut: '2026-11-01' }).lignes.map((l) => l[1]), ['Point P']);
   // le fichier téléchargé passe par le même CSV que les autres listes (séparateur « ; », rien d’exécutable)
   assert.match(lire('web/app.js'), /telecharger\('justificatifs\.csv', texteCsv\(\[r\.entetes, \.\.\.r\.lignes\]\)\)/);
@@ -210,4 +210,16 @@ test('écran « Saisir » : la photo d’abord, les champs ensuite, et ce qui ma
   assert.match(app, /La photo sera effacée de cet ordinateur, et la ligne ne partira plus au comptable\. C’est définitif\./);
   // l'export dit ce qui reste à compléter au lieu de le taire
   assert.match(app, /Aucun justificatif complet à exporter : renseignez le montant, la date et le fournisseur\./);
+});
+
+test('la catégorie du justificatif : la même liste des deux côtés, et l’écran la propose', async () => {
+  /* Une liste écrite deux fois finit par diverger, et le jour où elle diverge, une catégorie choisie à l'écran est
+     refusée par le serveur sans que personne comprenne pourquoi. L'essai compare les deux, mot pour mot. */
+  const { CATEGORIES } = await import('../passerelle/justificatifs.ts');
+  assert.deepEqual([...S.CATEGORIES], [...CATEGORIES], 'l’écran et le serveur proposent les mêmes');
+  assert.ok(S.CATEGORIES.includes('véhicule'));
+  assert.ok(S.CATEGORIES.includes('note de frais'));
+  // elle est facultative : une photo prise sous la pluie vaut mieux qu'une photo pas prise
+  assert.match(lire('web/app.js'), /Catégorie \(pour le comptable\)/);
+  assert.doesNotMatch(S.manque.toString(), /categorie/, 'la catégorie ne fait pas partie de ce qui manque');
 });

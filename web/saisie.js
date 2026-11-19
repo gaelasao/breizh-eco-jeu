@@ -149,8 +149,17 @@ export function etatPlace(place) {
   return { ton: 'info', texte, conseil: '' };
 }
 
+/**
+ * Les catégories proposées — la même liste, dans le même ordre, qu'au serveur (`passerelle/justificatifs.ts`).
+ * Courte et fermée : trente cases, personne ne choisit et tout finit en « autre ».
+ */
+export const CATEGORIES = Object.freeze([
+  'carburant', 'véhicule', 'péage ou stationnement', 'fourniture ou matériau', 'matériel ou outillage',
+  'sous-traitance', 'repas', 'hébergement ou déplacement', 'note de frais', 'autre',
+]);
+
 /** En-têtes du fichier remis au comptable — le même ordre qu'`ENTETES_COMPTABLES` au serveur. */
-export const ENTETES_COMPTABLES = Object.freeze(['Date', 'Fournisseur', 'Montant TTC', 'Rattaché à', 'Photo', 'Référence']);
+export const ENTETES_COMPTABLES = Object.freeze(['Date', 'Fournisseur', 'Montant TTC', 'Catégorie', 'Rattaché à', 'Photo', 'Référence']);
 
 /**
  * Ce qui part au comptable : une ligne par justificatif COMPLET, les plus anciens d'abord, la photo nommée (le
@@ -168,6 +177,7 @@ export function lignesComptables(justificatifs, { debut = null, fin = null } = {
       j.date,
       j.fournisseur,
       (j.montant.toFixed ? j.montant.toFixed(2) : String(j.montant)).replace('.', ','),
+      j.categorie ?? '',
       j.concerneNom ?? '',
       `${j.id}.${j.ext}`,
       j.id,
