@@ -1285,8 +1285,70 @@ export class Monde {
       for (const o of this.#reel.objets.values()) if (o.famille === famille && (!role || o.roles.includes(role))) m.set(normaliser(o.nom), o.id);
       return m;
     };
+    /*
+     * IMPORTER DEUX FOIS NE DOIT PLUS FAIRE DEUX FICHES. Jusqu'ici, un second fichier de clients créait un second
+     * jeu de clients : l'entreprise se retrouvait avec « Hôtel des Embruns » en double, et c'est le genre de dégât
+     * qu'on ne répare qu'à la main, ligne par ligne.
+     *
+     * LA CLÉ N'EST PAS TOUJOURS LE NOM. Deux entreprises peuvent s'appeler pareil, et deux « Martin » sont rarement
+     * la même personne. Dès que le fichier porte un SIRET ou un e-mail, c'est lui qui identifie : un nom identique
+     * avec un SIRET différent reste une fiche différente. Sans ces colonnes, le nom fait foi — c'est ce que
+     * l'entreprise a de plus sûr, et c'est déjà ce que le rapprochement des connecteurs utilise.
+     *
+     * UNE CASE VIDE N'EFFACE RIEN. Un export partiel (trois colonnes sur douze) ne doit pas vider les neuf autres.
+     * On n'écrit que ce que le fichier dit vraiment ; le reste de la fiche est laissé tel quel. Un rôle s'ajoute,
+     * il ne se retire pas : personne n'a jamais voulu qu'un fichier de prospects dégrade ses clients.
+     */
+    const clesDe = (nom: string, champs: Record<string, ValeurChamp>): string[] => {
+      const cles: string[] = [];
+      const siret = typeof champs.siret === 'string' ? champs.siret.replace(/\s/g, '') : '';
+      if (siret) cles.push(`siret:${siret}`);
+      const email = typeof champs.email === 'string' ? champs.email.trim().toLowerCase() : '';
+      if (email) cles.push(`email:${email}`);
+      const n = normaliser(nom);
+      if (n) cles.push(`nom:${n}`);
+      return cles;
+    };
+    /*
+     * Une fiche existante est rangée sous TOUTES ses identités ; une ligne qui arrive est cherchée par la plus
+     * sûre qu'elle porte, et par elle seule. D'où les deux cas qui comptent : un fichier sans colonne SIRET
+     * retrouve quand même la fiche par son nom, et un fichier AVEC un SIRET différent ne la retrouve pas — ce
+     * n'est pas la même entreprise, même si elle s'appelle pareil.
+     *
+     * `null` = deux fiches portent déjà ce nom. On ne tranche pas à la place de l'entreprise : la ligne est
+     * écartée, et le message dit quoi faire.
+     */
+    const dejaLa = new Map<string, ObjetMetier | null>();
+    for (const o of this.#reel.objets.values()) {
+      if (o.type !== t.id) continue;
+      for (const cle of clesDe(o.nom, o.champs)) {
+        dejaLa.set(cle, dejaLa.has(cle) && dejaLa.get(cle)?.id !== o.id ? null : o);
+      }
+    }
+    /** Deux fiches qui portent chacune un SIRET (ou un e-mail) et pas le même ne sont pas la même, quel que soit le nom. */
+    const identite = (champs: Record<string, ValeurChamp>, c: string) =>
+      (typeof champs[c] === 'string' ? (champs[c] as string).replace(/\s/g, '').toLowerCase() : '');
+    const contredit = (o: ObjetMetier, champs: Record<string, ValeurChamp>) =>
+      ['siret', 'email'].some((c) => {
+        const a = identite(o.champs, c);
+        const b = identite(champs, c);
+        return a !== '' && b !== '' && a !== b;
+      });
+    const retrouver = (nom: string, champs: Record<string, ValeurChamp>): ObjetMetier | null | undefined => {
+      for (const cle of clesDe(nom, champs)) {
+        if (!dejaLa.has(cle)) continue;
+        const trouve = dejaLa.get(cle);
+        if (trouve === null || trouve === undefined) return null;
+        // le nom seul ne suffit pas à fusionner quand les deux fiches s'identifient autrement, et autrement l'une de l'autre
+        if (cle.startsWith('nom:') && contredit(trouve, champs)) return undefined;
+        return trouve;
+      }
+      return undefined;
+    };
+
     const rejets: { ligne: number; erreurs: string[] }[] = [];
     const nouveaux: ObjetMetier[] = [];
+    const modifies: ObjetMetier[] = [];
     corps.forEach((ligne, i) => {
       const erreurs: string[] = [];
       const cell = (cible: string) => (colonne.has(cible) ? (ligne[colonne.get(cible) as number] ?? '') : '');
@@ -1314,19 +1376,25 @@ export class Monde {
           else erreurs.push(`rôle « ${brut} » inconnu`);
         }
       }
-      const o: ObjetMetier = {
-        id: `imp-${randomUUID()}`, orgId: ORG_DEMO, famille: t.famille, type: t.id, roles: [...new Set(roles)], nom, champs,
-        provenance: 'declare', source, majLe: maintenant, disponibilite: 'disponible', mode: 'reel',
-      };
+      const trouve = erreurs.length ? undefined : retrouver(nom, champs);
+      if (trouve === null) erreurs.push(`deux fiches portent déjà le nom « ${nom} » : ajoutez une colonne SIRET ou e-mail pour dire laquelle`);
+      const ancien = trouve ?? undefined;
+      const o: ObjetMetier = ancien === undefined
+        ? {
+          id: `imp-${randomUUID()}`, orgId: ORG_DEMO, famille: t.famille, type: t.id, roles: [...new Set(roles)], nom, champs,
+          provenance: 'declare', source, majLe: maintenant, disponibilite: 'disponible', mode: 'reel',
+        }
+        : { ...ancien, nom, champs: { ...ancien.champs, ...champs }, roles: [...new Set([...ancien.roles, ...roles])], source, majLe: maintenant };
       erreurs.push(...validerObjet(this.#univers, o));
       if (erreurs.length) rejets.push({ ligne: i + 2, erreurs });
-      else nouveaux.push(o);
+      else if (ancien === undefined) { nouveaux.push(o); for (const cle of clesDe(nom, champs)) dejaLa.set(cle, dejaLa.has(cle) ? null : o); }
+      else modifies.push(o);
     });
-    for (const o of nouveaux) this.#reel.objets.set(o.id, o);
+    for (const o of [...nouveaux, ...modifies]) this.#reel.objets.set(o.id, o);
     if (nouveaux.length) this.#importsFaits.add(empreinte);
-    this.#tracer(p, this.#reel, 'import', null, `${t.id} : ${nouveaux.length} créés, ${rejets.length} rejetés`);
+    this.#tracer(p, this.#reel, 'import', null, `${t.id} : ${nouveaux.length} créés, ${modifies.length} mis à jour, ${rejets.length} rejetés`);
     this.#recalculerQuetes();
-    return { crees: nouveaux.length, rejets: rejets.slice(0, 100), totalRejets: rejets.length };
+    return { crees: nouveaux.length, majs: modifies.length, rejets: rejets.slice(0, 100), totalRejets: rejets.length };
   }
 
   // ---------------------------------------------------------------- connecter mes données

@@ -4863,9 +4863,17 @@ function corpsPret(A) {
   // on dit ce qui a été ajouté, pas « des éléments » : « 5 clients ajoutés à votre carte. »
   const bas = (t) => String(t ?? '').toLocaleLowerCase('fr-FR');
   const quoi = A.cible ? accord(r.crees, bas(A.cible.singulier ?? A.cible.libelle), bas(A.cible.libelle)) : '';
+  const majs = Number(r.majs) || 0;
+  /* Les fiches retrouvées sont dites À PART, et avec la règle : sans cette phrase, l'entreprise lit « 2 ajoutés »
+     sur un fichier de 40 lignes et croit à un import raté, alors que 38 fiches viennent d'être complétées. */
+  const ajout = quoi ? `${nombre(r.crees)} ${quoi} ${accord(r.crees, 'ajouté', 'ajoutés')} à votre carte.` : `${pluriel(r.crees, 'élément ajouté', 'éléments ajoutés')} à votre carte.`;
+  const phrase = majs ? `${r.crees ? `${ajout} ` : ''}${pluriel(majs, 'fiche déjà là a été complétée', 'fiches déjà là ont été complétées')}.` : ajout;
   return [
-    resultatAssistant(r.crees ? 'ok' : 'attention', quoi ? `${nombre(r.crees)} ${quoi} ${accord(r.crees, 'ajouté', 'ajoutés')} à votre carte.` : `${pluriel(r.crees, 'élément ajouté', 'éléments ajoutés')} à votre carte.`, {
-      detail: r.totalRejets ? `${pluriel(r.totalRejets, 'ligne écartée', 'lignes écartées')} : voici pourquoi.` : 'Toutes les lignes ont été reprises.' }),
+    resultatAssistant(r.crees || majs ? 'ok' : 'attention', phrase, {
+      detail: [
+        majs ? 'Une colonne absente ou une case vide ne change rien : seul ce que le fichier dit est repris.' : '',
+        r.totalRejets ? `${pluriel(r.totalRejets, 'ligne écartée', 'lignes écartées')} : voici pourquoi.` : 'Toutes les lignes ont été reprises.',
+      ].filter(Boolean).join(' ') }),
     r.rejets.length ? h('ul', { class: 'bz-liste-simple' }, r.rejets.map((x) => h('li', { class: 'bz-t-petit' }, h('strong', { texte: `Ligne ${x.ligne} : ` }), x.erreurs.join(' ; ')))) : null,
   ];
 }

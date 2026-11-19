@@ -212,6 +212,35 @@ test('import CSV : correspondance proposée, rôles multiples, lignes invalides 
   assert.equal((await c.appel('POST', '/api/v1/import/confirmer', { type: 'entreprise', csv, mapping: a.json.mapping })).statut, 409);
 });
 
+test('import CSV en mise à jour : la fiche déjà là est complétée, jamais doublée ni vidée', async () => {
+  const c = client();
+  await c.connecter('dirigeante');
+  const un = 'Nom;Ville;Encours;SIRET\nCave Exemple;Vannes;1200;81234567800017\n';
+  const a = await c.appel('POST', '/api/v1/import/analyse', { type: 'entreprise', csv: un });
+  await c.appel('POST', '/api/v1/import/confirmer', { type: 'entreprise', csv: un, mapping: a.json.mapping, nomFichier: 'un.csv' });
+
+  // deuxième fichier : même entreprise, deux colonnes seulement, et une case vide
+  const deux = 'Nom;Ville;Encours\nCave Exemple;Auray;\n';
+  const b = await c.appel('POST', '/api/v1/import/analyse', { type: 'entreprise', csv: deux });
+  const r = await c.appel('POST', '/api/v1/import/confirmer', { type: 'entreprise', csv: deux, mapping: b.json.mapping, nomFichier: 'deux.csv' });
+  assert.equal(r.json.crees, 0, 'rien de neuf : c’est la même entreprise');
+  assert.equal(r.json.majs, 1);
+  const m = await c.monde();
+  const caves = m.objets.filter((o: any) => o.nom === 'Cave Exemple');
+  assert.equal(caves.length, 1, 'une seule fiche : c’est tout l’objet de la mise à jour');
+  assert.equal(valeur(m, caves[0].id, 'ville'), 'Auray', 'ce que le fichier dit est repris');
+  assert.equal(valeur(m, caves[0].id, 'encours'), 1200, 'une case vide n’efface rien');
+  assert.equal(valeur(m, caves[0].id, 'siret'), '81234567800017', 'une colonne absente non plus');
+
+  // même nom, autre SIRET : ce n'est pas la même entreprise, et on ne la fusionne surtout pas
+  const trois = 'Nom;Ville;SIRET\nCave Exemple;Lorient;90000000000011\n';
+  const d = await c.appel('POST', '/api/v1/import/analyse', { type: 'entreprise', csv: trois });
+  const r3 = await c.appel('POST', '/api/v1/import/confirmer', { type: 'entreprise', csv: trois, mapping: d.json.mapping, nomFichier: 'trois.csv' });
+  assert.equal(r3.json.crees, 1);
+  assert.equal(r3.json.majs, 0);
+  assert.equal((await c.monde()).objets.filter((o: any) => o.nom === 'Cave Exemple').length, 2);
+});
+
 test('corps non JSON refusé', async () => {
   const c = client();
   await c.connecter('dirigeante');
