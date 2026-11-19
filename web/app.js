@@ -2372,7 +2372,11 @@ function panneauAujourdhui() {
   }
   return h('section', { class: 'bz-panneau-carte bz-verre hud-aujourdhui', id: 'panneau-aujourdhui', 'aria-labelledby': 'titre-panneau-aujourdhui' },
     h('div', { class: 'bz-panneau-carte__tete' },
-      h('h2', { class: 'bz-t-surtitre', id: 'titre-panneau-aujourdhui', texte: 'Aujourd’hui' }),
+      /* « AUJOURD'HUI » était écrit TROIS FOIS sur le même écran : dans le menu, dans le titre de la page, et ici en
+         surtitre du panneau. Le mot reste pour qui navigue au lecteur d'écran, où le panneau arrive sans contexte
+         (c'est le nom accessible de la section) ; il disparaît pour l'œil, qui l'a déjà lu deux fois. La première
+         ligne du panneau, « À faire maintenant », le nomme de toute façon mieux. */
+      h('h2', { class: 'bz-visuellement-cache', id: 'titre-panneau-aujourdhui', texte: 'Aujourd’hui' }),
       h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--icone bz-bouton--sm', cle: 'panneau-replier', 'aria-label': 'Replier « Aujourd’hui »', 'aria-expanded': 'true', 'aria-controls': 'panneau-aujourdhui', 'data-infobulle': 'Replier', onclick: () => reduirePanneau(true) }, icone('minimize-2'))),
     contenuAujourdhui('panneau'));
 }
@@ -2657,10 +2661,16 @@ function ligneAction(a, mode) {
     h('p', { class: 'bz-action__titre', id, texte: a.titre }),
     detail ? h('p', { class: 'bz-action__detail', texte: detail }) : null,
     preuve ? h('p', { class: 'bz-action__preuve', texte: preuve }) : null),
+  /* UNE SEULE ACTION VISIBLE PAR LIGNE. Chaque chose à faire portait son bouton ET « Plus tard » : trois lignes
+     faisaient six boutons dans un panneau de la taille d'une carte postale, et plus rien ne ressortait. Ce qui
+     reste visible est ce qu'on vient faire ; reporter et remettre vont dans le ⋯, comme dans l'écran Courrier.
+     Rien n'est retiré : tout est à un clic, au même endroit que partout ailleurs. */
   h('div', { class: 'bz-action__boutons' },
     a.bouton ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire bz-bouton--sm', cle: `faire-${mode}-${a.cle}`, 'aria-describedby': id, onclick: () => faireAction(a) }, a.bouton) : null,
-    reportable ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', cle: `tard-${mode}-${a.cle}`, 'aria-describedby': id, onclick: () => reporter(a, mode) }, icone('clock', { taille: 'sm' }), 'Plus tard') : null,
-    a.revient ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome bz-bouton--sm', cle: `remettre-${mode}-${a.cle}`, 'aria-describedby': id, onclick: () => remettre(a) }, icone('undo-2', { taille: 'sm' }), 'Remettre aujourd’hui') : null));
+    reportable || a.revient ? menuActions({ id: `menu-action-${mode}-${idDom(a.cle)}`, libelle: `Autres actions pour « ${a.titre} »`, items: [
+      reportable ? { libelle: 'Plus tard', icone: 'clock', faire: () => reporter(a, mode) } : null,
+      a.revient ? { libelle: 'Remettre aujourd’hui', icone: 'undo-2', faire: () => remettre(a) } : null,
+    ] }) : null));
 }
 
 /** Rubrique du menu que résume chaque tuile d'« Aujourd'hui » (clé de web/aujourdhui.js → clé de web/simplicite.js). */
