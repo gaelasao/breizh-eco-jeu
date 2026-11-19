@@ -11110,7 +11110,7 @@ const ouvrirRecherche = () => ouvrirPalette();
 const fermerRecherche = () => fermerPalette();
 const ICONE_FAMILLE = { tiers: 'handshake', personne: 'user', lieu: 'map-pin', departement: 'building-2', ressource: 'package', commande: 'receipt', projet: 'kanban', tache: 'circle-check', organisation: 'store' };
 const ICONE_NIVEAU = { critique: 'octagon-alert', attention: 'triangle-alert', info: 'info', a_verifier: 'circle-help' };
-const ICONE_VUE = { carte: 'map', matin: 'house', sante: 'heart-pulse', departements: 'building-2', planning: 'calendar-days', courrier: 'mail', satisfaction: 'star', optimiser: 'trending-up', nexus: 'bz-nexus', 'role:client': 'users', 'role:fournisseur': 'truck', 'famille:personne': 'user', 'famille:ressource': 'package', 'famille:commande': 'receipt', 'type:document': 'file-text', 'famille:lieu': 'map-pin' };
+const ICONE_VUE = { carte: 'map', matin: 'house', sante: 'heart-pulse', departements: 'building-2', planning: 'calendar-days', courrier: 'mail', satisfaction: 'star', optimiser: 'trending-up', nexus: 'bz-nexus', 'role:client': 'users', 'role:prospect': 'contact', 'role:fournisseur': 'truck', 'type:demande': 'inbox', 'famille:personne': 'user', 'famille:ressource': 'package', 'famille:commande': 'receipt', 'type:document': 'file-text', 'famille:lieu': 'map-pin' };
 const RACCOURCI_VUE = { carte: 'g c', matin: 'g a', planning: 'g p', courrier: 'g m', nexus: 'g n', 'role:fournisseur': 'g f', 'famille:ressource': 'g s' };
 const allerCarte = (vue) => { E.vue = 'carte'; rendreBarre(); rendreVue().then(() => changerVueCarte(vue)); };
 function themeSuivant() {

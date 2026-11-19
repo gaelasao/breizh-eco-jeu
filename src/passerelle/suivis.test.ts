@@ -237,7 +237,7 @@ test('préparer les relances est compris, et l’envoi automatique reste l’aff
   const r = app.suivis.relances(p);
   assert.equal(r.compris, true, 'jamais reliée, et les relances se préparent quand même');
   assert.equal(r.envoiAuto.verrouillee, true);
-  assert.deepEqual(r.sujets.map((s) => s.id), ['paiement', 'reponse', 'avancement']);
+  assert.deepEqual(r.sujets.map((s) => s.id), ['paiement', 'reponse', 'suite', 'avancement'], 'une demande sans suite se relance comme un devis sans réponse');
   for (const s of r.sujets) assert.deepEqual(s.rythme, s.defaut, 'rien réglé : le rythme proposé');
   app.arreter();
 });

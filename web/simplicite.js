@@ -19,7 +19,7 @@ const VENTES = new Set(['devis', 'commande_client', 'facture']);
 
 /** Ce que l'entreprise a déjà, compté en un passage sur ce que le profil voit (réponse de /api/v1/monde). */
 export function faits(m) {
-  const f = { personnes: 0, lieux: 0, departements: 0, clients: 0, fournisseurs: 0, prospects: 0, commandes: 0, ventes: 0, ressources: 0, vehicules: 0, documents: 0, courriers: 0, taches: 0, projets: 0, activite: 0 };
+  const f = { personnes: 0, lieux: 0, departements: 0, clients: 0, fournisseurs: 0, prospects: 0, demandes: 0, commandes: 0, ventes: 0, ressources: 0, vehicules: 0, documents: 0, courriers: 0, taches: 0, projets: 0, activite: 0 };
   for (const o of m?.objets ?? []) {
     if (o.famille === 'personne') f.personnes++;
     else if (o.famille === 'lieu') f.lieux++;
@@ -34,6 +34,7 @@ export function faits(m) {
     if (aRole(o, 'fournisseur')) f.fournisseurs++;
     if (aRole(o, 'prospect')) f.prospects++;
     if (VENTES.has(o.type)) f.ventes++;
+    if (o.type === 'demande') f.demandes++;
     if (o.type === 'document') f.documents++;
     if (o.type === 'courrier') f.courriers++;
     if (!HORS_ACTIVITE.has(o.famille)) f.activite++;
@@ -122,6 +123,20 @@ export const RUBRIQUES = Object.freeze(Object.fromEntries(Object.entries({
     sert: 'Vos clients, avec ce qu’ils vous doivent, leurs retards et leur avis.',
     premier: 'ouvrez une fiche : tout ce qui concerne ce client y est réuni.',
     manque: 'Aucun client pour le moment.',
+  },
+  prospects: {
+    regle: 'Apparaît dès la première personne ou entreprise marquée prospect.',
+    debloque: (f) => f.prospects > 0,
+    sert: 'Ceux qui ne vous ont encore rien acheté, et ce qu’on leur a promis.',
+    premier: 'ouvrez une fiche : ses demandes et ses devis y sont réunis.',
+    manque: 'Aucun prospect pour le moment.',
+  },
+  demandes: {
+    regle: 'Apparaît dès la première demande entrée (appel, mail, visite).',
+    debloque: (f) => f.demandes > 0,
+    sert: 'Ce qu’on vous a demandé et qui n’est pas encore chiffré : l’appel tracé, le rendez-vous calé, le devis à faire.',
+    premier: 'notez l’appel du jour : qui, pour quoi, et quand vous le rappelez.',
+    manque: 'Aucune demande pour le moment.',
   },
   fournisseurs: {
     regle: 'Apparaît dès le premier fournisseur.',

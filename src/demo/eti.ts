@@ -146,6 +146,13 @@ export function donneesDemoEti(maintenant: Date): ObjetMetier[] {
     o('dv-1', 'commande', 'devis', 'Devis D-71', { departement: 'd-commercial', client: 't-mairie', montant: 31000, statut: 'envoyé' }, { source: 'erp' }),
     o('dv-2', 'commande', 'devis', 'Devis D-72', { departement: 'd-commercial', client: 't-college', montant: 8700, statut: 'envoyé' }, { source: 'erp' }),
     o('dv-3', 'commande', 'devis', 'Devis D-73', { departement: 'd-commercial', client: 't-super', montant: 15200, statut: 'brouillon' }, { source: 'erp' }),
+    // demandes entrées, avant tout chiffrage : c'est là que se perdent les affaires, pas dans les devis
+    o('dm-1', 'commande', 'demande', 'Agencement de la salle de dégustation', { departement: 'd-commercial', client: 't-prospect', origine: 'appel',
+      recue_le: jour(-5), interlocuteur: 'M. Le Bihan', montant_estime: 14000, statut: 'visite faite', relance_le: jour(-1), note: 'Cotes prises le 12, devis à chiffrer.' }),
+    o('dm-2', 'commande', 'demande', 'Reprise de l’éclairage de l’atelier', { departement: 'd-commercial', client: 't-prospect2', origine: 'recommandation',
+      recue_le: jour(-2), interlocuteur: 'Mme Guivarc’h', montant_estime: 3800, statut: 'rendez-vous calé', relance_le: jour(3) }),
+    o('dm-3', 'commande', 'demande', 'Rayonnage sur mesure', { departement: 'd-commercial', client: 't-prospect3', origine: 'formulaire du site',
+      recue_le: jour(-9), interlocuteur: 'M. Riou', montant_estime: 5200, statut: 'devis remis', relance_le: jour(-2) }),
   );
   const cf: [string, string, number, number, string][] = [
     ['t-emballage', 'CF-801', 4200, -3, 'confirmée'], ['t-negoce', 'CF-802', 2300, 2, 'confirmée'], ['t-grossiste', 'CF-803', 860, 6, 'envoyée'], ['t-imprimerie', 'CF-804', 540, -1, 'reçue'], ['t-energie', 'CF-805', 3100, 12, 'confirmée'],

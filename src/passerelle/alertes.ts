@@ -73,6 +73,7 @@ export interface Sujet { id: string; libelle: string; aide: string; defaut: bool
 
 export const SUJETS: readonly Sujet[] = Object.freeze([
   { id: 'facture_retard', libelle: 'Une facture en retard', aide: 'Un client n’a pas payé à l’échéance.', defaut: true },
+  { id: 'demande_sans_suite', libelle: 'Une demande client à rappeler', aide: 'La date que vous aviez notée pour rappeler un prospect est arrivée.', defaut: false },
   { id: 'devis_sans_reponse', libelle: 'Un devis sans réponse', aide: 'Un devis envoyé reste sans réponse depuis plus d’une semaine.', defaut: false },
   { id: 'commande', libelle: 'Une commande client à traiter', aide: 'Livrée mais pas encore facturée, ou livraison en retard.', defaut: false },
   { id: 'echeance', libelle: 'Une échéance qui approche', aide: 'Contrôle technique, révision, document qui expire, tâche en retard.', defaut: true },
@@ -294,6 +295,7 @@ const uneLigne = (t: string) => t.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u20
 function quoiFaire(sujet: string, type: string): string {
   if (sujet === 'facture_retard') return 'À relancer.';
   if (sujet === 'devis_sans_reponse') return 'À relancer.';
+  if (sujet === 'demande_sans_suite') return 'À rappeler.';
   if (sujet === 'stock_bas') return 'À commander.';
   if (sujet === 'commande') return 'À facturer.';
   if (sujet === 'erreur_synchro') return 'À vérifier dans Réglages, Connecteurs.';
@@ -1030,6 +1032,24 @@ export class Alertes {
           cle: `devis_sans_reponse:${r.suiviId}`, sujet: 'devis_sans_reponse', urgent: false,
           vue: `type:${o?.type ?? 'devis'}`,
           texte: uneLigne(`${r.libelleSujet} ${sansMention(r.nom)}${montant} : sans réponse depuis ${pluriel(r.jours, 'jour', 'jours')}. À relancer.`),
+        });
+      }
+    }
+
+    /*
+      * UNE DEMANDE QUI DORT. Même mécanisme que le devis sans réponse : le délai vient du moteur de relances, pas
+      * d'un compte tenu ici. Ce qui change, c'est ce qu'on perd — un devis sans réponse a au moins été chiffré ;
+      * une demande oubliée, personne ne sait qu'elle a existé.
+      */
+    if (choisis.has('demande_sans_suite')) {
+      for (const r of this.#src.relances?.() ?? []) {
+        if (r.relance !== 'suite' || prisEnCharge.has(r.suiviId)) continue;
+        const o = parId.get(r.suiviId);
+        const montant = o !== undefined && typeof o.champs.montant_estime === 'number' ? ` (environ ${mesure(o.champs.montant_estime, '€')})` : '';
+        faits.push({
+          cle: `demande_sans_suite:${r.suiviId}`, sujet: 'demande_sans_suite', urgent: false,
+          vue: `type:${o?.type ?? 'demande'}`,
+          texte: uneLigne(`${r.libelleSujet} ${sansMention(r.nom)}${montant} : ${r.jours <= 0 ? 'à rappeler aujourd’hui' : `à rappeler depuis ${pluriel(r.jours, 'jour', 'jours')}`}.`),
         });
       }
     }

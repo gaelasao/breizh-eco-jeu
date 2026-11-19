@@ -696,6 +696,25 @@
       ]
     },
     {
+      "id": "demande",
+      "famille": "commande",
+      "libelle": "Demande client",
+      "pluriel": "Demandes clients",
+      "champs": [
+        { "id": "client", "libelle": "Client ou prospect", "type": "reference", "cible": { "famille": "tiers" } },
+        { "id": "origine", "libelle": "D’où elle vient", "type": "choix", "choix": ["appel", "e-mail", "formulaire du site", "visite", "recommandation", "salon", "autre"] },
+        { "id": "recue_le", "libelle": "Reçue le", "type": "date" },
+        { "id": "interlocuteur", "libelle": "Interlocuteur", "type": "texte" },
+        { "id": "telephone", "libelle": "Téléphone", "type": "texte" },
+        { "id": "montant_estime", "libelle": "Montant estimé", "type": "montant", "unite": "€" },
+        { "id": "statut", "libelle": "Où ça en est", "type": "choix", "choix": ["reçue", "rendez-vous calé", "visite faite", "devis à faire", "devis remis", "gagnée", "perdue"] },
+        { "id": "relance_le", "libelle": "À relancer le", "type": "date" },
+        { "id": "perdue_pourquoi", "libelle": "Perdue pourquoi", "type": "choix", "choix": ["prix", "délai", "sans réponse", "concurrent", "projet abandonné", "autre"] },
+        { "id": "note", "libelle": "Note", "type": "texte" },
+        { "id": "departement", "libelle": "Département", "type": "reference", "cible": { "famille": "departement" } }
+      ]
+    },
+    {
       "id": "devis",
       "famille": "commande",
       "libelle": "Devis",

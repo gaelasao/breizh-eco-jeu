@@ -12,6 +12,23 @@ const valeurDe = (o, id) => o.champs?.find((c) => c.id === id)?.valeur ?? null;
 /** Courriers à traiter en urgence (le seul compteur de Relations : une chose due, jamais un total). */
 export const courriersUrgents = (m) => (m.objets ?? []).filter((o) => o.type === 'courrier' && valeurDe(o, 'statut') !== 'traité' && valeurDe(o, 'urgence') === 'haute').length;
 
+/**
+ * Demandes clients à rappeler : celles qui ne sont ni gagnées ni perdues et dont la date de relance est arrivée.
+ * Un compteur ne montre QUE ce qui est dû aujourd'hui — une demande calée pour la semaine prochaine n'est pas une
+ * action à faire, et un chiffre qui compte tout ce qui existe cesse d'être lu au bout de trois jours.
+ *
+ * Le jour dit COMPTE ICI, alors que l'alerte n'arrive que le lendemain (`core/relances.ts`). Ce n'est pas une
+ * incohérence : ceci est la liste du jour, celle-là le constat d'un oubli. La journée notée appartient encore à
+ * l'entreprise.
+ */
+export const demandesARelancer = (m, maintenant = new Date()) => (m.objets ?? []).filter((o) => {
+  if (o.type !== 'demande') return false;
+  const statut = valeurDe(o, 'statut');
+  if (statut === 'gagnée' || statut === 'perdue') return false;
+  const r = valeurDe(o, 'relance_le');
+  return typeof r === 'string' && r.slice(0, 10) <= jourDe(maintenant);
+}).length;
+
 const deux = (n) => String(n).padStart(2, '0');
 const jourDe = (d) => `${d.getFullYear()}-${deux(d.getMonth() + 1)}-${deux(d.getDate())}`;
 /** Tâches encore à faire : tout ce qui n'est pas terminé (à faire, en cours, bloquée). */
@@ -49,10 +66,12 @@ export function groupesNavigation(m, { aFaire = 0, vueAujourdhui = 'carte', main
   const u = m.univers ?? { roles: [], types: [] };
   const role = (id, defaut) => u.roles?.find((r) => r.id === id)?.pluriel ?? defaut;
   const famille = (f, defaut) => u.types?.find((t) => t.famille === f)?.pluriel ?? defaut;
+  const typeNom = (id, defaut) => u.types?.find((t) => t.id === id)?.pluriel ?? defaut;
   const urgents = courriersUrgents(m);
   const mecontents = m.satisfaction ? Object.values(m.satisfaction.clients ?? {}).filter((c) => c?.statut === 'mauvaise').length : 0;
   const trous = m.planning?.trousAujourdhui || 0;
   const dues = tachesDues(m, maintenant);
+  const aRappeler = demandesARelancer(m, maintenant);
   const vehicules = echeancesVehicules(m);
   const materiel = motMateriel(m);
   const p = m.profil ?? {};
@@ -76,6 +95,10 @@ export function groupesNavigation(m, { aFaire = 0, vueAujourdhui = 'carte', main
     ] },
     { id: 'relations', libelle: 'Relations', entrees: [
       { id: 'clients', vue: 'role:client', libelle: role('client', 'Clients'), icone: 'handshake' },
+      // Un prospect n'est pas un client : il n'apparaissait donc nulle part, et c'est précisément lui qu'on oublie.
+      { id: 'prospects', vue: 'role:prospect', libelle: role('prospect', 'Prospects'), icone: 'contact' },
+      { id: 'demandes', vue: 'type:demande', libelle: typeNom('demande', 'Demandes clients'), icone: 'inbox',
+        compte: aRappeler, compteLibelle: aRappeler ? pluriel(aRappeler, 'demande à rappeler', 'demandes à rappeler') : '' },
       { id: 'fournisseurs', vue: 'role:fournisseur', libelle: role('fournisseur', 'Fournisseurs'), icone: 'truck', raccourci: 'g f' },
       { id: 'courrier', vue: 'courrier', libelle: 'Courrier', icone: 'mail', raccourci: 'g m',
         compte: urgents, compteLibelle: urgents ? pluriel(urgents, 'courrier urgent', 'courriers urgents') : '' },

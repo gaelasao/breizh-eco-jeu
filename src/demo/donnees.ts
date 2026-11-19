@@ -28,6 +28,7 @@ function fabriqueCourrier(o: (id: string, f: ObjetMetier['famille'], t: string, 
 export function donneesDemo(maintenant: Date): ObjetMetier[] {
   const il_y_a = (minutes: number) => new Date(maintenant.getTime() - minutes * 60_000).toISOString();
   const dans = (jours: number) => new Date(maintenant.getTime() + jours * 86_400_000).toISOString().slice(0, 10);
+  const ilYA = (jours: number) => dans(-jours);
   const o = (
     id: string,
     famille: ObjetMetier['famille'],
@@ -146,6 +147,11 @@ export function donneesDemo(maintenant: Date): ObjetMetier[] {
     o('c-boulangerie', 'commande', 'commande_client', 'Commande client CC-221', { client: 't-boulangerie', montant: 3100, statut: 'en cours' }),
     o('c-hotel', 'commande', 'commande_client', 'Commande client CC-230', { client: 't-hotel', montant: 5400, statut: 'en cours' }),
     o('d-camping', 'commande', 'devis', 'Devis D-17', { client: 't-camping', montant: 9600, statut: 'accepté' }),
+    // ---- demandes entrées, avant tout chiffrage : l'appel du mardi, la visite calée, celle qu'on allait oublier
+    o('dm-prospect', 'commande', 'demande', 'Remplacement de la ligne d’air comprimé', { client: 't-prospect', origine: 'appel',
+      recue_le: ilYA(4), interlocuteur: 'M. Le Bihan', montant_estime: 7200, statut: 'visite faite', relance_le: ilYA(1), note: 'Cotes prises, devis à chiffrer.' }),
+    o('dm-atelier', 'commande', 'demande', 'Reprise de l’éclairage de l’atelier', { client: 't-prospect2', origine: 'recommandation',
+      recue_le: ilYA(2), interlocuteur: 'Mme Guivarc’h', montant_estime: 2400, statut: 'rendez-vous calé', relance_le: dans(2) }),
     o('f-041', 'commande', 'facture', 'Facture F-041', { tiers: 't-boulangerie', montant: 2900, payee: false, retard_jours: 42 }, { source: 'compta' }),
     o('f-044', 'commande', 'facture', 'Facture F-044', { tiers: 't-tycoz', montant: 1200, payee: true, retard_jours: 0 }, { source: 'compta' }),
     o('f-047', 'commande', 'facture', 'Facture F-047', { tiers: 't-hotel', montant: 2100, payee: false, retard_jours: 12 }, { source: 'compta' }),

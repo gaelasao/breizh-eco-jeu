@@ -132,6 +132,17 @@ export const SUJETS: readonly DefSujetSuivi[] = Object.freeze([
     prevenirJours: 7, tachesEtapes: true, alerte: 'echeance', pourLeClient: true,
   },
   {
+    /*
+     * AVANT LE DEVIS, IL Y A LA DEMANDE. Un appel, un mail, une visite : tant qu'elle n'est ni gagnée ni perdue,
+     * quelqu'un attend une réponse de l'entreprise. C'est le trou que l'écran Clients ne montrait pas — un prospect
+     * n'est pas encore un client, donc il n'apparaissait nulle part, et une demande oubliée ne coûte rien à personne
+     * sauf à l'entreprise. Le parcours suit les étapes réelles : reçue, rendez-vous calé, visite faite, devis à
+     * faire, devis remis. Gagnée ou perdue, elle sort du suivi.
+     */
+    id: 'prospection', types: ['demande'], etapes: { de: 'parcours', champ: 'statut', finies: ['gagnée', 'perdue'] },
+    champEcheance: 'relance_le', prevenirJours: 2, alerte: 'demande_sans_suite',
+  },
+  {
     id: 'devis', types: ['devis'], etapes: { de: 'parcours', champ: 'statut', finies: ['accepté', 'refusé'] },
     prevenirJours: 7, alerte: 'devis_sans_reponse', pourLeClient: true,
   },

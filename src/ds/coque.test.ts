@@ -50,7 +50,8 @@ test('rail : six groupes dans l’ordre du §6.1 (Aujourd’hui · Planning · P
   const g = N.groupesNavigation(monde({ departements: 4 }));
   assert.deepEqual(g.map((x) => x.id), ['aujourdhui', 'planning', 'pilotage', 'relations', 'activite', 'reseau']);
   assert.deepEqual(g.find((x) => x.id === 'pilotage')?.entrees.map((e) => e.id), ['sante', 'optimiser', 'departements']);
-  assert.deepEqual(g.find((x) => x.id === 'relations')?.entrees.map((e) => e.id), ['clients', 'fournisseurs', 'courrier', 'satisfaction']);
+  // le parcours commercial se lit de gauche à droite : prospect, demande entrée, client, puis ce qui en découle
+  assert.deepEqual(g.find((x) => x.id === 'relations')?.entrees.map((e) => e.id), ['clients', 'prospects', 'demandes', 'fournisseurs', 'courrier', 'satisfaction']);
   assert.deepEqual(g.find((x) => x.id === 'activite')?.entrees.map((e) => e.id), ['commandes', 'stock', 'vehicules', 'documents', 'lieux', 'saisir']);
   assert.deepEqual(g.find((x) => x.id === 'planning')?.entrees.map((e) => e.id), ['planning', 'taches', 'equipe'], 'les tâches et l’équipe se consultent dans Planning');
   // un groupe vide disparaît : sans droits d'administration ni score, pas de Réseau ; sans santé ni départements, Pilotage garde Optimiser

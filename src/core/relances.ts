@@ -25,7 +25,7 @@ import type { ContexteSuivi, Etape, Suivi } from './suivi.ts';
 
 // ------------------------------------------------------------------ les trois sujets
 
-export type SujetRelance = 'paiement' | 'reponse' | 'avancement';
+export type SujetRelance = 'paiement' | 'reponse' | 'suite' | 'avancement';
 
 /** Le rythme d'une relance, tel que l'entreprise le règle. Aucun des trois n'est obligatoire à régler. */
 export interface Rythme {
@@ -68,6 +68,24 @@ export const RELANCES: readonly DefRelance[] = Object.freeze([
     id: 'reponse', libelle: 'Un devis sans réponse', sujets: ['devis', 'livraison'], sur: 'attente', vers: 'dehors',
     aide: 'Le devis est parti et son parcours n’a pas bougé. Accepté ou refusé, il n’est plus relancé.',
     defaut: { apresJours: 7, tousLesJours: 10, maxFois: 2 },
+  },
+  {
+    /*
+     * Une demande à rappeler. DEUX CHOIX QUI COMPTENT, ET QUI NE VONT PAS DE SOI.
+     *
+     * `sur: 'echeance'`, et non l'attente du parcours. Le parcours ne sait dire qui attend que par sa STRUCTURE :
+     * la première valeur est ce que l'entreprise prépare, le reste attend. Or « devis à faire », c'est NOUS qui le
+     * devons, et « reçue », l'appel qu'on vient de prendre, ne serait jamais relancé — précisément le cas qu'on
+     * voulait couvrir. La date que l'entreprise a écrite elle-même (« À relancer le ») dit mieux que n'importe quelle
+     * déduction quand il faut rappeler.
+     *
+     * `vers: 'dedans'`. Un prospect, on l'appelle. Un message automatique « votre demande est sans suite » envoyé à
+     * quelqu'un qui attend NOTRE devis, c'est l'affaire perdue. Le rappel va donc à la personne qui tient la demande,
+     * et c'est elle qui décroche.
+     */
+    id: 'suite', libelle: 'Une demande à rappeler', sujets: ['prospection'], sur: 'echeance', vers: 'dedans',
+    aide: 'La date que vous avez notée (« À relancer le ») est arrivée. Gagnée ou perdue, la demande n’est plus rappelée.',
+    defaut: { apresJours: 0, tousLesJours: 3, maxFois: 4 },
   },
   {
     id: 'avancement', libelle: 'Une étape qui traîne', sujets: ['chantier', 'livraison'], sur: 'etape', vers: 'dedans',

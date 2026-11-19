@@ -88,7 +88,10 @@ test('règles de déblocage, une par une : chaque donnée ouvre ses rubriques, e
   const cas: Array<[string, unknown, string[]]> = [
     ['un client', monde({ satisfaction: { clients: { c1: { statut: 'inconnue' } } } }, [tiers('c1', 'client')]), ['clients', 'satisfaction', 'nexus', 'sante']],
     ['un fournisseur', monde({}, [tiers('f1', 'fournisseur')]), ['fournisseurs', 'nexus']],
-    ['un prospect', monde({}, [tiers('p1', 'prospect')]), ['pipeline']],
+    // un prospect ouvre SA rubrique : avant, il n'allumait qu'une vue de la carte, et la fiche n'était atteignable
+    // que par la recherche — c'est exactement l'oubli qu'on corrige
+    ['un prospect', monde({}, [tiers('p1', 'prospect')]), ['pipeline', 'prospects']],
+    ['une demande entrée', monde({}, [objet('dm1', 'commande', 'demande')]), ['commandes', 'demandes', 'optimiser', 'nexus', 'sante', 'saisir']],
     ['un partenaire', monde({}, [tiers('x1', 'partenaire')]), []],
     ['une personne de l’équipe', monde({}, [objet('e1', 'personne', 'employe')]), ['planning', 'equipe', 'optimiser', 'satisfaction', 'sante']],
     ['un lieu', monde({}, [objet('l1', 'lieu', 'atelier')]), ['lieux']],
@@ -158,7 +161,7 @@ test('rien n’est pris en otage : « Tout afficher », rubrique courante, actio
 
 test('droits et profils inchangés : la simplicité ne rend jamais ce que les droits retirent', () => {
   const tout = monde({ sante: { score: 60, couverture: 0.8 }, organisation: { nom: 'K', demo: false, departements: 3 } },
-    [tiers('c1', 'client'), tiers('f1', 'fournisseur'), objet('e1', 'personne', 'employe'), objet('l1', 'lieu', 'siege'), objet('fa1', 'commande', 'facture'), objet('a1', 'ressource', 'article'), vehicule('v1'), objet('d1', 'evenement', 'document'), objet('m1', 'evenement', 'courrier'), objet('t1', 'tache', 'tache')]);
+    [tiers('c1', 'client'), tiers('f1', 'fournisseur'), tiers('p1', 'prospect'), objet('dm1', 'commande', 'demande'), objet('e1', 'personne', 'employe'), objet('l1', 'lieu', 'siege'), objet('fa1', 'commande', 'facture'), objet('a1', 'ressource', 'article'), vehicule('v1'), objet('d1', 'evenement', 'document'), objet('m1', 'evenement', 'courrier'), objet('t1', 'tache', 'tache')]);
   const terrain = { ...tout, profil: { id: 'terrain', nom: 'Yann', peutAdministrer: false, peutPreparer: false, peutApprouver: false }, sante: null, optimisations: null };
   const d = S.deblocages(terrain);
   const droits = N.groupesNavigation(terrain);
