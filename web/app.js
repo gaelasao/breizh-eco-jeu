@@ -112,12 +112,26 @@ async function api(methode, chemin, corps, entetes = {}) {
   // une photo de justificatif part telle quelle (Blob), jamais dans du JSON : plusieurs mégaoctets n'ont rien à gagner
   // à être recopiés en base64, et c'est le serveur qui reconnaît le type dans les octets
   const octets = corps instanceof Blob;
-  const r = await fetch(`/api/v1${chemin}`, {
-    method: methode,
-    credentials: 'same-origin',
-    headers: { ...(ecriture ? { 'content-type': octets ? corps.type || 'image/jpeg' : 'application/json', 'x-lb-requete': '1' } : {}), ...entetes },
-    body: corps === undefined ? undefined : octets ? corps : JSON.stringify(corps),
-  });
+  let r;
+  try {
+    r = await fetch(`/api/v1${chemin}`, {
+      method: methode,
+      credentials: 'same-origin',
+      headers: { ...(ecriture ? { 'content-type': octets ? corps.type || 'image/jpeg' : 'application/json', 'x-lb-requete': '1' } : {}), ...entetes },
+      body: corps === undefined ? undefined : octets ? corps : JSON.stringify(corps),
+    });
+  } catch {
+    /* LE SERVEUR NE RÉPOND PLUS, ET IL FAUT LE DIRE. `fetch` qui n'aboutit pas jette un TypeError dont le message
+       est « Failed to fetch » : de l'anglais, technique, sans rien à faire avec. C'est ce qui s'affichait — vu en
+       vrai le 19 novembre 2026, sur un poste Windows dont l'application s'était arrêtée : ajouter une personne,
+       importer des tâches, demander un avis, tout répondait « fail to fetch », et les autres boutons ne faisaient
+       rien du tout. Le jeu SAVAIT pourtant qu'il était coupé : son indicateur affichait « Reconnexion… ». Il ne
+       le disait simplement pas à qui cliquait. On relie les deux : l'indicateur passe au rouge tout de suite, et
+       l'erreur dit ce qui se passe et quoi faire. */
+    E.direct = false;
+    majIndicateurDirect();
+    throw Object.assign(new Error('Living Business ne répond plus sur cet ordinateur. L’application s’est arrêtée ou redémarre : attendez quelques secondes et réessayez. Si cela dure, fermez Living Business et rouvrez-le — rien de ce que vous avez enregistré n’est perdu.'), { reseau: true });
+  }
   const d = await r.json().catch(() => ({}));
   if (r.status === 401 && d.erreur === 'non_authentifie') { await demarrer(); throw Object.assign(new Error('Session expirée : reconnectez-vous.'), { session: true }); }
   // administrateur d'un jeu en ligne : la validation en deux étapes passe avant tout le reste
@@ -6112,7 +6126,19 @@ function rendreAccueil() {
 
   const o = m.organisation;
   const plusLoin = Math.max(etapeCourante, o.etapeAccueil ?? 0);
-  const suivant = async (n) => { A.erreur = null; A.etape = n; try { await sauverEtapeAccueil(n); } catch { /* sans effet */ } await charger(); annoncer(`Étape ${n + 1} sur ${ETAPES_ACCUEIL.length} · ${ETAPES_ACCUEIL[n]?.[1] ?? ''}`); $('#titre-vue')?.focus({ preventScroll: true }); };
+  /* UN BOUTON QUI ÉCHOUE DOIT LE DIRE. « Passer cette étape » appelait cette fonction sans rattraper son échec, et
+     le rechargement qui suit n'était pas protégé : serveur arrêté, la promesse partait dans le vide et l'écran ne
+     bougeait pas d'un pixel. Vu en vrai le 19 novembre 2026 sur un poste Windows : « rien ne se passe », trois
+     fois de suite, sans le moindre message. Le numéro d'étape, lui, n'est pas critique : qu'il ne s'enregistre pas
+     ne doit empêcher personne d'avancer. Mais un rechargement qui échoue se dit. */
+  const suivant = async (n) => {
+    A.erreur = null;
+    A.etape = n;
+    try { await sauverEtapeAccueil(n); } catch { /* le numéro d'étape n'est pas critique : on avance quand même */ }
+    try { await charger(); } catch (e) { if (!e.session) { A.erreur = e.message; rendreAccueil(); } }
+    annoncer(`Étape ${n + 1} sur ${ETAPES_ACCUEIL.length} · ${ETAPES_ACCUEIL[n]?.[1] ?? ''}`);
+    $('#titre-vue')?.focus({ preventScroll: true });
+  };
   const nav = h('nav', { class: 'bz-etapes', 'aria-label': 'Étapes' }, h('ol', {}, ETAPES_ACCUEIL.map(([, l], i) => {
     const faite = i < (o.etapeAccueil ?? 0) && i !== etapeCourante; // vraiment enregistrée, pas seulement dépassée par un lien profond
     const contenu = [faite ? icone('check', { taille: 'sm' }) : h('span', { class: 'bz-etapes__numero', 'aria-hidden': 'true', texte: String(i + 1) }), h('span', { texte: l })];
@@ -6157,7 +6183,7 @@ function rendreAccueil() {
     h('ul', { class: 'bz-puces', role: 'list' }, liste.slice(0, 12).map((x) => h('li', {}, h('span', { class: 'bz-badge', texte: sansDemo(x.nom) }))), liste.length > 12 ? h('li', {}, h('span', { class: 'bz-badge', texte: `et ${liste.length - 12} de plus` })) : null)) : null);
   const boutons = (enregistrer, n, libelle = 'Enregistrer et continuer') => h('div', { class: 'bz-groupe-boutons bz-completer__pied' },
     etapeCourante > 0 ? h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { A.etape = etapeCourante - 1; A.erreur = null; rendreAccueil(); $('#titre-vue')?.focus({ preventScroll: true }); } }, icone('arrow-left'), 'Retour') : null,
-    h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => suivant(n) }, 'Passer cette étape'),
+    h('button', { type: 'button', class: 'bz-bouton bz-bouton--fantome', onclick: () => { suivant(n).catch((e) => { if (!e.session) { A.erreur = e.message; rendreAccueil(); } }); } }, 'Passer cette étape'),
     boutonPrincipal(libelle, async () => { try { await enregistrer(); } catch (e) { A.envoi = false; if (!e.session) A.erreur = e.message; rendreAccueil(); } }, { occupe: A.envoi, enCours: 'Enregistrement…' }));
 
   let corps;
@@ -6259,7 +6285,7 @@ function rendreAccueil() {
       pourquoi('Connecter un logiciel évite la double saisie : c’est le premier gain de temps. Les connexions sont chiffrées sur votre serveur et ne repartent jamais vers le navigateur.'),
       h('div', { class: 'bz-groupe-boutons bz-completer__pied' },
         h('button', { type: 'button', class: 'bz-bouton bz-bouton--secondaire', onclick: () => { A.etape = etapeCourante - 1; rendreAccueil(); } }, icone('arrow-left'), 'Retour'),
-        boutonPrincipal('Continuer', () => suivant(6))),
+        boutonPrincipal('Continuer', () => { suivant(6).catch((e) => { if (!e.session) { A.erreur = e.message; rendreAccueil(); } }); })),
     ];
     if (!E.sources) api('GET', '/sources').then((s) => { E.sources = s; if (E.vue === 'accueil') rendreAccueil(); }).catch(() => {});
     if (!CONNECTER) chargerConnecter().then(() => { if (E.vue === 'accueil') rendreAccueil(); }).catch(() => {});
