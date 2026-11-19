@@ -860,6 +860,23 @@
       ]
     },
     {
+      "id": "reception",
+      "famille": "commande",
+      "libelle": "Réception",
+      "pluriel": "Réceptions",
+      "champs": [
+        { "id": "commande", "libelle": "Commande reçue", "type": "reference", "cible": { "famille": "commande" }, "obligatoire": true },
+        { "id": "recue_le", "libelle": "Reçue le", "type": "date" },
+        { "id": "bl_numero", "libelle": "Numéro du bon de livraison", "type": "texte" },
+        { "id": "montant_bl", "libelle": "Montant du bon de livraison", "type": "montant", "unite": "€" },
+        { "id": "quantites", "libelle": "Les quantités", "type": "choix", "choix": ["conformes", "manquantes", "en trop", "pas encore vérifiées"] },
+        { "id": "articles", "libelle": "Ce qui a été livré", "type": "choix", "choix": ["conforme à la commande", "pas ce qui était demandé", "en partie seulement", "pas encore vérifié"] },
+        { "id": "ecart", "libelle": "Ce qui cloche", "type": "texte" },
+        { "id": "bon_a_payer", "libelle": "Bon à payer", "type": "booleen" },
+        { "id": "departement", "libelle": "Département", "type": "reference", "cible": { "famille": "departement" } }
+      ]
+    },
+    {
       "id": "facture",
       "famille": "commande",
       "libelle": "Facture",

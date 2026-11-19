@@ -76,6 +76,7 @@ export const SUJETS: readonly Sujet[] = Object.freeze([
   { id: 'demande_sans_suite', libelle: 'Une demande client à rappeler', aide: 'La date que vous aviez notée pour rappeler un prospect est arrivée.', defaut: false },
   { id: 'devis_sans_reponse', libelle: 'Un devis sans réponse', aide: 'Un devis envoyé reste sans réponse depuis plus d’une semaine.', defaut: false },
   { id: 'commande', libelle: 'Une commande client à traiter', aide: 'Livrée mais pas encore facturée, ou livraison en retard.', defaut: false },
+  { id: 'reception_ecart', libelle: 'Une réception qui ne concorde pas', aide: 'Le bon de livraison ne colle pas à la commande, ou le même bon est enregistré deux fois.', defaut: false },
   { id: 'echeance', libelle: 'Une échéance qui approche', aide: 'Contrôle technique, révision, document qui expire, tâche en retard.', defaut: true },
   { id: 'stock_bas', libelle: 'Un stock bas', aide: 'Un article passe sous son seuil d’alerte.', defaut: false },
   { id: 'demande_reseau', libelle: 'Une demande du réseau', aide: 'Une entreprise de Breizhcosystem attend votre réponse.', defaut: false },
@@ -239,6 +240,11 @@ export interface SourcesAlertes {
    */
   relances?: () => readonly Relance[];
   /**
+   * Le rapprochement d'une réception, déjà calculé par le monde (`core/reception.ts`) : ce module ne compare pas
+   * deux montants de son côté. Un seul endroit rapproche, et l'alerte dit ce qu'il a trouvé.
+   */
+  reception?: (id: string) => { problemes: readonly string[]; doublon: string | null; payeQuandMeme: boolean } | null;
+  /**
    * CE QU'ON ÉCRIT AU ROBOT. Ce module tient le canal ; il n'écrit JAMAIS dans le monde (c'est sa règle depuis le
    * premier jour). Quand un message arrive de la conversation branchée, il le passe ici et renvoie la réponse que
    * cette fonction rend. Les fiches créées, les droits, le journal : tout cela se passe de l'autre côté.
@@ -298,6 +304,7 @@ function quoiFaire(sujet: string, type: string): string {
   if (sujet === 'demande_sans_suite') return 'À rappeler.';
   if (sujet === 'stock_bas') return 'À commander.';
   if (sujet === 'commande') return 'À facturer.';
+  if (sujet === 'reception_ecart') return 'À régler avec le fournisseur avant de payer.';
   if (sujet === 'erreur_synchro') return 'À vérifier dans Réglages, Connecteurs.';
   if (sujet === 'demande_reseau') return 'À répondre.';
   if (type === 'vehicule') return 'Prendre rendez-vous.';
@@ -1060,6 +1067,31 @@ export class Alertes {
         const montant = typeof o.champs.montant === 'number' ? ` de ${mesure(o.champs.montant, '€')}` : '';
         faits.push({ cle: `commande:${o.id}`, sujet: 'commande', urgent: false, vue: 'type:commande_client',
           texte: uneLigne(`Commande ${sansMention(o.nom)}${montant} : livrée, pas encore facturée. À facturer.`) });
+      }
+    }
+
+    /*
+      * UNE RÉCEPTION QUI NE CONCORDE PAS. C'est l'argent qui part sans que personne ne s'en aperçoive : un bon
+      * supérieur à la commande, ou le même bon enregistré deux fois. Les deux se paient, et les deux se repèrent
+      * sans rien deviner. NON cochée au départ, malgré l'envie : la maison promet trois sujets seulement à la
+      * première ouverture (« on ne noie personne dès le premier jour »), et une quatrième case cochée en douce vide
+      * cette promesse de son sens. Elle se coche en un clic dans Réglages, Alertes — et elle mérite de l'être,
+      * parce qu'un bon payé deux fois ne se rattrape pas.
+      *
+      * Les questions sans réponse (« quantités pas encore vérifiées ») ne sonnent PAS : une réception de la veille
+      * qu'on n'a pas eu le temps de contrôler n'est pas une anomalie, et une alerte qui se déclenche sur chaque
+      * livraison cesse d'être lue au bout d'une semaine.
+      */
+    if (choisis.has('reception_ecart')) {
+      for (const o of objets) {
+        if (o.type !== 'reception' || prisEnCharge.has(o.id)) continue;
+        const r = this.#src.reception?.(o.id) ?? null;
+        if (!r || (!r.problemes.length && !r.payeQuandMeme)) continue;
+        faits.push({
+          cle: `reception_ecart:${o.id}`, sujet: 'reception_ecart', urgent: r.payeQuandMeme || r.doublon !== null,
+          vue: 'type:reception',
+          texte: uneLigne(`${sansMention(o.nom)} : ${r.payeQuandMeme ? `marquée bon à payer alors que ${r.problemes[0] ?? 'tout n’est pas vérifié'}` : (r.problemes[0] ?? '')}. ${quoiFaire('reception_ecart', o.type)}`),
+        });
       }
     }
 

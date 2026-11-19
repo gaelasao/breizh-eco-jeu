@@ -144,6 +144,11 @@ export function donneesDemo(maintenant: Date): ObjetMetier[] {
     // ---- Commandes, devis, factures
     o('c-negoce', 'commande', 'commande_fournisseur', 'Commande fournisseur CF-104', { fournisseur: 't-negoce', montant: 2300, livraison_prevue: dans(3), statut: 'confirmée' }),
     o('c-grossiste', 'commande', 'commande_fournisseur', 'Commande fournisseur CF-105', { fournisseur: 't-grossiste', montant: 860, livraison_prevue: dans(6), statut: 'envoyée' }),
+    // ---- réceptions : le bon de livraison contre la commande, les trois cas qu'on rencontre vraiment
+    o('rc-negoce', 'commande', 'reception', 'Réception CF-104', { commande: 'c-negoce', recue_le: ilYA(1), bl_numero: 'BL-2026/114',
+      montant_bl: 2415, quantites: 'conformes', articles: 'conforme à la commande' }),
+    o('rc-negoce-2', 'commande', 'reception', 'Réception CF-104 (second bon)', { commande: 'c-negoce', recue_le: ilYA(1), bl_numero: 'bl 2026 114',
+      montant_bl: 2415, quantites: 'pas encore vérifiées', articles: 'pas encore vérifié' }),
     o('c-boulangerie', 'commande', 'commande_client', 'Commande client CC-221', { client: 't-boulangerie', montant: 3100, statut: 'en cours' }),
     o('c-hotel', 'commande', 'commande_client', 'Commande client CC-230', { client: 't-hotel', montant: 5400, statut: 'en cours' }),
     o('d-camping', 'commande', 'devis', 'Devis D-17', { client: 't-camping', montant: 9600, statut: 'accepté' }),

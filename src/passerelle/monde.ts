@@ -11,6 +11,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { RegistreActions, transition, type CommandeAction, type Executeur } from '../core/actions.ts';
 import { etatChantier, phraseChantier, type EtatChantier } from '../core/chantier.ts';
 import { indemniteKilometrique, type Indemnite } from '../core/kilometres.ts';
+import { etatReception, phraseReception, situationsReception, type EtatReception } from '../core/reception.ts';
 import { indicateursDepuisRegles, type DetailCouverture } from '../core/indicateurs.ts';
 import { fraicheur, type Fraicheur, type ObjetMetier, type ValeurChamp } from '../core/model.ts';
 import { majQuetes, type Quete } from '../core/quetes.ts';
@@ -215,7 +216,16 @@ export interface ObjetVue {
    * l'écran n'a qu'à dessiner.
    */
   chantier: VueChantier | null;
+  /**
+   * Rapprochement d'une réception avec sa commande : écart de montant, bon déjà vu, ce qui reste à vérifier.
+   * null pour tout le reste. Calculé ici parce qu'il faut voir les AUTRES réceptions pour reconnaître un doublon,
+   * et que l'écran n'a jamais le monde entier sous la main.
+   */
+  reception: VueReception | null;
 }
+
+/** L'état d'une réception, plus sa phrase : l'écran dessine, il ne rapproche rien. */
+export type VueReception = EtatReception & { phrase: string };
 
 /** L'état d'un chantier, plus la phrase toute faite : l'écran ne refait ni le calcul ni la formulation. */
 export type VueChantier = EtatChantier & { phrase: string };
@@ -498,7 +508,45 @@ export class Monde {
       jour: o.famille === 'personne' ? this.#jourDe(p, e, o.id, isoJour(this.#o.maintenant())) : null,
       vehicule: estMaterielSuivi(o) ? this.#vueVehicule(o, e, p) : null,
       chantier: o.famille === 'projet' ? (() => { const c = etatChantier(o); return { ...c, phrase: phraseChantier(c) }; })() : null,
+      reception: o.type === 'reception' ? this.#vueReception(o, e) : null,
     };
+  }
+
+  /** Les situations des réceptions : le même rapprochement que la fiche, pour que la liste dise la même chose. */
+  #situationsReceptions(objets: readonly ObjetMetier[], e: Espace, ctx: { maintenant: Date; ageMaxMs: number }): Situation[] {
+    const receptions = objets.filter((o) => o.type === 'reception');
+    if (!receptions.length) return [];
+    const commandeDe = (r: ObjetMetier) => (typeof r.champs.commande === 'string' ? e.objets.get(r.champs.commande) ?? null : null);
+    const fournisseurDe = (r: ObjetMetier) => { const f = commandeDe(r)?.champs.fournisseur; return typeof f === 'string' && f ? f : null; };
+    return receptions.flatMap((r) => situationsReception(r, commandeDe(r), receptions, fournisseurDe, this.#responsable(r, e.objets), ctx));
+  }
+
+  /**
+   * Le rapprochement d'une réception, lisible de l'extérieur (les alertes) sans refaire le calcul. Un seul endroit
+   * compare le bon et la commande ; tout le reste lit ce qu'il a trouvé.
+   */
+  rapprochement(id: string): VueReception | null {
+    const o = this.#reel.objets.get(id);
+    return o !== undefined && o.type === 'reception' ? this.#vueReception(o, this.#reel) : null;
+  }
+
+  /**
+   * Rapprochement d'une réception. Le fournisseur d'une réception est celui de SA commande : on ne le ressaisit
+   * pas sur la réception, où il finirait par diverger de la commande.
+   */
+  #vueReception(o: ObjetMetier, e: Espace): VueReception {
+    const objets = e.objets;
+    const commandeDe = (r: ObjetMetier) => {
+      const id = r.champs.commande;
+      return typeof id === 'string' ? objets.get(id) ?? null : null;
+    };
+    const fournisseurDe = (r: ObjetMetier) => {
+      const f = commandeDe(r)?.champs.fournisseur;
+      return typeof f === 'string' && f ? f : null;
+    };
+    const autres = [...objets.values()].filter((x) => x.type === 'reception');
+    const etat = etatReception(o, commandeDe(o), autres, fournisseurDe);
+    return { ...etat, phrase: phraseReception(etat) };
   }
 
   /**
@@ -869,6 +917,8 @@ export class Monde {
       ...objets.flatMap((o) => situationsPour(this.#univers, o, this.#responsable(o, e.objets), ctx)),
       // échéances AU KILOMÉTRAGE et compteur trop vieux : ce que les règles de date ne savent pas voir
       ...situationsMateriels(objets, (o) => this.#responsable(o, e.objets), ctx),
+      // bon de livraison contre commande : une comparaison entre DEUX fiches, qu'aucune règle de seuil ne sait faire
+      ...this.#situationsReceptions(objets, e, ctx),
     ];
   }
 

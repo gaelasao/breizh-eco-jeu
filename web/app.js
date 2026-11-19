@@ -3782,6 +3782,7 @@ function rendreFiche() {
           ['Données', LIBELLES.mode[o.mode] === 'Fictif (démo)' ? 'Exemple' : o.mode === 'simulation' ? 'Simulation' : 'Vos données'],
         ])),
       modifiable && f.objet.source.id.startsWith('connecteur:') ? h('p', { class: 'bz-t-micro bz-texte-2', texte: `Une modification est reportée dans « ${f.objet.source.libelle} ».` }) : null,
+      blocReception(o),
       blocChantier(o),
       blocProposer(o),
       blocDonneesPersonnelles(o),
@@ -3868,6 +3869,36 @@ function alerteBodaccFiche(o) {
  * le contraire de la vérité quand personne n'a rien renseigné. Les deux postes restent l'un sous l'autre, sans
  * moyenne : un chantier qui tient ses heures et explose ses achats a un problème d'achats, pas un demi-problème.
  */
+/**
+ * LA RÉCEPTION CONTRE LA COMMANDE. Trois blocs d'information, dans l'ordre où ça coûte : ce qui cloche, ce qui
+ * reste à vérifier, et l'écart de montant chiffré. Tout vient de la passerelle (`core/reception.ts`) : l'écran ne
+ * rapproche rien, il montre ce qui a été rapproché.
+ *
+ * « Marquée bon à payer alors que… » est dit EN PREMIER et en rouge. C'est le seul cas qui coûte vraiment de
+ * l'argent, et c'est précisément celui qu'un écran poli aurait tendance à ranger en bas.
+ */
+function blocReception(o) {
+  const r = o.reception;
+  if (!r) return null;
+  const ton = r.payeQuandMeme || r.problemes.length ? 'critique' : r.manque.length ? 'attention' : 'ok';
+  const liste = (titre, items) => (items.length ? [
+    h('p', { class: 'bz-t-petit bz-texte-2', texte: titre }),
+    // écrits tels quels, en minuscule : ce sont les mêmes bouts de phrase que la ligne du haut (« À ne pas payer
+    // en l'état : il manque des quantités »), et une capitale ajoutée ici les ferait diverger de l'alerte
+    h('ul', { class: 'bz-liste-simple' }, items.map((t) => h('li', { class: 'bz-t-petit', texte: t }))),
+  ] : []);
+  const e = r.ecartMontant;
+  return h('section', { class: 'bz-fiche__section', 'aria-labelledby': 'fiche-reception' },
+    h('h3', { class: 'bz-t-titre-4', id: 'fiche-reception', texte: 'Bon de livraison et commande' }),
+    h('p', { class: 'bz-resultat', 'data-ton': ton },
+      icone(ton === 'critique' ? 'triangle-alert' : ton === 'attention' ? 'info' : 'circle-check', { taille: 'sm' }),
+      h('span', { texte: r.phrase })),
+    ...liste('Ce qui cloche', r.problemes),
+    ...liste('Reste à vérifier', r.manque),
+    e ? h('p', { class: 'bz-t-petit bz-texte-2', texte: `Commande ${nfEuro.format(e.commande)} · bon de livraison ${nfEuro.format(e.bl)}${e.ecart === 0 ? ' · identiques' : ` · ${e.ecart > 0 ? '+' : '−'}${nfEuro.format(Math.abs(e.ecart))}`}` }) : null,
+    r.doublon ? h('p', {}, h('button', { type: 'button', class: 'bz-lien', onclick: () => selectionner(r.doublon) }, 'Voir l’autre réception qui porte ce numéro de bon')) : null);
+}
+
 function blocChantier(o) {
   const c = o.chantier;
   if (!c || (!c.heures && !c.achats)) return null;

@@ -254,6 +254,8 @@ export class Application {
       offre: () => { const e = this.nexus.etat(); return { relie: e.relie, plan: e.droits?.plan ?? null, etatAbonnement: e.droits?.etatAbonnement ?? null }; },
       // « un devis sans réponse » vient du moteur de suivi, qui compte les jours une seule fois (core/relances.ts)
       relances: () => { try { return this.suivis.relancesPreparees(); } catch { return []; } },
+      // le bon de livraison contre la commande : comparé une seule fois, dans le monde (core/reception.ts)
+      reception: (id) => monde.rapprochement(id),
       // ce qu'on écrit au robot : `alertes.ts` tient le canal, ici on agit dans le monde et on rend la réponse
       surMessage: (texte) => Promise.resolve(this.#repondreAuRobot(texte)),
     }, this.#chiffreur, { etat: etat?.alertes ?? null, changement, ...(f ? { fetch: f } : {}) });
