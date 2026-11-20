@@ -91,6 +91,48 @@ chacune ses propres essais.
    d'office à l'invitation, ou invitation faite par l'entreprise dans le jeu. **Rien ne doit créer un accès tout
    seul sans que ce soit un choix écrit.**
 
+## Comment une instance est servie : un sous-domaine
+
+**Un sous-domaine par entreprise** (`kerlann.exemple.fr`), pas un chemin sur la façade.
+
+La raison n'est pas générique. **Le jeu est construit sur l'idée qu'il possède son origine** : il vérifie
+`memeOrigine` sur tout ce qui écrit, refuse les noms d'hôte non déclarés (`LB_HOTES`), pose son cookie sur son
+hôte, et garde des choses dans le `localStorage` du navigateur. Avec un chemin, toutes les entreprises partagent
+une origine : le `localStorage` devient commun, les cookies aussi, et `memeOrigine` ne sépare plus personne. Ce
+serait remplacer une isolation garantie par construction par une isolation à re-prouver dans chaque vérification —
+exactement ce qu'on a refusé en choisissant une instance par client.
+
+Le coût est plus petit qu'il n'y paraît : un enregistrement DNS générique (`*.exemple.fr`) et un certificat
+générique que Caddy obtient seul par la méthode DNS-01. Une mise en place, puis plus rien.
+
+### Le piège des sous-domaines, et la parade (faite)
+
+N'importe quel sous-domaine peut poser un cookie pour le domaine parent, et ce cookie est ensuite envoyé à tous ses
+voisins ET à la façade. Une faille dans l'interface d'UNE entreprise suffirait donc à poser chez ses voisines un
+cookie de session qui masque le vrai.
+
+Les deux cookies portent maintenant le préfixe **`__Host-`** en HTTPS (`__Host-lb_session`, `__Host-nx_session`) :
+le navigateur n'accepte un cookie qui le porte que de l'hôte lui-même, en `Secure`, `Path=/` et **sans** `Domain`.
+Un voisin ne peut pas en poser un. L'ancien nom reste relu le temps que les sessions ouvertes s'éteignent — une
+mise à jour ne déconnecte personne — et la déconnexion efface les deux.
+
+En clair (développement local), le navigateur refuse le préfixe : l'ancien nom est gardé.
+
+### Même domaine ou domaine séparé : les deux marchent, et ça ne change que le gabarit
+
+Un **domaine séparé** pour les instances (`*.livingbusiness.fr`) supprime toute parenté de cookies entre les
+clients et la façade : le navigateur les traite comme des sites étrangers. C'est le plus propre, et ça coûte un nom
+de domaine. Le code ne voit pas la différence : seul `NEXUS_INSTANCE_URL` change
+(`https://{org}.exemple.fr` ou `https://{org}.livingbusiness.fr`). La protection `__Host-` vaut dans les deux cas.
+
+### À poser le jour de l'hébergement
+
+- DNS : un enregistrement générique `*.<domaine des instances>` vers le serveur.
+- Caddy : certificat générique par DNS-01 (il faut une clé d'API chez le fournisseur DNS).
+- Chaque instance démarre avec `LB_HOTES=<son sous-domaine>` et `LB_ORIGINE=https://<son sous-domaine>` : une
+  instance refuse déjà de répondre à un nom d'hôte qu'on ne lui a pas déclaré.
+- La façade démarre avec `NEXUS_INSTANCE_URL` et `NEXUS_PORTE_CLE`.
+
 ## Ce qui reste à construire
 
 1. **L'aiguillage** — inscription → instance créée, installée, démarrée, servie ; puis arrêt, sauvegarde,

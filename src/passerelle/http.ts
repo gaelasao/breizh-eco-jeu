@@ -328,7 +328,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
     return chemin === '/automatisations/reglages' || /^\/automatisations\/[a-z-]{1,40}$/.test(chemin) || chemin === '/bodacc';
   };
 
-  const envoyer = (res: ServerResponse, statut: number, corps: unknown, entetes: Record<string, string> = {}) => {
+  const envoyer = (res: ServerResponse, statut: number, corps: unknown, entetes: Record<string, string | string[]> = {}) => {
     const b = Buffer.from(JSON.stringify(corps));
     res.writeHead(statut, { ...ENTETES_SECURITE, 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'content-length': String(b.length), ...entetes });
     res.end(b);
@@ -351,8 +351,26 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       req.on('error', () => ko(new ErreurApi(400, 'lecture_impossible')));
     });
 
+  /*
+   * LE PRÉFIXE `__Host-`, ET CE QU'IL EMPÊCHE. Deux instances hébergées sont VOISINES sur le même domaine
+   * (`kerlann.exemple.fr`, `autre.exemple.fr`). Or n'importe quel sous-domaine peut poser un cookie pour le
+   * domaine parent, et ce cookie est alors envoyé à tous les autres. Une faille dans l'interface d'une seule
+   * entreprise suffirait donc à poser chez ses voisines un `lb_session` qui masque le vrai — et à les empêcher
+   * d'entrer, voire à leur faire reprendre une session choisie par quelqu'un d'autre.
+   *
+   * Un cookie nommé `__Host-…` n'est accepté par le navigateur QUE s'il est posé par l'hôte lui-même, en `Secure`,
+   * `Path=/` et sans `Domain` : un voisin ne peut pas en poser un. C'est la seule parade qui tienne, et elle ne
+   * coûte rien.
+   *
+   * En clair (développement local, sans HTTPS), le préfixe est refusé par le navigateur : on garde alors l'ancien
+   * nom. L'ANCIEN NOM EST AUSSI RELU en HTTPS, le temps que les sessions déjà ouvertes s'éteignent d'elles-mêmes —
+   * une mise à jour ne doit déconnecter personne. Le nouveau est préféré : s'il est là, c'est lui qui vaut.
+   */
+  const NOM_COOKIE = opts.cookieSecure ? '__Host-lb_session' : 'lb_session';
   const sessionDe = (req: IncomingMessage): [string, Session] | null => {
-    const m = /(?:^|;\s*)lb_session=([A-Za-z0-9_-]{43})(?:;|$)/.exec(req.headers.cookie ?? '');
+    const brut = req.headers.cookie ?? '';
+    const m = new RegExp(`(?:^|;\\s*)${NOM_COOKIE.replace('$', '\\$')}=([A-Za-z0-9_-]{43})(?:;|$)`).exec(brut)
+      ?? /(?:^|;\s*)lb_session=([A-Za-z0-9_-]{43})(?:;|$)/.exec(brut);
     if (!m?.[1]) return null;
     const s = sessions.get(m[1]);
     if (!s || s.expire < Date.now()) { if (s) fermerSession(m[1]); return null; }
@@ -362,7 +380,15 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
   const fermerSession = (sid: string) => { sessions.delete(sid); monde.oublierSession(sid); };
 
   const cookie = (valeur: string, maxAge: number) =>
-    `lb_session=${valeur}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${opts.cookieSecure ? '; Secure' : ''}`;
+    `${NOM_COOKIE}=${valeur}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${opts.cookieSecure ? '; Secure' : ''}`;
+  /**
+   * Se déconnecter efface les DEUX noms : pendant la transition, une session ouverte sous l'ancien nom doit partir
+   * elle aussi. Une déconnexion qui laisse un cookie derrière elle n'est pas une déconnexion.
+   */
+  const effacerCookies = (): Record<string, string | string[]> => {
+    const vide = cookie('', 0);
+    return { 'set-cookie': NOM_COOKIE === 'lb_session' ? vide : [vide, `lb_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${opts.cookieSecure ? '; Secure' : ''}`] };
+  };
 
   /** Ouvre une session neuve (nouvel identifiant : pas de fixation de session). Renvoie l'en-tête set-cookie. */
   const ouvrirSession = (req: IncomingMessage, s: Omit<Session, 'expire'>): Record<string, string> => {
@@ -438,7 +464,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       if (methode === 'DELETE') {
         const s = sessionDe(req);
         if (s) fermerSession(s[0]);
-        envoyer(res, 200, { ok: true }, { 'set-cookie': cookie('', 0) });
+        envoyer(res, 200, { ok: true }, effacerCookies());
         return true;
       }
       throw new ErreurApi(405, 'methode');
@@ -510,7 +536,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       app.importerEffacements(d.registre);
       remplacerApplication(await app.remplacer(etat, { quoi: 'copie exportée restaurée à l’installation' }));
       if (app.comptes.installe) installation.consommer();
-      envoyer(res, 200, { ok: true, installe: app.comptes.installe }, { 'set-cookie': cookie('', 0) });
+      envoyer(res, 200, { ok: true, installe: app.comptes.installe }, effacerCookies());
       return true;
     }
     let m = /^\/invitation\/([A-Za-z0-9_-]{43})$/.exec(chemin);
@@ -911,7 +937,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
         // registre des effacements repris avec la copie (autre serveur) : réuni au registre local, puis rejoué
         app.importerEffacements(d.registre);
         remplacerApplication(await app.remplacer(etat, { par: profil, quoi: typeof d.nom === 'string' ? `copie automatique restaurée (${d.nom.slice(0, 60)})` : 'copie exportée restaurée' }));
-        return envoyer(res, 200, { ok: true }, { 'set-cookie': cookie('', 0) });
+        return envoyer(res, 200, { ok: true }, effacerCookies());
       }
       throw new ErreurApi(404, 'introuvable');
     }
