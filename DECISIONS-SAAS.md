@@ -168,13 +168,37 @@ Elle montre l'état de chaque instance et sait **redémarrer** celle qui est en 
 couper l'instance d'une entreprise qui travaille, depuis une console, c'est une panne qu'elle ne comprendra pas.
 L'arrêt est une règle (l'inactivité d'un compte gratuit), pas un geste.
 
+## L'abonnement pilote la marche (fait)
+
+Un paiement confirmé par Stripe passe l'instance en **continu** ; un impayé la rend **à la demande**. C'est la seule
+chose qui sépare le gratuit du payant, et elle est branchée sur le webhook.
+
+Deux garanties qui comptent plus que la règle elle-même :
+
+- **La suite est appelée après que l'état est écrit, hors transaction.** Démarrer une instance prend des secondes ;
+  une transaction tenue ouverte pendant ce temps bloquerait les autres webhooks de la même entreprise.
+- **Un échec ne change rien à la réponse faite à Stripe.** Un paiement est un fait ; une instance qui ne démarre
+  pas est une panne. Les confondre ferait rejouer le paiement indéfiniment, et chaque essai relancerait un
+  démarrage qui échoue.
+
+Et une règle qu'on hérite du modèle d'abonnement, vérifiée au passage : **un refus de paiement ne bascule rien tant
+que Stripe tient l'abonnement pour en règle**. Ce qui est payé va à son terme ; c'est l'état relu chez Stripe qui
+décide, jamais le contenu de l'événement reçu.
+
+### Les réglages de l'hébergement
+
+`NEXUS_INSTANCES_RACINE` (où vivent les dossiers), `NEXUS_JEU_ENTREE` (le jeu à lancer) et `NEXUS_PORTE_CLE` (la clé
+privée de la porte) **vont ensemble**. Partiels, le serveur le dit au démarrage et n'héberge rien — plutôt que de
+laisser chercher pourquoi « Ouvrir mon Living Business » ne fait rien. Avec les trois, la console de l'éditeur
+montre les instances et l'abonnement pilote leur marche.
+
 ## Ce qui reste à construire
 
 1. **Les limites par instance** (mémoire, processeur) : sans elles, une entreprise qui s'emballe gêne les autres.
 2. **Le proxy** : Caddy devant, un sous-domaine par entreprise, et l'aiguillage qui lui dit où envoyer chacun.
 3. **Les sauvegardes par instance**, et leur restauration essayée pour de vrai.
-4. **L'abonnement branché sur la marche** : un paiement confirmé passe l'instance en continu, un impayé la repasse
-   à la demande (`reglerMarche` existe, le webhook Stripe ne l'appelle pas encore).
+4. **L'arrêt des instances qui dorment** : `arreterInactives` existe, mais rien ne l'appelle encore à intervalle
+   régulier. Sans ça, une instance gratuite démarrée une fois tourne pour toujours.
 2. **L'adresse publique d'une instance** : le gabarit (`NEXUS_INSTANCE_URL`) est lu, mais aucun domaine n'est
    servi. À décider : un sous-domaine par entreprise, ou un chemin sur la façade.
 3. **Le guide des connexions** pour l'auto-hébergé : créer son application Google et Microsoft, portée par portée.
