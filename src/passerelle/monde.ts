@@ -882,6 +882,33 @@ export class Monde {
     return { ...nouveau, apercu: this.#apercu(nouveau) };
   }
 
+  /**
+   * UN ACCÈS POUR QUELQU'UN QUE LA FAÇADE A DÉJÀ AUTORISÉ (instance hébergée seulement). Un collaborateur invité
+   * dans l'entreprise sur Breizhcosystem n'avait nulle part où entrer ici : l'instance ne connaît que le
+   * propriétaire, et la porte le refusait. Le refuser, c'est une impasse ; lui donner le seul profil existant,
+   * c'est lui donner l'administration. Ni l'un ni l'autre.
+   *
+   * Il reçoit donc le PLANCHER : il entre, et il ne voit rien — aucun type, aucun lieu, aucun droit. L'entreprise
+   * lui ouvre ce qu'elle veut dans Réglages › Accès, où son nom l'attend. Entrer et voir sont deux choses, et c'est
+   * la seconde qui appartient à l'entreprise.
+   *
+   * L'identifiant est DÉDUIT de la personne : revenir ne crée pas un second profil, et il n'y a rien à ranger.
+   */
+  accesPourPersonne(acteur: string, personne: string, nom: string): Profil {
+    const id = `p-bz-${createHash('sha256').update(personne).digest('hex').slice(0, 12)}`;
+    const deja = this.#profils.find((x) => x.id === id);
+    if (deja) return deja;
+    if (this.#profils.length >= 1000) throw new ErreurApi(409, 'trop_de_profils');
+    const neuf: Profil = {
+      id, nom: `${nom} (Breizhcosystem)`.slice(0, 80), role: 'collaborateur',
+      types: [], lieux: [], rolesTiers: [], departements: [],
+      peutPreparer: false, peutApprouver: false, voitScore: false, peutAdministrer: false, voitMotifsAbsence: false,
+    };
+    this.#profils.push(neuf);
+    this.#tracer({ ...SYSTEME, id: acteur }, this.#reel, 'acces.cree', null, `${neuf.nom} — par la porte, sans aucun droit`);
+    return neuf;
+  }
+
   creerAcces(p: Profil, d: unknown) {
     if (!p.peutAdministrer) throw new ErreurApi(403, 'interdit');
     if (!estObj(d)) throw new ErreurApi(400, 'requete_invalide');

@@ -510,8 +510,14 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
         dejaVu: (j, e) => jetonsServis.servi(j, e, maintenant),
       });
       if (!r.ok || !r.charge) throw new ErreurApi(403, 'porte_refusee', PHRASE_REFUS);
-      // le rôle de la façade se TRADUIT en profil du jeu ; l'instance ne reçoit jamais de droits tout faits
-      const profil = profilPourRole(app.monde.profils(), r.charge.role);
+      /*
+       * Le rôle de la façade se TRADUIT en profil du jeu ; l'instance ne reçoit jamais de droits tout faits.
+       * Un collaborateur que l'entreprise a invité sur Breizhcosystem et qui n'a pas encore d'accès ici en reçoit
+       * un AU PLANCHER : il entre, et il ne voit rien tant que l'entreprise ne lui ouvre pas quelque chose. Le
+       * refuser serait une impasse ; lui donner le seul profil existant, ce serait lui donner l'administration.
+       */
+      const profil = profilPourRole(app.monde.profils(), r.charge.role)
+        ?? (r.charge.role === 'collaborateur' ? app.monde.accesPourPersonne('porte', r.charge.personne, r.charge.nom) : null);
       if (!profil) throw new ErreurApi(409, 'aucun_profil', 'Cette installation n’a aucun profil d’accès : prévenez l’éditeur.');
       envoyer(res, 200, { profil: vueProfil(profil), nom: r.charge.nom },
         ouvrirSession(req, { compteId: null, version: 0, profilId: profil.id, voirComme: null, attente: null, porte: { personne: r.charge.personne, nom: r.charge.nom } }));

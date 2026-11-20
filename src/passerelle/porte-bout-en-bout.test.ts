@@ -108,11 +108,35 @@ test('le rôle se traduit en profil, et un collaborateur ne reçoit JAMAIS les d
   assert.equal(profilPourRole([], 'administrateur'), null);
   assert.equal(profilPourRole([], 'collaborateur'), null);
 
-  // servi par le serveur : un collaborateur reçoit un refus net, pas la session du propriétaire
+  // servi par le serveur : un collaborateur reçoit un accès AU PLANCHER, créé pour lui
   const r = await ouvrir(jetonPour({ role: 'collaborateur' }));
-  assert.equal(r.statut, 409);
-  assert.match(String(r.json?.message ?? ''), /aucun profil d’accès/);
-  assert.equal(r.cookie, null, 'aucune session ouverte');
+  assert.equal(r.statut, 200);
+  assert.equal(r.json.profil.peutAdministrer, false, 'jamais les droits du patron');
+  assert.match(String(r.json.profil.nom), /Breizhcosystem/, 'son nom l’attend dans Réglages › Accès');
+  assert.ok(r.cookie, 'il entre');
+});
+
+test('le collaborateur entre, et il ne VOIT rien tant que l’entreprise ne lui ouvre pas', async () => {
+  /* Entrer et voir sont deux choses. La façade décide qui appartient à l'entreprise ; l'entreprise décide ce que
+     chacun regarde. Un accès créé par la porte ne porte donc aucun type, aucun lieu, aucun droit. */
+  const r = await ouvrir(jetonPour({ role: 'collaborateur' }));
+  assert.equal(r.statut, 200);
+  const cookie = (r.cookie as string).split(';')[0] as string;
+  const m = await (await fetch(`${base}/api/v1/monde`, { headers: { cookie } })).json() as { objets: unknown[]; profil: { peutPreparer: boolean } };
+  assert.deepEqual(m.objets, [], 'aucune fiche visible');
+  assert.equal(m.profil.peutPreparer, false);
+});
+
+test('revenir ne crée pas un second profil : l’identifiant vient de la personne', async () => {
+  const app = await Application.creer({ connexion: 'comptes' });
+  await app.installer({ nom: 'Anna', entreprise: 'Essai', identifiant: 'anna@essai.bzh', motDePasse: 'un mot de passe assez long', depart: 'vide' });
+  const a = app.monde.accesPourPersonne('porte', 'p-yann', 'Yann');
+  const b = app.monde.accesPourPersonne('porte', 'p-yann', 'Yann');
+  assert.equal(a.id, b.id);
+  assert.equal(app.monde.profils().filter((x) => x.id.startsWith('p-bz-')).length, 1);
+  // deux personnes, deux profils
+  assert.notEqual(app.monde.accesPourPersonne('porte', 'p-soizic', 'Soizic').id, a.id);
+  app.arreter();
 });
 
 test('la page /porte est servie par l’application, comme le lien d’installation', async () => {
