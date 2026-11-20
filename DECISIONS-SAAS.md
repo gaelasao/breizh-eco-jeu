@@ -192,13 +192,46 @@ privée de la porte) **vont ensemble**. Partiels, le serveur le dit au démarrag
 laisser chercher pourquoi « Ouvrir mon Living Business » ne fait rien. Avec les trois, la console de l'éditeur
 montre les instances et l'abonnement pilote leur marche.
 
+## Ce qui a été posé en plus (20 novembre, nuit)
+
+**Le balai.** Toutes les cinq minutes, les instances « à la demande » que personne n'a ouvertes depuis trente
+minutes s'arrêtent. Sans ce passage, une instance gratuite démarrée une fois tournerait pour toujours — et c'est
+exactement ce qui fait l'économie du modèle. Les instances en continu n'y sont jamais touchées.
+
+**La mémoire bornée.** Chaque instance démarre avec `NODE_OPTIONS=--max-old-space-size=512`. Une entreprise dont
+les données enflent se fait arrêter par son propre moteur au lieu d'épuiser la machine et d'emporter ses voisines.
+À dire tel quel : **cela ne borne que le tas JavaScript**, ni les tampons hors tas, ni les fichiers ouverts, ni le
+PROCESSEUR. Une instance qui tourne en rond ralentit encore tout le monde. Le reste demande le système (cgroup,
+conteneur) et se pose sur le serveur.
+
+**Le port ne bouge plus.** Une instance reprend le port qu'elle avait. Sans cela, il faudrait recharger le proxy
+chaque fois qu'un compte gratuit se réveille — des dizaines de fois par jour, pour rien.
+
+**La configuration du proxy** (`serveur/caddy.ts`) s'écrit à partir du registre : un sous-domaine par entreprise,
+les en-têtes que le jeu attend derrière un proxy, et le domaine nu pour la façade. Une instance sans adresse connue
+n'y figure pas — Caddy répondrait un refus brut, là où la façade sait dire ce qui se passe. Le fichier est réécrit
+quand la liste change (`NEXUS_CADDY_FICHIER`), et la console le montre.
+
+**`caddy reload` n'est PAS lancé par le serveur.** Recharger un proxy depuis une console d'administration, c'est
+pouvoir couper tout le monde d'un clic ; et un serveur qui se recharge seul sur un événement de base est un serveur
+qu'on ne sait plus arrêter le jour où il se trompe. Le fichier est écrit, la commande est dite, une personne la
+lance.
+
+**Les sauvegardes des instances se voient.** Le jeu en écrit une par jour dans le dossier de chaque entreprise :
+elles existaient déjà, et personne ne le savait. La console dit maintenant combien et de quand.
+
+> ⚠️ **Mais une sauvegarde posée à côté des données qu'elle protège ne protège de rien si la machine brûle.** La
+> copie hors du serveur reste à faire, et elle doit emporter la racine des instances — c'est le seul endroit où
+> vivent les données des entreprises hébergées. La sauvegarde actuelle de Breizhcosystem ne couvre que sa propre
+> base.
+
 ## Ce qui reste à construire
 
-1. **Les limites par instance** (mémoire, processeur) : sans elles, une entreprise qui s'emballe gêne les autres.
-2. **Le proxy** : Caddy devant, un sous-domaine par entreprise, et l'aiguillage qui lui dit où envoyer chacun.
-3. **Les sauvegardes par instance**, et leur restauration essayée pour de vrai.
-4. **L'arrêt des instances qui dorment** : `arreterInactives` existe, mais rien ne l'appelle encore à intervalle
-   régulier. Sans ça, une instance gratuite démarrée une fois tourne pour toujours.
+1. **La copie des instances hors du serveur**, et une restauration essayée pour de vrai. C'est le manque le plus
+   grave de la liste : tout le reste se répare, pas une donnée perdue.
+2. **La limite PROCESSEUR par instance** (cgroup ou conteneur) : la mémoire est bornée, le processeur non.
+3. **Le certificat générique** (DNS-01) et le `caddy reload` après chaque création : posés sur le serveur.
+4. **Rien de tout cela n'a tourné ailleurs que sur un Mac de développement.**
 2. **L'adresse publique d'une instance** : le gabarit (`NEXUS_INSTANCE_URL`) est lu, mais aucun domaine n'est
    servi. À décider : un sous-domaine par entreprise, ou un chemin sur la façade.
 3. **Le guide des connexions** pour l'auto-hébergé : créer son application Google et Microsoft, portée par portée.
