@@ -223,6 +223,17 @@ if (location.pathname === '/installation') {
   if (m) CODE_INSTALLATION = m[1];
   if (location.hash) history.replaceState(null, '', '/installation');
 }
+/* Ouverture depuis Breizhcosystem (https://…/porte#<jeton>) : même principe que le code d'installation — le jeton
+   est dans le FRAGMENT, qui ne part jamais au serveur dans l'adresse, ne va pas dans les journaux du proxy et ne
+   suit pas dans l'en-tête « Referer » de la page suivante. Il est retiré de la barre d'adresse tout de suite, et
+   échangé contre une session par un POST. Il ne sert qu'une fois : revenir en arrière ne rouvre rien. */
+let JETON_PORTE = null;
+if (location.pathname === '/porte') {
+  const m = /^#([A-Za-z0-9_.-]{20,4000})$/.exec(location.hash);
+  if (m) JETON_PORTE = m[1];
+  history.replaceState(null, '', '/porte');
+}
+
 const sansDemo = (nom) => nom.replace(/\s*\((?:entreprise )?(fictifs?|fictives?|démo)\)/gi, '');
 
 const LIBELLES = {
@@ -299,6 +310,19 @@ const correspondFiltre = (x, q) => !q || x.nom.toLowerCase().includes(q) || x.li
 
 // ---------------------------------------------------------------- démarrage : installation, connexion, puis directement la carte
 async function demarrer() {
+  /* La porte de Breizhcosystem, AVANT de lire la session : le jeton vaut une minute, et un aller-retour de plus
+     suffirait à le périmer. Un échec ne laisse pas la personne devant une page blanche — elle voit l'écran de
+     connexion habituel avec la phrase, et peut rouvrir depuis son compte. */
+  if (JETON_PORTE) {
+    const jeton = JETON_PORTE;
+    JETON_PORTE = null;
+    try {
+      await api('POST', '/porte', { jeton });
+      history.replaceState(null, '', '/');
+    } catch (e) {
+      E.erreurPorte = e?.message || 'Ce lien n’a pas permis d’ouvrir votre Living Business.';
+    }
+  }
   const s = await api('GET', '/session');
   E.connexion = s;
   E.profilsDemo = s.profilsDemo;
@@ -307,10 +331,12 @@ async function demarrer() {
   if (mi) return rendreInvitation(mi[1]);
   if (ms) return rendreSecoursLocal(ms[1]);
   if (location.pathname === '/installation' && s.installe) history.replaceState(null, '', '/');
+  if (location.pathname === '/porte') history.replaceState(null, '', '/');
   if (s.connexion === 'comptes') {
     if (!s.installe) return rendreInstallation(s);
     if (s.attenteCode) { fermerTempsReel(); return rendreConnexion(s, null, true); }
-    if (!s.profil) { fermerTempsReel(); return rendreConnexion(s); }
+    // l'ouverture par Breizhcosystem a échoué : la phrase est dite SUR l'écran de connexion, pas perdue dans une console
+    if (!s.profil) { fermerTempsReel(); return rendreConnexion(s, E.erreurPorte ?? null); }
     if (s.deuxEtapesRequise) { fermerTempsReel(); return rendreDeuxEtapesObligatoire(s); }
   }
   E.session = s.profil ?? (await api('POST', '/session', { profilId: 'dirigeante' })).profil;

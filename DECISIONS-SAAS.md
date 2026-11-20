@@ -62,9 +62,41 @@ Gmail coupe la connexion Gmail existante dans l'heure.
 À faire le moment venu : basculer son propre courrier sur Outlook, puis `regler.sh` → 3 → `google` → répondre
 **non** à Gmail.
 
+## La porte : fait
+
+La façade signe un jeton d'une minute (quelle entreprise, quelle personne, quel rôle), l'instance le vérifie avec
+la seule clé **publique**. Aucun secret partagé, aucun aller-retour vers la façade au moment d'entrer : une panne de
+Breizhcosystem n'empêche personne d'entrer chez lui.
+
+Le jeton voyage dans le **fragment** (`…/porte#<jeton>`), comme le code d'installation : un fragment ne va jamais au
+serveur dans l'adresse, ni dans les journaux du proxy, ni dans le `Referer` de la page suivante.
+
+C'est un **mode** : sans `LB_FACADE_CLE` et `LB_FACADE_ENTREPRISE` posés au démarrage, la porte répond 404 comme un
+chemin inconnu. Une installation auto-hébergée ne dépend de personne pour que quelqu'un entre.
+
+Quatre refus : une autre entreprise, une signature étrangère, un lien périmé, un lien rejoué. Tous rendent la même
+phrase — un refus ne doit pas apprendre à en fabriquer un bon.
+
+Un essai croisé met les deux dépôts face à face (`porte-croisee.test.ts` côté réseau) : il signe avec le vrai code
+de la façade et vérifie avec le vrai code du jeu. Sans lui, les deux moitiés pourraient s'éloigner en passant
+chacune ses propres essais.
+
+## Ce que la porte a appris, et que l'aiguillage devra régler
+
+1. **Une instance doit être INSTALLÉE avant que la porte s'ouvre.** Sans installation, le jeu n'a aucun profil
+   d'accès et la porte refuse. Créer l'instance ne suffit donc pas : il faut l'installer au moment où on la crée,
+   avec le nom de l'entreprise venu de la façade.
+2. **Une instance fraîche n'a qu'un profil : le propriétaire.** Un collaborateur invité sur la façade n'a nulle part
+   où entrer, et la porte le refuse plutôt que de lui donner le profil qui administre tout. À décider : profil créé
+   d'office à l'invitation, ou invitation faite par l'entreprise dans le jeu. **Rien ne doit créer un accès tout
+   seul sans que ce soit un choix écrit.**
+
 ## Ce qui reste à construire
 
-1. **Une seule porte** — la session de la façade ouvre l'instance. Deux mots de passe pour le même client, c'est
-   deux produits. *(en cours)*
-2. **L'aiguillage** — inscription → instance créée, démarrée, servie ; puis arrêt, sauvegarde, effacement au départ.
+1. **L'aiguillage** — inscription → instance créée, installée, démarrée, servie ; puis arrêt, sauvegarde,
+   effacement au départ. Le registre et les règles existent (`serveur/instances.ts`, table `instances`) ; **le
+   pilote qui fait naître un processus ou un conteneur n'est pas écrit**, et rien n'a encore fait tourner une
+   instance pour de vrai.
+2. **L'adresse publique d'une instance** : le gabarit (`NEXUS_INSTANCE_URL`) est lu, mais aucun domaine n'est
+   servi. À décider : un sous-domaine par entreprise, ou un chemin sur la façade.
 3. **Le guide des connexions** pour l'auto-hébergé : créer son application Google et Microsoft, portée par portée.

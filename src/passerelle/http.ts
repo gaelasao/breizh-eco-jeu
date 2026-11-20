@@ -28,6 +28,7 @@ import { signatairesEditeur } from './signataires.ts';
 import { adressesTailscale, JETON_VERIFICATION, VerificationsTelephone } from './verification-telephone.ts';
 import { CACHE_IMMUABLE, fichiersStatiques } from './statiques.ts';
 import { refusTaille, TAILLE_MAX } from './justificatifs.ts';
+import { JetonsServis, PHRASE_REFUS, porteOuverte, reglagePorte, verifierPorte } from './porte-facade.ts';
 
 /** Version de Living Business (package.json), montrée dans Réglages › À propos. */
 const VERSION = VERSION_JEU;
@@ -78,6 +79,15 @@ interface Session {
   voirComme: string | null;
   /** Mot de passe vérifié, code de validation en deux étapes attendu : la session ne donne encore accès à rien. */
   attente: 'code' | null;
+  /**
+   * Session ouverte par la porte de Breizhcosystem : authentifiée par la FAÇADE, pas par un compte local. Elle n'a
+   * donc pas de `compteId`, et le contrôle des comptes ne s'y applique pas — sans ce drapeau, une telle session
+   * serait refusée à la requête suivante, puisqu'aucun compte local ne lui correspond.
+   *
+   * Elle ne vaut que sur une instance hébergée (la porte n'existe pas ailleurs), et elle porte le nom de la
+   * personne tel que la façade le donne, pour le journal.
+   */
+  porte: { personne: string; nom: string } | null;
   expire: number;
 }
 
@@ -122,6 +132,20 @@ function variante(f: { contenu: Buffer; type: string; etag: string }, accepte: s
     compresses.set(cle, corps);
   }
   return { corps, encodage };
+}
+
+/**
+ * LE RÔLE DE LA FAÇADE, TRADUIT EN PROFIL DU JEU. La façade ne connaît que deux rôles ; le jeu a des profils avec
+ * leur périmètre et leurs droits, réglés par l'entreprise. On traduit, on ne transporte pas : un jour où la façade
+ * serait abusée, elle ne pourrait pas inventer des droits qui n'existent pas ici.
+ *
+ * Un collaborateur reçoit le profil le MOINS puissant qui ne soit pas administrateur — et à défaut, rien du tout :
+ * mieux vaut une porte qui ne s'ouvre pas qu'une porte qui ouvre trop grand.
+ */
+export function profilPourRole(profils: readonly Profil[], role: 'administrateur' | 'collaborateur'): Profil | null {
+  if (role === 'administrateur') return profils.find((p) => p.peutAdministrer) ?? null;
+  const simples = profils.filter((p) => !p.peutAdministrer);
+  return simples.find((p) => !p.peutApprouver && !p.peutPreparer) ?? simples.find((p) => !p.peutApprouver) ?? simples[0] ?? null;
 }
 
 export function creerServeur(source: Monde | Application, o: Partial<OptionsServeur> = {}): Server {
@@ -186,6 +210,8 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
 
   // ---- en ligne : première installation à distance avec le code à usage unique du serveur
   const installation = new CodeInstallation(opts.enLigne ? app.stockage?.dossier ?? null : null);
+  // jetons d'ouverture déjà servis : en mémoire, parce qu'ils ne valent qu'une minute (voir porte-facade.ts)
+  const jetonsServis = new JetonsServis();
   if (opts.enLigne && app.connexion === 'comptes') {
     if (app.comptes.installe) installation.consommer();
     else if (installation.fichier) installation.preparer();
@@ -346,7 +372,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
     sessions.set(sid, { ...s, expire: Date.now() + (s.attente ? DUREE_ATTENTE_CODE_MS : opts.dureeSessionMs) });
     return { 'set-cookie': cookie(sid, Math.floor(opts.dureeSessionMs / 1000)) };
   };
-  const sessionCompte = (req: IncomingMessage, c: Compte) => ouvrirSession(req, { compteId: c.id, version: c.version, profilId: c.profilId, voirComme: null, attente: null });
+  const sessionCompte = (req: IncomingMessage, c: Compte) => ouvrirSession(req, { compteId: c.id, version: c.version, profilId: c.profilId, voirComme: null, attente: null, porte: null });
   const vueProfil = (p: Profil) => ({ id: p.id, nom: p.nom, role: p.role, peutAdministrer: p.peutAdministrer });
 
   /** État de connexion (avant toute authentification) : ce qu'il faut afficher. */
@@ -396,7 +422,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
         if (app.connexion === 'demo') {
           const profil = monde.profil(d.profilId);
           if (!profil) throw new ErreurApi(400, 'profil_inconnu');
-          envoyer(res, 200, { profil: vueProfil(profil) }, ouvrirSession(req, { compteId: null, version: 0, profilId: profil.id, voirComme: null, attente: null }));
+          envoyer(res, 200, { profil: vueProfil(profil) }, ouvrirSession(req, { compteId: null, version: 0, profilId: profil.id, voirComme: null, attente: null, porte: null }));
           return true;
         }
         limiterIp(req);
@@ -405,7 +431,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
         const profil = monde.profil(c.profilId);
         if (!profil) throw new ErreurApi(403, 'compte_desactive', 'Ce compte n’a plus de profil : demandez à un administrateur.');
         // validation en deux étapes activée : le mot de passe ne suffit pas, le code est demandé (5 minutes)
-        if (c.deuxEtapes) { envoyer(res, 200, { deuxEtapes: true }, ouvrirSession(req, { compteId: c.id, version: c.version, profilId: c.profilId, voirComme: null, attente: 'code' })); return true; }
+        if (c.deuxEtapes) { envoyer(res, 200, { deuxEtapes: true }, ouvrirSession(req, { compteId: c.id, version: c.version, profilId: c.profilId, voirComme: null, attente: 'code', porte: null })); return true; }
         envoyer(res, 200, { profil: vueProfil(profil), deuxEtapesRequise: deuxEtapesRequise(c) }, sessionCompte(req, c));
         return true;
       }
@@ -435,6 +461,34 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       limiterIp(req);
       autoriserInstallation(req);
       envoyer(res, 200, { ok: true });
+      return true;
+    }
+    /*
+     * LA PORTE DE LA FAÇADE. Un jeton signé par Breizhcosystem ouvre une session, sans second mot de passe. C'est
+     * la connexion elle-même : elle ne demande donc aucune session préalable, et c'est le jeton qui fait foi.
+     *
+     * Elle n'existe que si l'éditeur a posé la clé publique et l'identifiant d'entreprise au démarrage : une
+     * installation auto-hébergée répond 404 ici, comme pour un chemin inconnu, et personne n'apprend qu'elle
+     * aurait pu exister.
+     *
+     * Le jeton arrive dans le CORPS, jamais dans l'adresse : il voyage dans le fragment (#) côté navigateur, et le
+     * fragment ne part ni au serveur ni dans les journaux du proxy. Ici, il ne traverse que ce POST.
+     */
+    if (chemin === '/porte' && methode === 'POST') {
+      if (!porteOuverte(reglagePorte())) throw new ErreurApi(404, 'inconnu');
+      limiterIp(req);
+      const d = (await lireCorps(req)) as Record<string, unknown>;
+      const maintenant = app.monde.maintenant();
+      const r = verifierPorte(d.jeton, {
+        reglage: reglagePorte(), maintenant,
+        dejaVu: (j, e) => jetonsServis.servi(j, e, maintenant),
+      });
+      if (!r.ok || !r.charge) throw new ErreurApi(403, 'porte_refusee', PHRASE_REFUS);
+      // le rôle de la façade se TRADUIT en profil du jeu ; l'instance ne reçoit jamais de droits tout faits
+      const profil = profilPourRole(app.monde.profils(), r.charge.role);
+      if (!profil) throw new ErreurApi(409, 'aucun_profil', 'Cette installation n’a aucun profil d’accès : prévenez l’éditeur.');
+      envoyer(res, 200, { profil: vueProfil(profil), nom: r.charge.nom },
+        ouvrirSession(req, { compteId: null, version: 0, profilId: profil.id, voirComme: null, attente: null, porte: { personne: r.charge.personne, nom: r.charge.nom } }));
       return true;
     }
     if (chemin === '/installation' && methode === 'POST') {
@@ -549,7 +603,8 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
       if (!s || s[1].attente) throw new ErreurApi(401, 'non_authentifie');
       sid = s[0];
       session = s[1];
-      if (app.connexion === 'comptes') {
+      // une session ouverte par la façade n'a pas de compte local : c'est la porte qui l'a authentifiée
+      if (app.connexion === 'comptes' && !s[1].porte) {
         compte = app.comptes.actif(s[1].compteId, s[1].version);
         if (!compte) { fermerSession(sid); throw new ErreurApi(401, 'non_authentifie'); }
       }
@@ -1306,7 +1361,7 @@ export function creerServeur(source: Monde | Application, o: Partial<OptionsServ
         : /^\/s\/[A-Za-z0-9_-]{1,64}$/.test(chemin) ? statiques.get('/suivi-client.html')
         : /^\/g\/[A-Za-z0-9_-]{1,64}$/.test(chemin) ? statiques.get('/geste.html')
         : chemin === '/telephone' ? statiques.get('/telephone.html')
-        : /^\/(invitation|secours)\/[A-Za-z0-9_-]{43}$/.test(chemin) || chemin === '/installation' ? statiques.get('/') : statiques.get(chemin);
+        : /^\/(invitation|secours)\/[A-Za-z0-9_-]{43}$/.test(chemin) || chemin === '/installation' || chemin === '/porte' ? statiques.get('/') : statiques.get(chemin);
       if (!f) return envoyer(res, 404, { erreur: 'introuvable' });
       // demandé avec sa version exacte (« ?v=… », ex. le sprite d'icônes) : immuable ; sinon revalidé par l'ETag (304)
       const versionDemandee = new URL(req.url ?? '/', 'http://local').searchParams.get('v');
