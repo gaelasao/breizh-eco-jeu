@@ -225,6 +225,32 @@ elles existaient déjà, et personne ne le savait. La console dit maintenant com
 > vivent les données des entreprises hébergées. La sauvegarde actuelle de Breizhcosystem ne couvre que sa propre
 > base.
 
+## Où en est le serveur (20 novembre, nuit)
+
+**Le code est déployé** sur Scaleway et la façade répond : session, relais OAuth, chiffres du réseau, et la route
+`/v0/instance` existe (elle répond « non connecté », donc elle est bien là). Aucune erreur au démarrage.
+
+**L'hébergement n'est PAS allumé, et ne peut pas l'être en l'état.** Ce n'est pas un réglage oublié, ce sont deux
+choses que le serveur n'a pas :
+
+1. **Le conteneur est en lecture seule** (`read_only: true`). Les dossiers des instances ont besoin d'un volume
+   accessible en écriture, monté exprès.
+2. **Il n'y a aucune copie du jeu sur le serveur.** Le pilote lance un programme ; ce programme n'existe pas dans
+   l'image. Il faut soit l'ajouter à l'image, soit monter le paquet Linux déjà publié (`/opt/nexus-telechargements`)
+   et lancer le binaire plutôt que les sources.
+
+Tant que ces deux points ne sont pas réglés, poser `NEXUS_INSTANCES_RACINE`, `NEXUS_JEU_ENTREE` et
+`NEXUS_PORTE_CLE` ne ferait que produire des pannes à chaque ouverture.
+
+### Et un blocage pour le PAYANT, qui n'a rien à voir avec l'hébergement
+
+Le serveur dit au démarrage : « e-mails désactivés (BREVO_CLE, NEXUS_EMAIL_EXPEDITEUR) ». Conséquence voulue et
+écrite dans le code : **la souscription refuse les nouveaux abonnés tant que le serveur ne sait pas envoyer d'e-mail**.
+Encaisser, c'est promettre un service ; sans e-mail, un abonné ne peut ni récupérer son mot de passe ni inviter un
+collègue, et l'éditeur ne peut rien y faire. C'est donc le PREMIER obstacle au mode payant, avant tout le reste.
+
+À faire : `ssh -t <serveur> 'cd /opt/nexus && sudo ./deploiement/regler.sh'` → choix **1** (e-mails Brevo).
+
 ## Ce qui reste à construire
 
 1. **La copie des instances hors du serveur**, et une restauration essayée pour de vrai. C'est le manque le plus
