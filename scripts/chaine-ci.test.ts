@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CIBLES } from './paquets.ts';
 
 const DOSSIER = fileURLToPath(new URL('../.github/workflows/', import.meta.url));
 const flux = readdirSync(DOSSIER).filter((f) => /\.ya?ml$/.test(f)).map((f) => ({ nom: f, texte: readFileSync(join(DOSSIER, f), 'utf8') }));
@@ -125,21 +126,57 @@ test('CI : paquets d’essai hors tag, provenance contrôlée avant la publicati
   const installation = texte('installation-en-ligne.yml');
   for (const m of installation.matchAll(/node scripts\/(paquets|signer-publication)\.ts[^\n]*/g)) assert.match(m[0], /--essai/, `installation-en-ligne : ${m[0]}`);
   const paquets = texte('paquets.yml');
-  assert.match(paquets, /if \[\[ "\$GITHUB_REF" == refs\/tags\/v\* \]\]; then node scripts\/paquets\.ts; else node scripts\/paquets\.ts --essai; fi/);
+  // la fabrication est séparée en deux jobs (les runners macOS manquent souvent) : chacun nomme ses cibles, les
+  // mêmes avec et sans --essai, et les quatre sont couvertes — aucune plateforme oubliée dans un coin du workflow
+  const fabriquees: string[] = [];
+  for (const [n, corps] of jobs(paquets)) {
+    if (!/node scripts\/paquets\.ts/.test(corps)) continue;
+    const m = /then node scripts\/paquets\.ts ([a-z0-9 -]+); else node scripts\/paquets\.ts ([a-z0-9 -]+) --essai; fi/.exec(corps);
+    assert.ok(m, `${n} : « node scripts/paquets.ts <cibles> » sur un tag, « … --essai » sinon`);
+    assert.equal(m[1], m[2], `${n} : mêmes cibles avec et sans --essai`);
+    fabriquees.push(...(m[1] as string).split(' '));
+  }
+  assert.deepEqual([...fabriquees].sort(), [...CIBLES].sort(), 'les quatre cibles fabriquées, chacune par un seul job');
   const pub = jobs(paquets).get('publier') ?? '';
   assert.match(pub, /grep -qx 'fabrication publication' PROVENANCE\.txt/);
   assert.match(pub, /grep -qx "etiquette \$GITHUB_REF_NAME" PROVENANCE\.txt/);
   assert.match(pub, /gh release create [^\n]*dist\/PROVENANCE\.txt/);
 });
 
-test('CI : paquets fabriqués sur macOS (application Mac), contrôles et publication sur Ubuntu, CI et installation en ligne sur Ubuntu', () => {
+test('CI : seuls les paquets Mac sur macOS, les autres sur Ubuntu, contrôles et publication sur Ubuntu', () => {
   const texte = (nom: string) => flux.find((f) => f.nom === nom)?.texte ?? '';
   const paquets = jobs(texte('paquets.yml'));
-  assert.match(paquets.get('fabriquer') ?? '', /^ {4}runs-on: macos-\d+$/m, 'osacompile, codesign et ditto');
-  assert.match(paquets.get('fabriquer') ?? '', /test "\$\(zipinfo -1 "\$z" \| cut -d\/ -f1 \| sort -u\)" = "Living Business\.app"/, 'zip Mac : l’application seule');
-  assert.match(paquets.get('fabriquer') ?? '', /codesign --verify --deep --strict "\$d\/Living Business\.app"/);
+  // macOS n'est là que pour l'application Mac (osacompile, codesign, ditto). Les runners macOS de GitHub manquent
+  // souvent et le job est alors annulé sans avoir rien fait : les paquets Linux et Windows ne doivent pas en
+  // dépendre, sinon chaque publication est un tirage au sort (v0.12.2, v0.12.4).
+  const mac = paquets.get('fabriquer-mac') ?? '';
+  assert.match(mac, /^ {4}runs-on: macos-\d+$/m, 'osacompile, codesign et ditto');
+  assert.match(mac, /test "\$\(zipinfo -1 "\$z" \| cut -d\/ -f1 \| sort -u\)" = "Living Business\.app"/, 'zip Mac : l’application seule');
+  assert.match(mac, /codesign --verify --deep --strict "\$d\/Living Business\.app"/);
+  const autres = paquets.get('fabriquer-linux-windows') ?? '';
+  assert.match(autres, /^ {4}runs-on: ubuntu-/m, 'zip, tar et unzip suffisent');
+  assert.doesNotMatch(autres, /osacompile|codesign|ditto|zipinfo/, 'rien qui demande macOS');
   assert.match(paquets.get('publier') ?? '', /^ {4}runs-on: ubuntu-/m);
   for (const f of ['ci.yml', 'installation-en-ligne.yml']) {
     for (const [n, corps] of jobs(texte(f))) assert.doesNotMatch(corps, /runs-on: macos/, `${f} › ${n} : reste sur Ubuntu`);
   }
+});
+
+test('CI : la publication réunit les deux fabrications et refuse une version incomplète', () => {
+  const texte = flux.find((f) => f.nom === 'paquets.yml')?.texte ?? '';
+  const pub = jobs(texte).get('publier') ?? '';
+  // publier tourne même si une fabrication a été annulée : sauté, il ne dirait pas pourquoi la version manque
+  assert.match(pub, /needs: \[fabriquer-linux-windows, fabriquer-mac\]/);
+  assert.match(pub, /if: \$\{\{ always\(\) && startsWith\(github\.ref, 'refs\/tags\/v'\) \}\}/, 'tourne quoi qu’il arrive aux fabrications, jamais hors d’un tag');
+  // un artefact par fabrication, repris dans son propre dossier : les SHA256SUMS.txt partiels ne s'écrasent pas
+  const artefacts = [...texte.matchAll(/^ {10}name: (living-business-paquets-\S+)$/gm)].map((m) => m[1] as string);
+  assert.deepEqual([...new Set(artefacts)].sort(), ['living-business-paquets-linux-windows', 'living-business-paquets-mac']);
+  assert.equal(artefacts.length, 4, 'chaque artefact déposé une fois et repris une fois');
+  for (const a of new Set(artefacts)) assert.match(pub, new RegExp(`name: ${a}\\n {10}path: morceaux/`), `${a} : repris dans son propre dossier`);
+  // PROVENANCE.txt ne dépend pas des cibles : identiques = les deux jobs ont fabriqué LE MÊME commit étiqueté
+  assert.match(pub, /cmp dist\/PROVENANCE\.txt "\$\{m\}PROVENANCE\.txt"/);
+  // les quatre paquets attendus, sinon un échec qui les nomme : jamais de version à deux paquets publiée en silence
+  assert.match(pub, /diff attendus\.txt recus\.txt/);
+  for (const c of CIBLES) assert.match(pub, new RegExp(`\\b${c}\\b`), `${c} : paquet exigé avant publication`);
+  assert.match(pub, /sha256sum -c SHA256SUMS\.txt/);
 });

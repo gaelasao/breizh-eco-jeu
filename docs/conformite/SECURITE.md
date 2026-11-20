@@ -13,9 +13,14 @@ Le script d'installation s'exécute en root chez chaque entreprise : c'est l'act
 - **Publier une version** :
   1. `npm version patch` (ou `minor`) sur une copie de travail propre : commit et étiquette `vX.Y.Z` ; pousser
      l'étiquette → la CI construit les paquets **depuis ce commit** (sources exportées, dépendances réinstallées
-     depuis le verrou), `SHA256SUMS.txt` et `PROVENANCE.txt` (version GitHub). Une fabrication sur le poste
-     (`npm run paquets`) suit les mêmes règles et refuse une copie modifiée ou un commit non étiqueté ; les essais
-     (`--essai`) vont dans `dist/essai/` et ne peuvent pas être signés ;
+     depuis le verrou), `SHA256SUMS.txt` et `PROVENANCE.txt` (version GitHub). Deux jobs fabriquent : les paquets
+     Mac sur macOS, les autres sur Ubuntu, parce que les runners macOS de GitHub manquent souvent et que leur job
+     est alors annulé sans avoir rien fait. La publication réunit les deux sorties et exige que leurs
+     `PROVENANCE.txt` soient identiques (même commit, deux machines) et que les quatre paquets soient là : à défaut,
+     elle s'arrête en les nommant et aucune version incomplète ne sort — relancer l'exécution en entier
+     (`gh run rerun <id>` ; `--failed` n'enregistre qu'une tentative qui ne tourne pas). Une
+     fabrication sur le poste (`npm run paquets`) suit les mêmes règles et refuse une copie modifiée ou un commit
+     non étiqueté ; les essais (`--essai`) vont dans `dist/essai/` et ne peuvent pas être signés ;
   2. sur le poste de l'éditeur : `gh release download vX.Y.Z -D /tmp/lb-vX.Y.Z`, et `git checkout vX.Y.Z` sur une
      copie de travail propre (c'est son `installer-jeu.sh` qui sera signé) ;
   3. `node scripts/signer-publication.ts --nexus https://<Breizhcosystem> --cle ~/.ssh/living-business-signature --paquets /tmp/lb-vX.Y.Z`

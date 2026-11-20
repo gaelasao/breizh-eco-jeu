@@ -10,6 +10,9 @@
  *   intégrité de chaque archive vérifiée par npm) : le node_modules du poste n'entre jamais dans un paquet ;
  * - `PROVENANCE.txt` à côté des paquets (version, commit, étiquette, empreinte du verrou). scripts/signer-publication.ts
  *   ne signe que des paquets fabriqués depuis le commit où il est lui-même lancé (arbre propre, même étiquette).
+ *   Rien n'y dépend des cibles fabriquées ni de la machine : deux fabrications du même commit l'écrivent identique,
+ *   octet pour octet. La CI s'appuie dessus — paquets Mac et paquets Linux/Windows viennent de deux jobs, dont le
+ *   job de publication compare les PROVENANCE.txt avant de réunir leurs paquets (.github/workflows/paquets.yml).
  *
  * Essai (`--essai`) : depuis la copie de travail, dans dist/essai/, marqué « essai » : jamais signé pour publication.
  */
