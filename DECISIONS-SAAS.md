@@ -230,17 +230,30 @@ elles existaient déjà, et personne ne le savait. La console dit maintenant com
 **Le code est déployé** sur Scaleway et la façade répond : session, relais OAuth, chiffres du réseau, et la route
 `/v0/instance` existe (elle répond « non connecté », donc elle est bien là). Aucune erreur au démarrage.
 
-**L'hébergement n'est PAS allumé, et ne peut pas l'être en l'état.** Ce n'est pas un réglage oublié, ce sont deux
-choses que le serveur n'a pas :
+**Le serveur peut maintenant héberger.** Les deux obstacles sont levés, et vérifiés sur place :
 
-1. **Le conteneur est en lecture seule** (`read_only: true`). Les dossiers des instances ont besoin d'un volume
-   accessible en écriture, monté exprès.
-2. **Il n'y a aucune copie du jeu sur le serveur.** Le pilote lance un programme ; ce programme n'existe pas dans
-   l'image. Il faut soit l'ajouter à l'image, soit monter le paquet Linux déjà publié (`/opt/nexus-telechargements`)
-   et lancer le binaire plutôt que les sources.
+1. **Le volume des instances** (`/instances`) est monté et appartient au serveur, pas à root. Piège rencontré : un
+   volume nommé prend les droits du dossier de l'image à son premier montage ; comme `/instances` n'existait pas
+   dans l'image, Docker l'avait créé `root:root` et le serveur, qui tourne sans privilège, ne pouvait pas y écrire.
+   Vu en l'essayant, pas en lisant le fichier.
+2. **Le jeu est en place** : le paquet Linux signé 0.12.26 est déployé dans `/opt/nexus-jeu`, monté en lecture
+   seule sur `/jeu`. **Essayé pour de vrai** : lancé depuis le conteneur, il démarre, répond `200` sur
+   `/api/v1/vivant` et écrit ses données dans le volume. L'instance d'essai a été arrêtée et son dossier effacé.
 
-Tant que ces deux points ne sont pas réglés, poser `NEXUS_INSTANCES_RACINE`, `NEXUS_JEU_ENTREE` et
-`NEXUS_PORTE_CLE` ne ferait que produire des pannes à chaque ouverture.
+**Il reste UNE commande, et elle est à vous** — elle engendre la clé de la porte SUR le serveur, et cette clé ne
+doit passer par personne :
+
+```
+ssh -t gaelasao@163.172.255.245 'cd /opt/nexus && sudo ./deploiement/regler.sh'
+```
+
+Choix **9**. Les réponses :
+- dossier des instances : `/instances`
+- programme du jeu : `/jeu/app/src/passerelle/serveur.ts`
+- gabarit : `https://{org}.<votre domaine>`
+- fichier du proxy : à vous de voir (vide = rien n'est écrit)
+
+Puis `./deploiement/envoyer.sh` pour relancer avec les réglages.
 
 ### Et un blocage pour le PAYANT, qui n'a rien à voir avec l'hébergement
 
