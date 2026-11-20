@@ -133,12 +133,48 @@ de domaine. Le code ne voit pas la différence : seul `NEXUS_INSTANCE_URL` chang
   instance refuse déjà de répondre à un nom d'hôte qu'on ne lui a pas déclaré.
 - La façade démarre avec `NEXUS_INSTANCE_URL` et `NEXUS_PORTE_CLE`.
 
+## Ça tourne : la chaîne entière est vérifiée
+
+Un essai (`pilote-processus.test.ts`, côté réseau) fait tout, sans rien simuler : une entreprise inscrite dans la
+base de la façade, une instance **créée** par le pilote (un vrai processus), **installée** par la façade, un jeton
+signé, **une personne qui entre** et lit le monde de SON entreprise — et le même jeton qui ne rouvre pas.
+
+### Le pilote (`serveur/pilote-processus.ts`)
+
+Un **processus par entreprise** : son dossier, son port, sur la boucle locale. Le proxy HTTPS est devant, et lui
+seul. Chaque instance démarre avec sa clé de porte, son identifiant d'entreprise et son nom d'hôte déclaré — une
+instance refuse déjà les hôtes qu'on ne lui a pas donnés.
+
+Après un redémarrage de la façade, le pilote relit la fiche de chaque dossier (pid, port) et **reprend la main** au
+lieu de laisser des processus que personne ne saurait arrêter.
+
+**Ce qu'il ne fait pas, et qu'il faudra :** aucune limite de mémoire ni de processeur par instance. Une entreprise
+qui s'emballe gêne ses voisines. C'est le premier manque à combler avant d'héberger pour de vrai — et c'est ce
+qu'un conteneur apporterait sans rien coder.
+
+### L'installation à la création
+
+Créer ne suffit pas : sans installation, le jeu n'a aucun profil et la porte refuse tout le monde. La façade
+installe donc l'instance dans la foulée, avec le nom de l'entreprise qu'elle connaît déjà.
+
+Le compte local créé à ce moment a un **mot de passe aléatoire que personne ne connaît**, pas même l'éditeur : il
+n'est ni enregistré ni renvoyé. Sur une instance hébergée, on entre par la porte ; une seconde serrure sans
+serrurier ne protégerait personne. Si la façade tombe durablement, l'éditeur reprend la main sur le serveur avec le
+code de secours du jeu, sur place.
+
+### La console de l'éditeur
+
+Elle montre l'état de chaque instance et sait **redémarrer** celle qui est en panne. Pas de bouton « arrêter » :
+couper l'instance d'une entreprise qui travaille, depuis une console, c'est une panne qu'elle ne comprendra pas.
+L'arrêt est une règle (l'inactivité d'un compte gratuit), pas un geste.
+
 ## Ce qui reste à construire
 
-1. **L'aiguillage** — inscription → instance créée, installée, démarrée, servie ; puis arrêt, sauvegarde,
-   effacement au départ. Le registre et les règles existent (`serveur/instances.ts`, table `instances`) ; **le
-   pilote qui fait naître un processus ou un conteneur n'est pas écrit**, et rien n'a encore fait tourner une
-   instance pour de vrai.
+1. **Les limites par instance** (mémoire, processeur) : sans elles, une entreprise qui s'emballe gêne les autres.
+2. **Le proxy** : Caddy devant, un sous-domaine par entreprise, et l'aiguillage qui lui dit où envoyer chacun.
+3. **Les sauvegardes par instance**, et leur restauration essayée pour de vrai.
+4. **L'abonnement branché sur la marche** : un paiement confirmé passe l'instance en continu, un impayé la repasse
+   à la demande (`reglerMarche` existe, le webhook Stripe ne l'appelle pas encore).
 2. **L'adresse publique d'une instance** : le gabarit (`NEXUS_INSTANCE_URL`) est lu, mais aucun domaine n'est
    servi. À décider : un sous-domaine par entreprise, ou un chemin sur la façade.
 3. **Le guide des connexions** pour l'auto-hébergé : créer son application Google et Microsoft, portée par portée.
