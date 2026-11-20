@@ -79,15 +79,19 @@ test('écrans d’entrée : Moucheture, « par Breizhcosystem », illustration d
   assert.doesNotMatch(lire('web/style.css'), /\.entree-marque|\.promesses|\.option-depart|\.apercu-etapes/, 'ancien CSS des écrans d’entrée retiré');
 });
 
-test('marque : favicon (dessin de 16 à 23 px), manifeste, theme-color et icônes Moucheture (§2.3)', () => {
+test('marque : favicon (dessin de 16 à 23 px), manifeste, theme-color et icônes Île (§2.3)', () => {
   const index = lire('web/index.html');
   assert.ok(index.includes('<meta name="theme-color" content="#f9f6f2" media="(prefers-color-scheme: light)">'));
   assert.ok(index.includes('<meta name="theme-color" content="#091115" media="(prefers-color-scheme: dark)">'));
   assert.ok(index.includes('<link rel="icon" type="image/svg+xml" href="/favicon.svg">'));
   const favicon = lire('web/favicon.svg');
-  assert.match(favicon, /<circle cx="24" cy="8" r="5\.5" fill="#f7c323"\/>/, 'petite taille : points grossis et écartés');
+  // À cette taille, l'anneau est ce qui disparaît en premier : il doit être PLUS ÉPAIS que sur le symbole de 24 px,
+  // et l'île plus grosse. On enlève ou on renforce, on ne réduit jamais le dessin tel quel.
+  assert.match(favicon, /<circle cx="24" cy="24" r="11" fill="#f5f4f1"\/>/, 'petite taille : l’île grossit');
+  assert.match(favicon, /stroke-width="4"/, 'petite taille : l’anneau s’épaissit');
+  assert.doesNotMatch(favicon, /#f7c323/, 'plus d’Ajonc : le Feu appartient aux agents, et un agent n’habite pas votre île');
   assert.match(favicon, /<rect width="48" height="48" rx="11" fill="#006f85"\/>/);
-  assert.doesNotMatch(favicon, /<script|on[a-z]+=|href=|<line|<polyline/i, 'ni script ni lignes entre les points');
+  assert.doesNotMatch(favicon, /<script|on[a-z]+=|href=|<line|<polyline/i, 'ni script ni lien');
   const m = JSON.parse(lire('web/manifest.webmanifest')) as { name: string; short_name: string; icons: Array<{ src: string; purpose: string }> };
   assert.deepEqual([m.name, m.short_name], ['Living Business', 'Living Business']);
   for (const i of m.icons) assert.ok(statSync(new URL(`../../web${i.src}`, import.meta.url)).size > 500, i.src);

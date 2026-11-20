@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
-import { crc32, ICONES, lignesBrutes, pixelsIcone, pixelsIconeMac, png, POINTS, QUEUE, RAYON_CONTENEUR } from './icones.ts';
+import { ANNEAU, crc32, ICONES, ILE, lignesBrutes, pixelsIcone, pixelsIconeMac, png, RAYON_CONTENEUR } from './icones.ts';
 
 /** Lecture minimale d'un PNG : blocs (CRC vérifié), en-tête, données décompressées. */
 function lirePng(b: Buffer) {
@@ -45,23 +45,29 @@ test('PNG : encodeur relu par un décodeur (RGBA 8 bits, CRC, zlib)', () => {
   assert.equal(crc32(Buffer.from('IEND')), 0xae426082, 'CRC du bloc IEND (constante connue)');
 });
 
-test('icônes : même Moucheture que web/symbole-living-business.svg (§2.3), plus de monogramme « LB »', () => {
+test('icônes : même Île que web/symbole-living-business.svg (§2.3), plus de monogramme « LB » ni de moucheture', () => {
   const svg = readFileSync(new URL('../web/symbole-living-business.svg', import.meta.url), 'utf8');
-  const d = /<path d="([^"]+)"/.exec(svg)?.[1] ?? '';
-  assert.deepEqual(d.match(/-?\d+(?:\.\d+)?/g)?.map(Number), [...QUEUE.depart, ...QUEUE.courbes.flat()], 'tracé de la queue');
-  assert.match(d, /^M[^C]+(C[^C]+){6}Z$/, 'un départ, six courbes, fermé');
-  for (const p of POINTS) assert.match(svg, new RegExp(`<circle cx="${p.x}" cy="${p.y}" r="${p.r}" fill="${p.ajonc ? '#f7c323' : '#fff'}"/>`), `point ${p.x}, ${p.y}`);
-  assert.match(svg, /<rect width="48" height="48" rx="11" fill="#006f85"\/>/);
+  assert.match(svg, /<rect width="48" height="48" rx="11" fill="#006f85"\/>/, 'conteneur Iroise');
+  assert.match(svg, new RegExp(`<circle cx="${ILE.x}" cy="${ILE.y}" r="${ILE.r}" fill="#f5f4f1"/>`), 'l’île');
+  assert.match(svg, new RegExp(`<circle cx="${ANNEAU.x}" cy="${ANNEAU.y}" r="${ANNEAU.r}" fill="none" stroke="#f5f4f1" stroke-width="${ANNEAU.trait}"/>`), 'l’anneau');
+  assert.doesNotMatch(svg, /<path/, 'plus aucun tracé : deux cercles, rien à désynchroniser');
   assert.equal(RAYON_CONTENEUR, 11 / 48);
-  // le point du sommet est en Ajonc (« la lumière ») sur l'icône publiée
+
+  // L'ÎLE EST CERCLÉE, ET ÇA SE VOIT SUR L'IMAGE PUBLIÉE. On relit trois pixels sur l'horizontale du centre :
+  // le centre (l'île), le creux entre l'île et l'anneau (Iroise), puis l'anneau lui-même.
   const i = ICONES.find((x) => x.nom === 'icone-512.png');
   assert.ok(i);
   const px = pixelsIcone(i.cote, i.forme, i.echelle);
-  const k = (Math.round((9.5 / 48) * i.cote) * i.cote + Math.round(i.cote / 2)) * 4;
-  assert.deepEqual([px[k], px[k + 1], px[k + 2]], [0xf7, 0xc3, 0x23]);
+  const au = (xGrille: number): number[] => {
+    const k = (Math.round(i.cote / 2) * i.cote + Math.round((xGrille / 48) * i.cote)) * 4;
+    return [px[k], px[k + 1], px[k + 2]] as number[];
+  };
+  assert.deepEqual(au(24), [0xf5, 0xf4, 0xf1], 'le centre est l’île');
+  assert.deepEqual(au(37.5), [0x00, 0x6f, 0x85], 'entre l’île et l’anneau, le conteneur');
+  assert.deepEqual(au(41), [0xf5, 0xf4, 0xf1], 'l’anneau');
 });
 
-test('icône Mac : même Moucheture, conteneur à 824/1024 du côté sur fond transparent (gabarit macOS)', () => {
+test('icône Mac : même Île, conteneur à 824/1024 du côté sur fond transparent (gabarit macOS)', () => {
   const cote = 256;
   const px = pixelsIconeMac(cote);
   const alpha = (x: number, y: number) => px[(y * cote + x) * 4 + 3];

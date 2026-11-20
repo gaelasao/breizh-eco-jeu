@@ -1,0 +1,7 @@
+<!-- Breizhcosystem — icône maison « Île » (grille 24, propriété Breizhcosystem). Living Business : votre entreprise,
+     une île de l'archipel, cerclée parce que c'est la vôtre (BREIZHCOSYSTEM-DESIGN.md §2.3). On se repère par la
+     FORME et non par la couleur : l'icône tient en currentColor, en monochrome et en contrastes forcés. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <circle fill="currentColor" stroke="none" cx="12" cy="12" r="5" />
+  <circle fill="none" stroke="currentColor" cx="12" cy="12" r="9.1" />
+</svg>

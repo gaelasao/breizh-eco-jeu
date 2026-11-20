@@ -107,7 +107,7 @@ test('icônes : sprite à jour (Lucide 1.71.0 + icônes maison), toutes les icô
   assert.equal(sprite, spriteAttendu(), 'web/bz/icones.svg : lancez npm run icones:sprite');
   assert.doesNotMatch(sprite, /<style|style=|<script|on[a-z]+=|href=/i, 'aucun style, script ni lien');
   const ids = new Set([...sprite.matchAll(/<symbol id="i-([a-z0-9-]+)"/g)].map((m) => m[1]));
-  for (const n of ['bz-moucheture', 'bz-nexus', 'bz-phare-allume', 'x', 'search', 'chevron-down']) assert.ok(ids.has(n), n);
+  for (const n of ['bz-ile', 'bz-nexus', 'bz-phare-allume', 'x', 'search', 'chevron-down']) assert.ok(ids.has(n), n);
   const sources = [lire('web/app.js'), ...readdirSync(RACINE + 'web/bz').filter((f) => f.endsWith('.js')).map((f) => lire(`web/bz/${f}`))].join('\n');
   const utilisees = new Set([...sources.matchAll(/icone\('([a-z0-9-]+)'/g), ...sources.matchAll(/icone: '([a-z0-9-]+)'/g)].map((m) => m[1] as string));
   for (const table of ['ICONE_FAMILLE', 'ICONE_NIVEAU', 'ICONE_VUE', 'ICONES']) {

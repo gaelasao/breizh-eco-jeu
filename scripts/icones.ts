@@ -17,46 +17,20 @@ export type Forme = 'arrondie' | 'pleine';
 
 const IROISE: Rgba = [0x00, 0x6f, 0x85, 255];
 const BLANC: Rgba = [255, 255, 255, 255];
-const AJONC: Rgba = [0xf7, 0xc3, 0x23, 255];
+const SEL: Rgba = [0xf5, 0xf4, 0xf1, 255];
 
-// ---------------------------------------------------------------- la Moucheture (grille de 48, §2.3)
-/** Queue : un départ puis des courbes de Bézier cubiques (mêmes coordonnées que le tracé SVG). */
-export const QUEUE = Object.freeze({
-  depart: [24, 15.5] as const,
-  courbes: [
-    [23, 24, 19.5, 31, 13, 38.5], [15.6, 38.7, 17.7, 37.7, 19, 36], [20.3, 39.2, 22, 41.8, 24, 44],
-    [26, 41.8, 27.7, 39.2, 29, 36], [30.3, 37.7, 32.4, 38.7, 35, 38.5], [28.5, 31, 25, 24, 24, 15.5],
-  ] as const,
-});
-/** Points : gauche, droit (blancs) et sommet (Ajonc, « la lumière »). */
-export const POINTS = Object.freeze([
-  { x: 13.5, y: 17, r: 4.5, ajonc: false }, { x: 34.5, y: 17, r: 4.5, ajonc: false }, { x: 24, y: 9.5, r: 4.5, ajonc: true },
-]);
+// ---------------------------------------------------------------- l'Île (grille de 48, §2.3)
+/**
+ * LIVING BUSINESS, C'EST VOTRE ÎLE. Breizhcosystem montre l'archipel ; le cockpit installé chez vous en montre une
+ * seule, cerclée — la marque « la vôtre » de la grammaire. Pas d'agent ici : un agent circule ENTRE les entreprises,
+ * il n'habite pas celle qu'on regarde de l'intérieur.
+ *
+ * Deux cercles concentriques, donc plus aucune courbe à aplatir pour peindre les PNG : il n'y a plus rien qui puisse
+ * se désynchroniser entre le tracé SVG et les icônes.
+ */
+export const ILE = Object.freeze({ x: 24, y: 24, r: 10 });
+export const ANNEAU = Object.freeze({ x: 24, y: 24, r: 17, trait: 2.8 });
 export const RAYON_CONTENEUR = 11 / 48;
-
-/** Contour de la queue aplati en polygone (24 segments par courbe). */
-const POLYGONE: Array<[number, number]> = (() => {
-  const pts: Array<[number, number]> = [[QUEUE.depart[0], QUEUE.depart[1]]];
-  let [x0, y0]: [number, number] = [QUEUE.depart[0], QUEUE.depart[1]];
-  for (const [x1, y1, x2, y2, x3, y3] of QUEUE.courbes) {
-    for (let k = 1; k <= 24; k++) {
-      const t = k / 24;
-      const m = 1 - t;
-      pts.push([m * m * m * x0 + 3 * m * m * t * x1 + 3 * m * t * t * x2 + t * t * t * x3, m * m * m * y0 + 3 * m * m * t * y1 + 3 * m * t * t * y2 + t * t * t * y3]);
-    }
-    [x0, y0] = [x3, y3];
-  }
-  return pts;
-})();
-function dansQueue(x: number, y: number): boolean {
-  let dedans = false;
-  for (let i = 0, j = POLYGONE.length - 1; i < POLYGONE.length; j = i++) {
-    const [xi, yi] = POLYGONE[i] as [number, number];
-    const [xj, yj] = POLYGONE[j] as [number, number];
-    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) dedans = !dedans;
-  }
-  return dedans;
-}
 
 /** Couleur d'un point (u, v ∈ [0, 1]) de l'icône, ou null hors de la forme (transparent). `echelle` : part du côté occupée par la grille de 48. */
 function couleur(u: number, v: number, forme: Forme, echelle: number): Rgba | null {
@@ -68,8 +42,9 @@ function couleur(u: number, v: number, forme: Forme, echelle: number): Rgba | nu
   }
   const gx = ((u - 0.5) / echelle) * 48 + 24;
   const gy = ((v - 0.5) / echelle) * 48 + 24;
-  for (const p of POINTS) if ((gx - p.x) ** 2 + (gy - p.y) ** 2 <= p.r * p.r) return p.ajonc ? AJONC : BLANC;
-  if (dansQueue(gx, gy)) return BLANC;
+  const d2 = (gx - ILE.x) ** 2 + (gy - ILE.y) ** 2;
+  if (d2 <= ILE.r ** 2) return SEL;
+  if (Math.abs(Math.sqrt(d2) - ANNEAU.r) <= ANNEAU.trait / 2) return SEL;
   return IROISE;
 }
 
